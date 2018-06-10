@@ -21,8 +21,8 @@ namespace NewLife.MySql
         ///// <returns></returns>
         //public override DbParameter CreateParameter() => new MySqlParameter();
 
-        ///// <summary>创建连接构造器</summary>
-        ///// <returns></returns>
-        //public override DbConnectionStringBuilder CreateConnectionStringBuilder() => new MySqlConnectionStringBuilder();
+        /// <summary>创建连接构造器</summary>
+        /// <returns></returns>
+        public override DbConnectionStringBuilder CreateConnectionStringBuilder() => new MySqlConnectionStringBuilder();
     }
 }
