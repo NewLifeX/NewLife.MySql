@@ -1,10 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Net.Sockets;
-using System.Text;
-using System.Threading.Tasks;
 using NewLife.Data;
 using NewLife.MySql.Common;
 
@@ -88,14 +85,12 @@ namespace NewLife.MySql
             seedPart2.WriteTo(ms2);
             var seed = ms2.ToArray();
 
-            // 设置连接标识
-            var flags = 0;
-            var ms3 = new MemoryStream();
-            var writer = new BinaryWriter(ms3);
-            writer.Write(flags);
-            writer.Write(0xFF_FFFF);
-            writer.Write((Byte)33); // UTF-8
-            writer.Write(new Byte[23]);
+            // 验证方法
+            var method = reader.ReadZeroString();
+            if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password")) throw new NotSupportedException("不支持验证方式 " + method);
+
+            var auth = new Authentication() { Driver = this };
+            auth.Authenticate(false, capabilities, seed);
         }
 
         public void Close()
@@ -143,7 +138,7 @@ namespace NewLife.MySql
         #region 网络操作
         /// <summary>读取数据包</summary>
         /// <returns></returns>
-        private Packet ReadPacket()
+        public Packet ReadPacket()
         {
             // 3字节长度 + 1字节序列号
             var buf = _Stream.ReadBytes(4);
@@ -157,9 +152,9 @@ namespace NewLife.MySql
             if (buf[0] == 0xFF)
             {
                 var code = buf.ToUInt16(1);
-                var msg = ReadString(pk.Slice(1 + 2));
+                var msg = pk.Slice(1 + 2).ReadZeroString();
                 // 前面有6字符错误码
-                if (!msg.IsNullOrEmpty() && msg[0] == '#') msg = msg.Substring(6);
+                //if (!msg.IsNullOrEmpty() && msg[0] == '#') msg = msg.Substring(6);
 
                 throw new MySqlException(code, msg);
             }
@@ -167,17 +162,39 @@ namespace NewLife.MySql
             return pk;
         }
 
-        private static String ReadString(Packet pk)
+        private Int32 _gid = 1;
+        public void SendPacket(Packet pk)
         {
-            var buf = pk.Data;
-            var k = 0;
-            for (k = pk.Offset; k < pk.Count; k++)
+            //pk.WriteTo(_Stream);
+
+            var len = pk.Total;
+
+            var pk2 = pk;
+            if (pk.Offset < 4)
             {
-                if (buf[k] == 0) break;
+                pk2 = new Packet(new Byte[4]) { Next = pk };
+            }
+            else
+            {
+                pk2.Set(pk.Data, pk.Offset - 4, pk.Count + 4);
             }
 
-            var len = k - pk.Offset;
-            return pk.ToStr(null, 0, len);
+            pk2[0] = (Byte)(len & 0xFF);
+            pk2[1] = (Byte)((len >> 8) & 0xFF);
+            pk2[2] = (Byte)((len >> 16) & 0xFF);
+            pk2[3] = (Byte)_gid++;
+
+            pk2.WriteTo(_Stream);
+        }
+
+        public void ReadOK()
+        {
+            var pk = ReadPacket();
+            var reader = new BinaryReader(pk.GetStream());
+
+            // 影响行数、最后插入ID
+            reader.ReadFieldLength();
+            reader.ReadFieldLength();
         }
         #endregion
     }
