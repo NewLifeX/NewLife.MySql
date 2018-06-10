@@ -45,13 +45,45 @@ namespace NewLife.MySql
         /// <summary>打开</summary>
         public override void Open()
         {
-            throw new NotImplementedException();
+            if (State == ConnectionState.Open) return;
+
+            SetState(ConnectionState.Connecting);
+
+            // 配置参数
+
+            // 打开网络连接
+            try
+            {
+            }
+            catch (Exception)
+            {
+                SetState(ConnectionState.Closed);
+                throw;
+            }
+
+            SetState(ConnectionState.Open);
         }
 
         /// <summary>关闭</summary>
         public override void Close()
         {
-            throw new NotImplementedException();
+            if (State == ConnectionState.Closed) return;
+
+            // 关闭附属对象
+
+            // 关闭网络连接
+
+            SetState(ConnectionState.Closed);
+        }
+
+        private void SetState(ConnectionState newState)
+        {
+            if (newState == State) return;
+
+            var oldState = _State;
+            _State = newState;
+
+            OnStateChange(new StateChangeEventArgs(oldState, newState));
         }
         #endregion
 
