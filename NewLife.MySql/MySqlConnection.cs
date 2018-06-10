@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
 
@@ -9,16 +11,16 @@ namespace NewLife.MySql
     {
         #region 属性
         /// <summary>设置</summary>
-        public MySqlConnectionStringBuilder Settings { get; set; } = new MySqlConnectionStringBuilder();
+        public MySqlConnectionStringBuilder Setting { get; } = new MySqlConnectionStringBuilder();
 
         /// <summary>连接字符串</summary>
-        public override String ConnectionString { get => Settings.ConnectionString; set => Settings.ConnectionString = value; }
+        public override String ConnectionString { get => Setting.ConnectionString; set => Setting.ConnectionString = value; }
 
         /// <summary>数据库</summary>
-        public override String Database => Settings.Server;
+        public override String Database => Setting.Server;
 
         /// <summary>服务器</summary>
-        public override String DataSource => Settings.Server;
+        public override String DataSource => Setting.Server;
 
         private String _Version;
         /// <summary>版本</summary>
@@ -27,6 +29,9 @@ namespace NewLife.MySql
         private ConnectionState _State;
         /// <summary>连接状态</summary>
         public override ConnectionState State => _State;
+
+        /// <summary>基础驱动</summary>
+        private Driver Driver { get; set; }
         #endregion
 
         #region 构造
@@ -49,11 +54,16 @@ namespace NewLife.MySql
 
             SetState(ConnectionState.Connecting);
 
-            // 配置参数
-
             // 打开网络连接
             try
             {
+                var dr = Driver = new Driver(Setting);
+                dr.Open();
+
+                // 配置参数
+                dr.Configure(this);
+
+                //LoadVariables();
             }
             catch (Exception)
             {
@@ -72,6 +82,8 @@ namespace NewLife.MySql
             // 关闭附属对象
 
             // 关闭网络连接
+            Driver.TryDispose();
+            Driver = null;
 
             SetState(ConnectionState.Closed);
         }
@@ -87,7 +99,7 @@ namespace NewLife.MySql
         }
         #endregion
 
-        #region 方法
+        #region 接口方法
         /// <summary>开始事务</summary>
         /// <param name="isolationLevel"></param>
         /// <returns></returns>
@@ -109,6 +121,31 @@ namespace NewLife.MySql
 
             return cmd;
         }
+        #endregion
+
+        #region 方法
+        ///// <summary>加载服务器变量</summary>
+        ///// <returns></returns>
+        //private IDictionary<String, String> LoadVariables()
+        //{
+        //    var dic = new Dictionary<String, String>();
+        //    using (var cmd = CreateCommand())
+        //    {
+        //        cmd.CommandText = "SHOW VARIABLES";
+
+        //        using (var reader = cmd.ExecuteReader())
+        //        {
+        //            while (reader.Read())
+        //            {
+        //                var key = reader.GetString(0);
+        //                var value = reader.GetString(1);
+        //                dic[key] = value;
+        //            }
+        //        }
+
+        //        return dic;
+        //    }
+        //}
         #endregion
     }
 }
