@@ -22,19 +22,21 @@ namespace Test
 
         static void Test1()
         {
-            var buf = new Byte[] { 0x06, 0xAF };
-            var id = buf.ToUInt16(0, false);
-            Console.WriteLine(id);
+            var connStr = "data source=127.0.0.1;Database=mysql;Uid=root;Pwd=Pass@word;connectiontimeout=15;command timeout=30";
+            var builder = new MySqlConnectionStringBuilder(connStr);
 
-            var type = typeof(MySqlClientFactory);
-            var ns = type.Assembly.GetManifestResourceNames();
-            var ms = type.Assembly.GetManifestResourceStream(ns[2]);
-            var str = ms.ToStr();
-            Console.WriteLine(str);
+            foreach (var pi in builder.GetType().GetProperties())
+            {
+                if (pi.GetIndexParameters().Length > 0) continue;
 
-            var ss = str.Split("\n").Select(e => e.Trim()).ToArray();
-            str = ss.Join(",");
-            Console.WriteLine(str);
+                Console.WriteLine("{0}:\t{1}", pi.Name, pi.GetValue(builder));
+            }
+
+            Console.WriteLine();
+            connStr = builder.ConnectionString;
+            Console.WriteLine(connStr);
+            connStr = builder + "";
+            Console.WriteLine(connStr);
         }
     }
 }
