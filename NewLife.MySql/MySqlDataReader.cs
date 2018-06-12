@@ -168,10 +168,7 @@ namespace NewLife.MySql
             throw new NotImplementedException();
         }
 
-        public override String GetName(Int32 ordinal)
-        {
-            throw new NotImplementedException();
-        }
+        public override String GetName(Int32 ordinal) => _Names[ordinal];
 
         public override Int32 GetOrdinal(String name)
         {
@@ -180,10 +177,7 @@ namespace NewLife.MySql
 
         public override String GetString(Int32 ordinal) => _Values[ordinal]?.ToString();
 
-        public override Object GetValue(Int32 ordinal)
-        {
-            throw new NotImplementedException();
-        }
+        public override Object GetValue(Int32 ordinal) => _Values[ordinal];
 
         public override Int32 GetValues(Object[] values)
         {

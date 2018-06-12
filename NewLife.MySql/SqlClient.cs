@@ -310,6 +310,8 @@ namespace NewLife.MySql
             for (var i = 0; i < values.Length; i++)
             {
                 var len = (Int32)reader.ReadFieldLength();
+                if (len == -1) continue;
+
                 var buf = reader.ReadBytes(len);
                 //values[i] = buf;
 
