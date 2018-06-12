@@ -29,7 +29,7 @@ namespace NewLife.MySql
         public override ConnectionState State => _State;
 
         /// <summary>客户端连接</summary>
-        private SqlClient Client { get; set; }
+        public SqlClient Client { get; set; }
         #endregion
 
         #region 构造

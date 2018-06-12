@@ -2,9 +2,11 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Data.Common;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using NewLife.Data;
 
 namespace NewLife.MySql
 {
@@ -38,6 +40,20 @@ namespace NewLife.MySql
         public override UpdateRowSource UpdatedRowSource { get; set; }
         #endregion
 
+        #region 构造
+        /// <summary>实例化</summary>
+        public MySqlCommand() { }
+
+        /// <summary>实例化</summary>
+        /// <param name="conn"></param>
+        /// <param name="commandText"></param>
+        public MySqlCommand(DbConnection conn, String commandText)
+        {
+            Connection = conn;
+            CommandText = commandText;
+        }
+        #endregion
+
         #region 方法
         /// <summary>创建参数</summary>
         /// <returns></returns>
@@ -48,7 +64,29 @@ namespace NewLife.MySql
         /// <returns></returns>
         protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
         {
-            throw new NotImplementedException();
+            var sql = CommandText;
+            if (sql.IsNullOrEmpty()) throw new ArgumentNullException(nameof(CommandText));
+
+            var conn = _DbConnection;
+            var client = conn.Client;
+
+            if (CommandType == CommandType.TableDirect) sql = "Select * From " + sql;
+
+            // 设置行为参数
+            if (behavior.HasFlag(CommandBehavior.SchemaOnly))
+                new MySqlCommand(conn, "SET SQL_SELECT_LIMIT=0").ExecuteNonQuery();
+            else if (behavior.HasFlag(CommandBehavior.SingleRow))
+                new MySqlCommand(conn, "SET SQL_SELECT_LIMIT=1").ExecuteNonQuery();
+
+            // 执行读取器
+            var reader = new MySqlDataReader
+            {
+                Command = this
+            };
+            Execute();
+            reader.NextResult();
+
+            return reader;
         }
 
         /// <summary>执行并返回影响行数</summary>
@@ -82,6 +120,30 @@ namespace NewLife.MySql
 
         /// <summary>取消</summary>
         public override void Cancel() { }
+        #endregion
+
+        #region 执行
+        private void Execute()
+        {
+            var ms = new MemoryStream();
+            ms.Seek(4, SeekOrigin.Current);
+
+            BindParameter(ms);
+
+            var pk = new Packet(ms);
+
+            var client = _DbConnection.Client;
+            client.SendQuery(pk.Slice(4));
+        }
+
+        private void BindParameter(Stream ms)
+        {
+            // 一个字节的查询类型
+            ms.WriteByte(0x03);
+
+            var writer = new BinaryWriter(ms);
+            writer.Write(CommandText);
+        }
         #endregion
     }
 }

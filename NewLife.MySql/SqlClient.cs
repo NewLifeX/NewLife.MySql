@@ -220,6 +220,27 @@ namespace NewLife.MySql
             reader.ReadFieldLength();
             reader.ReadFieldLength();
         }
+
+        /// <summary>发送查询请求</summary>
+        /// <param name="pk"></param>
+        public void SendQuery(Packet pk)
+        {
+            pk[0] = (Byte)DbCmd.QUERY;
+        }
+
+        /// <summary>获取结果</summary>
+        /// <param name="affectedRow"></param>
+        /// <param name="insertedId"></param>
+        /// <returns></returns>
+        public Int32 GetResult(ref Int32 affectedRow, ref Int64 insertedId)
+        {
+            var pk = ReadPacket();
+            var reader = new BinaryReader(pk.GetStream());
+
+            var fieldCount = (Int32)reader.ReadFieldLength();
+
+            return fieldCount;
+        }
         #endregion
     }
 }
