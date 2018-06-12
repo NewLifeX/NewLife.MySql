@@ -7,7 +7,8 @@ using NewLife.MySql.Common;
 
 namespace NewLife.MySql
 {
-    class Driver : DisposeBase
+    /// <summary>客户端</summary>
+    public class SqlClient : DisposeBase
     {
         #region 属性
         /// <summary>设置</summary>
@@ -16,11 +17,14 @@ namespace NewLife.MySql
         /// <summary>最大包大小</summary>
         public Int64 MaxPacketSize { get; private set; } = 1024;
 
+        /// <summary>服务器变量</summary>
         public IDictionary<String, String> Variables { get; private set; }
         #endregion
 
         #region 构造
-        public Driver(MySqlConnectionStringBuilder setting)
+        /// <summary>实例化客户端</summary>
+        /// <param name="setting"></param>
+        public SqlClient(MySqlConnectionStringBuilder setting)
         {
             Setting = setting;
         }
@@ -39,6 +43,7 @@ namespace NewLife.MySql
         private TcpClient _Client;
         private Stream _Stream;
 
+        /// <summary>打开</summary>
         public void Open()
         {
             var set = Setting;
@@ -89,10 +94,11 @@ namespace NewLife.MySql
             var method = reader.ReadZeroString();
             if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password")) throw new NotSupportedException("不支持验证方式 " + method);
 
-            var auth = new Authentication() { Driver = this };
+            var auth = new Authentication() { Client = this };
             auth.Authenticate(false, capabilities, seed);
         }
 
+        /// <summary>关闭</summary>
         public void Close()
         {
             _Client.TryDispose();
@@ -100,6 +106,8 @@ namespace NewLife.MySql
             _Stream = null;
         }
 
+        /// <summary>配置</summary>
+        /// <param name="conn"></param>
         public virtual void Configure(MySqlConnection conn)
         {
             var vs = Variables = LoadVariables(conn);
@@ -163,6 +171,8 @@ namespace NewLife.MySql
         }
 
         private Int32 _gid = 1;
+        /// <summary>发送数据包</summary>
+        /// <param name="pk"></param>
         public void SendPacket(Packet pk)
         {
             //pk.WriteTo(_Stream);
@@ -187,6 +197,7 @@ namespace NewLife.MySql
             pk2.WriteTo(_Stream);
         }
 
+        /// <summary>读取OK</summary>
         public void ReadOK()
         {
             var pk = ReadPacket();

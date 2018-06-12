@@ -28,8 +28,8 @@ namespace NewLife.MySql
         /// <summary>连接状态</summary>
         public override ConnectionState State => _State;
 
-        /// <summary>基础驱动</summary>
-        private Driver Driver { get; set; }
+        /// <summary>客户端连接</summary>
+        private SqlClient Client { get; set; }
         #endregion
 
         #region 构造
@@ -55,7 +55,7 @@ namespace NewLife.MySql
             // 打开网络连接
             try
             {
-                var dr = Driver = new Driver(Setting);
+                var dr = Client = new SqlClient(Setting);
                 dr.Open();
 
                 // 配置参数
@@ -80,8 +80,8 @@ namespace NewLife.MySql
             // 关闭附属对象
 
             // 关闭网络连接
-            Driver.TryDispose();
-            Driver = null;
+            Client.TryDispose();
+            Client = null;
 
             SetState(ConnectionState.Closed);
         }

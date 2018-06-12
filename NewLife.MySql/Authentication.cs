@@ -10,11 +10,11 @@ namespace NewLife.MySql
 {
     class Authentication
     {
-        public Driver Driver { get; set; }
+        public SqlClient Client { get; set; }
 
         public void Authenticate(Boolean reset, UInt32 flags, Byte[] seed)
         {
-            var dr = Driver;
+            var dr = Client;
             var set = dr.Setting;
             var ms = new MemoryStream();
             ms.Seek(4, SeekOrigin.Current);
