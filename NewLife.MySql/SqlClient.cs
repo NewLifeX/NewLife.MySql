@@ -17,6 +17,9 @@ namespace NewLife.MySql
         /// <summary>最大包大小</summary>
         public Int64 MaxPacketSize { get; private set; } = 1024;
 
+        /// <summary>服务器特性</summary>
+        public UInt32 Capabilities { get; set; }
+
         /// <summary>服务器变量</summary>
         public IDictionary<String, String> Variables { get; private set; }
         #endregion
@@ -63,39 +66,12 @@ namespace NewLife.MySql
 
             _Stream = client.GetStream();
 
-            // 读取数据包
-            var pk = ReadPacket();
-            var ms = pk.GetStream();
-            var reader = new BinaryReader(ms);
+            // 从欢迎信息读取服务器特性
+            var seed = GetWelcome();
 
-            // 欢迎包
-            var protocol = ms.ReadByte();
-            var version = reader.ReadZeroString();
-            var threadId = reader.ReadInt32();
-
-            var seedPart1 = reader.ReadZero();
-
-            // 服务器特性
-            var capabilities = (UInt32)reader.ReadUInt16();
-            var charSet = reader.ReadByte();
-            var serverStatus = reader.ReadUInt16();
-            capabilities |= ((UInt32)reader.ReadUInt16() << 16);
-
-            ms.Seek(11, SeekOrigin.Current);
-
-            // 加密种子
-            var seedPart2 = reader.ReadZero();
-            var ms2 = new MemoryStream();
-            seedPart1.WriteTo(ms2);
-            seedPart2.WriteTo(ms2);
-            var seed = ms2.ToArray();
-
-            // 验证方法
-            var method = reader.ReadZeroString();
-            if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password")) throw new NotSupportedException("不支持验证方式 " + method);
-
+            // 验证
             var auth = new Authentication() { Client = this };
-            auth.Authenticate(false, capabilities, seed);
+            auth.Authenticate(false, Capabilities, seed);
         }
 
         /// <summary>关闭</summary>
@@ -119,6 +95,43 @@ namespace NewLife.MySql
         #endregion
 
         #region 方法
+        private Byte[] GetWelcome()
+        {
+            // 读取数据包
+            var pk = ReadPacket();
+            var ms = pk.GetStream();
+            var reader = new BinaryReader(ms);
+
+            // 欢迎包
+            var protocol = ms.ReadByte();
+            var version = reader.ReadZeroString();
+            var threadId = reader.ReadInt32();
+
+            var seedPart1 = reader.ReadZero();
+
+            // 服务器特性
+            var caps = (UInt32)reader.ReadUInt16();
+            var charSet = reader.ReadByte();
+            var serverStatus = reader.ReadUInt16();
+            caps |= ((UInt32)reader.ReadUInt16() << 16);
+            Capabilities = caps;
+
+            ms.Seek(11, SeekOrigin.Current);
+
+            // 加密种子
+            var seedPart2 = reader.ReadZero();
+            var ms2 = new MemoryStream();
+            seedPart1.WriteTo(ms2);
+            seedPart2.WriteTo(ms2);
+            var seed = ms2.ToArray();
+
+            // 验证方法
+            var method = reader.ReadZeroString();
+            if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password")) throw new NotSupportedException("不支持验证方式 " + method);
+
+            return seed;
+        }
+
         /// <summary>加载服务器变量</summary>
         /// <returns></returns>
         private IDictionary<String, String> LoadVariables(MySqlConnection conn)
