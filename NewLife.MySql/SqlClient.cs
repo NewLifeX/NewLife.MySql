@@ -54,7 +54,7 @@ namespace NewLife.MySql
             var port = set.Port;
             if (port == 0) port = 3306;
 
-            var msTimeout = Setting.ConnectionTimeout;
+            var msTimeout = Setting.ConnectionTimeout * 1000;
             if (msTimeout <= 0) msTimeout = 15000;
 
             // 连接网络
@@ -179,6 +179,15 @@ namespace NewLife.MySql
 
                 throw new MySqlException(code, msg);
             }
+            else if (pk[0] == 0xFE)
+            {
+                var reader = new BinaryReader(pk.GetStream());
+
+                var warnings = reader.ReadUInt16();
+                var status = reader.ReadUInt16();
+
+                pk = null;
+            }
 
             return pk;
         }
@@ -224,13 +233,13 @@ namespace NewLife.MySql
         public void ReadEOF()
         {
             var pk = ReadPacket();
-            if (pk[0] == 254)
-            {
-                var reader = new BinaryReader(pk.GetStream());
+            //if (pk[0] == 254)
+            //{
+            //    var reader = new BinaryReader(pk.GetStream());
 
-                var warnings = reader.ReadUInt16();
-                var status = reader.ReadUInt16();
-            }
+            //    var warnings = reader.ReadUInt16();
+            //    var status = reader.ReadUInt16();
+            //}
         }
 
         /// <summary>发送查询请求</summary>
@@ -292,35 +301,67 @@ namespace NewLife.MySql
             ReadEOF();
         }
 
-        public void NextRow(Object[] values)
+        public Boolean NextRow(Object[] values, MySqlDbType[] types)
         {
-            //for (var i = 0; i < values.Length; i++)
-            //{
-            //    var pk = ReadPacket();
-            //    var ms = pk.GetStream();
-            //    var reader = new BinaryReader(ms);
+            var pk = ReadPacket();
+            if (pk == null) return false;
 
-            //    var catelog = reader.ReadString();
-            //    var database = reader.ReadString();
-            //    var table = reader.ReadString();
-            //    var realtable = reader.ReadString();
+            var reader = new BinaryReader(pk.GetStream());
+            for (var i = 0; i < values.Length; i++)
+            {
+                var len = (Int32)reader.ReadFieldLength();
+                var buf = reader.ReadBytes(len);
+                //values[i] = buf;
 
-            //    names[i] = reader.ReadString();
-
-            //    var oriName = reader.ReadString();
-            //    var b = reader.ReadByte();
-            //    var charSet = reader.ReadInt16();
-            //    var length = reader.ReadInt32();
-
-            //    types[i] = (MySqlDbType)reader.ReadByte();
-
-            //    var colFlags = reader.ReadInt16();
-            //    var scale = reader.ReadByte();
-
-            //    if (ms.Position + 2 < ms.Length) reader.ReadInt16();
-            //}
+                switch (types[i])
+                {
+                    case MySqlDbType.Decimal:
+                        break;
+                    case MySqlDbType.Byte:
+                        break;
+                    case MySqlDbType.Int16:
+                        break;
+                    case MySqlDbType.Int32:
+                        break;
+                    case MySqlDbType.Int64:
+                        break;
+                    case MySqlDbType.Float:
+                        break;
+                    case MySqlDbType.Double:
+                        break;
+                    case MySqlDbType.DateTime:
+                        break;
+                    case MySqlDbType.VarString:
+                        break;
+                    case MySqlDbType.Enum:
+                        break;
+                    case MySqlDbType.VarChar:
+                        values[i] = buf.ToStr();
+                        break;
+                    case MySqlDbType.String:
+                        break;
+                    case MySqlDbType.UInt16:
+                        break;
+                    case MySqlDbType.UInt32:
+                        break;
+                    case MySqlDbType.UInt64:
+                        break;
+                    case MySqlDbType.TinyText:
+                        break;
+                    case MySqlDbType.MediumText:
+                        break;
+                    case MySqlDbType.LongText:
+                        break;
+                    case MySqlDbType.Text:
+                        break;
+                    default:
+                        break;
+                }
+            }
 
             //ReadEOF();
+
+            return true;
         }
         #endregion
     }

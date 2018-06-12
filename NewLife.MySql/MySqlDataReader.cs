@@ -42,6 +42,10 @@ namespace NewLife.MySql
 
         /// <summary>影响行数</summary>
         public override Int32 RecordsAffected => throw new NotImplementedException();
+
+        private String[] _Names;
+        private MySqlDbType[] _Types;
+        private Object[] _Values;
         #endregion
 
         #region 核心方法
@@ -59,6 +63,9 @@ namespace NewLife.MySql
             var types = new MySqlDbType[fieldCount];
             client.GetColumns(names, types);
 
+            _Names = names;
+            _Types = types;
+
             _FieldCount = fieldCount;
 
             return true;
@@ -71,7 +78,9 @@ namespace NewLife.MySql
             var client = (Command.Connection as MySqlConnection).Client;
 
             var values = new Object[_FieldCount];
-            client.NextRow(values);
+            if (!client.NextRow(values, _Types)) return false;
+
+            _Values = values;
 
             return true;
         }
@@ -79,7 +88,7 @@ namespace NewLife.MySql
         /// <summary>关闭</summary>
         public override void Close()
         {
-            throw new NotImplementedException();
+            //throw new NotImplementedException();
         }
         #endregion
 
@@ -169,10 +178,7 @@ namespace NewLife.MySql
             throw new NotImplementedException();
         }
 
-        public override String GetString(Int32 ordinal)
-        {
-            throw new NotImplementedException();
-        }
+        public override String GetString(Int32 ordinal) => _Values[ordinal]?.ToString();
 
         public override Object GetValue(Int32 ordinal)
         {
