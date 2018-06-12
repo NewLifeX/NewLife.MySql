@@ -6,6 +6,7 @@ using System.Data.Common;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using NewLife.MySql.Common;
 
 namespace NewLife.MySql
 {
@@ -29,8 +30,9 @@ namespace NewLife.MySql
         /// <summary>深度</summary>
         public override Int32 Depth => 0;
 
+        private Int32 _FieldCount;
         /// <summary>字段数</summary>
-        public override Int32 FieldCount => throw new NotImplementedException();
+        public override Int32 FieldCount => _FieldCount;
 
         /// <summary>是否有行</summary>
         public override Boolean HasRows => throw new NotImplementedException();
@@ -47,14 +49,31 @@ namespace NewLife.MySql
         /// <returns></returns>
         public override Boolean NextResult()
         {
-            throw new NotImplementedException();
+            var client = (Command.Connection as MySqlConnection).Client;
+
+            var affectedRow = 0;
+            var insertedId = 0L;
+            var fieldCount = client.GetResult(ref affectedRow, ref insertedId);
+
+            var names = new String[fieldCount];
+            var types = new MySqlDbType[fieldCount];
+            client.GetColumns(names, types);
+
+            _FieldCount = fieldCount;
+
+            return true;
         }
 
         /// <summary>读取一行</summary>
         /// <returns></returns>
         public override Boolean Read()
         {
-            throw new NotImplementedException();
+            var client = (Command.Connection as MySqlConnection).Client;
+
+            var values = new Object[_FieldCount];
+            client.NextRow(values);
+
+            return true;
         }
 
         /// <summary>关闭</summary>

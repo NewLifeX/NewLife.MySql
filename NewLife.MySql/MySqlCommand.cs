@@ -130,19 +130,19 @@ namespace NewLife.MySql
 
             BindParameter(ms);
 
+            ms.Position = 4;
             var pk = new Packet(ms);
 
             var client = _DbConnection.Client;
-            client.SendQuery(pk.Slice(4));
+            client.SendQuery(pk);
         }
 
         private void BindParameter(Stream ms)
         {
             // 一个字节的查询类型
-            ms.WriteByte(0x03);
+            ms.WriteByte(0x00);
 
-            var writer = new BinaryWriter(ms);
-            writer.Write(CommandText);
+            ms.Write(CommandText.GetBytes());
         }
         #endregion
     }

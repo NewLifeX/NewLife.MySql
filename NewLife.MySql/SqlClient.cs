@@ -164,7 +164,7 @@ namespace NewLife.MySql
             // 3字节长度 + 1字节序列号
             var buf = _Stream.ReadBytes(4);
             var len = buf[0] + (buf[1] << 8) + (buf[2] << 16);
-            var seq = buf[3];
+            _seq = (Byte)(buf[3] + 1);
 
             buf = _Stream.ReadBytes(len);
             var pk = new Packet(buf);
@@ -183,13 +183,11 @@ namespace NewLife.MySql
             return pk;
         }
 
-        private Int32 _gid = 1;
+        private Byte _seq = 1;
         /// <summary>发送数据包</summary>
         /// <param name="pk"></param>
         public void SendPacket(Packet pk)
         {
-            //pk.WriteTo(_Stream);
-
             var len = pk.Total;
 
             var pk2 = pk;
@@ -205,9 +203,10 @@ namespace NewLife.MySql
             pk2[0] = (Byte)(len & 0xFF);
             pk2[1] = (Byte)((len >> 8) & 0xFF);
             pk2[2] = (Byte)((len >> 16) & 0xFF);
-            pk2[3] = (Byte)_gid++;
+            pk2[3] = _seq++;
 
             pk2.WriteTo(_Stream);
+            _Stream.Flush();
         }
 
         /// <summary>读取OK</summary>
@@ -221,11 +220,27 @@ namespace NewLife.MySql
             reader.ReadFieldLength();
         }
 
+        /// <summary>读取EOF</summary>
+        public void ReadEOF()
+        {
+            var pk = ReadPacket();
+            if (pk[0] == 254)
+            {
+                var reader = new BinaryReader(pk.GetStream());
+
+                var warnings = reader.ReadUInt16();
+                var status = reader.ReadUInt16();
+            }
+        }
+
         /// <summary>发送查询请求</summary>
         /// <param name="pk"></param>
         public void SendQuery(Packet pk)
         {
             pk[0] = (Byte)DbCmd.QUERY;
+
+            _seq = 0;
+            SendPacket(pk);
         }
 
         /// <summary>获取结果</summary>
@@ -237,9 +252,75 @@ namespace NewLife.MySql
             var pk = ReadPacket();
             var reader = new BinaryReader(pk.GetStream());
 
+            // 读取列信息
             var fieldCount = (Int32)reader.ReadFieldLength();
 
             return fieldCount;
+        }
+
+        /// <summary>读取列信息</summary>
+        /// <param name="names"></param>
+        /// <param name="types"></param>
+        public void GetColumns(String[] names, MySqlDbType[] types)
+        {
+            for (var i = 0; i < names.Length; i++)
+            {
+                var pk = ReadPacket();
+                var ms = pk.GetStream();
+                var reader = new BinaryReader(ms);
+
+                var catelog = reader.ReadString();
+                var database = reader.ReadString();
+                var table = reader.ReadString();
+                var realtable = reader.ReadString();
+
+                names[i] = reader.ReadString();
+
+                var oriName = reader.ReadString();
+                var b = reader.ReadByte();
+                var charSet = reader.ReadInt16();
+                var length = reader.ReadInt32();
+
+                types[i] = (MySqlDbType)reader.ReadByte();
+
+                var colFlags = reader.ReadInt16();
+                var scale = reader.ReadByte();
+
+                if (ms.Position + 2 < ms.Length) reader.ReadInt16();
+            }
+
+            ReadEOF();
+        }
+
+        public void NextRow(Object[] values)
+        {
+            //for (var i = 0; i < values.Length; i++)
+            //{
+            //    var pk = ReadPacket();
+            //    var ms = pk.GetStream();
+            //    var reader = new BinaryReader(ms);
+
+            //    var catelog = reader.ReadString();
+            //    var database = reader.ReadString();
+            //    var table = reader.ReadString();
+            //    var realtable = reader.ReadString();
+
+            //    names[i] = reader.ReadString();
+
+            //    var oriName = reader.ReadString();
+            //    var b = reader.ReadByte();
+            //    var charSet = reader.ReadInt16();
+            //    var length = reader.ReadInt32();
+
+            //    types[i] = (MySqlDbType)reader.ReadByte();
+
+            //    var colFlags = reader.ReadInt16();
+            //    var scale = reader.ReadByte();
+
+            //    if (ms.Position + 2 < ms.Length) reader.ReadInt16();
+            //}
+
+            //ReadEOF();
         }
         #endregion
     }
