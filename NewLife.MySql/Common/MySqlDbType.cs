@@ -30,6 +30,9 @@
         /// <summary>字符串</summary>
         VarString = 15,
 
+        /// <summary>大整形</summary>
+        NewDecimal = 246,
+
         /// <summary>枚举</summary>
         Enum = 247,
 

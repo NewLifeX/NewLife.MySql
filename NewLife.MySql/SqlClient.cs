@@ -301,64 +301,68 @@ namespace NewLife.MySql
             ReadEOF();
         }
 
+        /// <summary>读取下一行</summary>
+        /// <param name="values"></param>
+        /// <param name="types"></param>
+        /// <returns></returns>
         public Boolean NextRow(Object[] values, MySqlDbType[] types)
         {
             var pk = ReadPacket();
             if (pk == null) return false;
 
-            var reader = new BinaryReader(pk.GetStream());
+            var ms = pk.GetStream();
+            var reader = new BinaryReader(ms);
             for (var i = 0; i < values.Length; i++)
             {
                 var len = (Int32)reader.ReadFieldLength();
-                if (len == -1) continue;
+                if (len == -1)
+                {
+                    values[i] = DBNull.Value;
+                    continue;
+                }
 
+                var p = ms.Position;
                 var buf = reader.ReadBytes(len);
                 //values[i] = buf;
 
                 switch (types[i])
                 {
                     case MySqlDbType.Decimal:
+                    case MySqlDbType.NewDecimal:
+                        values[i] = Decimal.Parse(buf.ToStr());
                         break;
                     case MySqlDbType.Byte:
-                        break;
                     case MySqlDbType.Int16:
-                        break;
                     case MySqlDbType.Int32:
-                        break;
                     case MySqlDbType.Int64:
+                    case MySqlDbType.UInt16:
+                    case MySqlDbType.UInt32:
+                    case MySqlDbType.UInt64:
+                        values[i] = Int64.Parse(buf.ToStr());
                         break;
                     case MySqlDbType.Float:
-                        break;
                     case MySqlDbType.Double:
+                        values[i] = Double.Parse(buf.ToStr());
                         break;
                     case MySqlDbType.DateTime:
-                        break;
-                    case MySqlDbType.VarString:
-                        break;
-                    case MySqlDbType.Enum:
+                        values[i] = buf.ToStr().ToDateTime();
                         break;
                     case MySqlDbType.VarChar:
+                    case MySqlDbType.String:
+                    case MySqlDbType.TinyText:
+                    case MySqlDbType.MediumText:
+                    case MySqlDbType.LongText:
+                    case MySqlDbType.Text:
+                    case MySqlDbType.VarString:
+                    case MySqlDbType.Enum:
                         values[i] = buf.ToStr();
                         break;
-                    case MySqlDbType.String:
-                        break;
-                    case MySqlDbType.UInt16:
-                        break;
-                    case MySqlDbType.UInt32:
-                        break;
-                    case MySqlDbType.UInt64:
-                        break;
-                    case MySqlDbType.TinyText:
-                        break;
-                    case MySqlDbType.MediumText:
-                        break;
-                    case MySqlDbType.LongText:
-                        break;
-                    case MySqlDbType.Text:
-                        break;
                     default:
+                        values[i] = buf;
                         break;
                 }
+
+                //ms.Position = p + len;
             }
 
             //ReadEOF();
