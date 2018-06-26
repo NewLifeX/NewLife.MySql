@@ -95,6 +95,8 @@ namespace NewLife.MySql
         #endregion
 
         #region 方法
+        internal String AuthMethod { get; private set; }
+
         private Byte[] GetWelcome()
         {
             // 读取数据包
@@ -127,7 +129,9 @@ namespace NewLife.MySql
 
             // 验证方法
             var method = reader.ReadZeroString();
-            if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password")) throw new NotSupportedException("不支持验证方式 " + method);
+            if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password", "caching_sha2_password")) throw new NotSupportedException("不支持验证方式 " + method);
+
+            AuthMethod = method;
 
             return seed;
         }
@@ -219,7 +223,7 @@ namespace NewLife.MySql
         }
 
         /// <summary>读取OK</summary>
-        public void ReadOK()
+        public Packet ReadOK()
         {
             var pk = ReadPacket();
             var reader = new BinaryReader(pk.GetStream());
@@ -227,6 +231,8 @@ namespace NewLife.MySql
             // 影响行数、最后插入ID
             reader.ReadFieldLength();
             reader.ReadFieldLength();
+
+            return pk;
         }
 
         /// <summary>读取EOF</summary>
