@@ -36,6 +36,9 @@
         /// <summary>枚举</summary>
         Enum = 247,
 
+        /// <summary>二进制块</summary>
+        Blob = 252,
+
         /// <summary>字符串</summary>
         VarChar = 253,
 

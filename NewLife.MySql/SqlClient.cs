@@ -363,6 +363,9 @@ namespace NewLife.MySql
                     case MySqlDbType.Enum:
                         values[i] = buf.ToStr();
                         break;
+                    case MySqlDbType.Blob:
+                        values[i] = buf.ToStr();
+                        break;
                     default:
                         values[i] = buf;
                         break;

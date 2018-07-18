@@ -59,19 +59,19 @@ namespace Test
 
             //var ds = dal.Query("SHOW DATABASES");
             //var ds = dal.Query("SHOW TABLE STATUS FROM `membership`");
-            //var ds = dal.Query("SHOW FULL COLUMNS FROM `membership`.`menu`");
+            var ds = dal.Query("SHOW FULL COLUMNS FROM `membership`.`menu`");
             //var ds = dal.Query("SHOW INDEX FROM `membership`.`menu`");
-            var ds = dal.Query("SHOW INDEX FROM `membership`.`menu`");
+            //var ds = dal.Query("SHOW INDEX FROM `membership`.`menu`");
             foreach (var dc in ds.Columns)
             {
-                Console.Write("{0}\t", dc);
+                Console.Write("{0},", dc);
             }
             Console.WriteLine();
             foreach (var dr in ds.Rows)
             {
                 foreach (var item in dr)
                 {
-                    Console.Write("{0}\t", item);
+                    Console.Write("{0},", item);
                 }
                 Console.WriteLine();
             }
