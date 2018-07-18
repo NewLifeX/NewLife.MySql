@@ -5,6 +5,8 @@ using System.Text;
 using System.Threading.Tasks;
 using NewLife.Log;
 using NewLife.MySql;
+using XCode.DataAccessLayer;
+using XCode.Membership;
 
 namespace Test
 {
@@ -14,7 +16,7 @@ namespace Test
         {
             XTrace.UseConsole();
 
-            Test1();
+            Test2();
 
             Console.WriteLine("OK!");
             Console.ReadKey();
@@ -46,6 +48,35 @@ namespace Test
                     Console.WriteLine();
                 }
             }
+        }
+
+        static void Test2()
+        {
+            //var connStr = "data source=127.0.0.1;port=3306;Database=membership8;Uid=root;Pwd=root";
+            var connStr = "data source=127.0.0.1;port=3306;Database=mysql;Uid=root;Pwd=root";
+            DAL.AddConnStr("membership", connStr, null, "mysql");
+            var dal = DAL.Create("membership");
+
+            //var ds = dal.Query("SHOW DATABASES");
+            //var ds = dal.Query("SHOW TABLE STATUS FROM `membership`");
+            //var ds = dal.Query("SHOW FULL COLUMNS FROM `membership`.`menu`");
+            //var ds = dal.Query("SHOW INDEX FROM `membership`.`menu`");
+            var ds = dal.Query("SHOW INDEX FROM `membership`.`menu`");
+            foreach (var dc in ds.Columns)
+            {
+                Console.Write("{0}\t", dc);
+            }
+            Console.WriteLine();
+            foreach (var dr in ds.Rows)
+            {
+                foreach (var item in dr)
+                {
+                    Console.Write("{0}\t", item);
+                }
+                Console.WriteLine();
+            }
+
+            var list = Role.FindAll();
         }
     }
 }

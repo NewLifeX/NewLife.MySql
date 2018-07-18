@@ -28,7 +28,7 @@ namespace NewLife.MySql
         protected override DbTransaction DbTransaction { get; set; }
 
         /// <summary>参数集合</summary>
-        protected override DbParameterCollection DbParameterCollection => throw new NotImplementedException();
+        protected override DbParameterCollection DbParameterCollection { get; }
 
         /// <summary>命令语句</summary>
         public override Int32 CommandTimeout { get; set; }
