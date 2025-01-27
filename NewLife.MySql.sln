@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.27703.2026
+# Visual Studio Version 17
+VisualStudioVersion = 17.12.35707.178 d17.12
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewLife.MySql", "NewLife.MySql\NewLife.MySql.csproj", "{235B5638-1AB1-48A2-ABDE-577F9349B73D}"
 EndProject
@@ -11,6 +11,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Other", "Other", "{41BB9089
 	ProjectSection(SolutionItems) = preProject
 		Readme.MD = Readme.MD
 	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnitTest", "UnitTest\UnitTest.csproj", "{42D46C49-05C7-4B16-9F0E-ABA4149DDD7C}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -26,6 +28,10 @@ Global
 		{B67B84DF-5561-4D13-9ADA-7922CA2ECE27}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B67B84DF-5561-4D13-9ADA-7922CA2ECE27}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B67B84DF-5561-4D13-9ADA-7922CA2ECE27}.Release|Any CPU.Build.0 = Release|Any CPU
+		{42D46C49-05C7-4B16-9F0E-ABA4149DDD7C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{42D46C49-05C7-4B16-9F0E-ABA4149DDD7C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{42D46C49-05C7-4B16-9F0E-ABA4149DDD7C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{42D46C49-05C7-4B16-9F0E-ABA4149DDD7C}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
