@@ -323,45 +323,16 @@ public class SqlClient : DisposeBase
             var buf = reader.ReadBytes(len);
             //values[i] = buf;
 
-            switch (types[i])
+            values[i] = types[i] switch
             {
-                case MySqlDbType.Decimal:
-                case MySqlDbType.NewDecimal:
-                    values[i] = Decimal.Parse(buf.ToStr());
-                    break;
-                case MySqlDbType.Byte:
-                case MySqlDbType.Int16:
-                case MySqlDbType.Int32:
-                case MySqlDbType.Int64:
-                case MySqlDbType.UInt16:
-                case MySqlDbType.UInt32:
-                case MySqlDbType.UInt64:
-                    values[i] = Int64.Parse(buf.ToStr());
-                    break;
-                case MySqlDbType.Float:
-                case MySqlDbType.Double:
-                    values[i] = Double.Parse(buf.ToStr());
-                    break;
-                case MySqlDbType.DateTime:
-                    values[i] = buf.ToStr().ToDateTime();
-                    break;
-                case MySqlDbType.VarChar:
-                case MySqlDbType.String:
-                case MySqlDbType.TinyText:
-                case MySqlDbType.MediumText:
-                case MySqlDbType.LongText:
-                case MySqlDbType.Text:
-                case MySqlDbType.VarString:
-                case MySqlDbType.Enum:
-                    values[i] = buf.ToStr();
-                    break;
-                case MySqlDbType.Blob:
-                    values[i] = buf.ToStr();
-                    break;
-                default:
-                    values[i] = buf;
-                    break;
-            }
+                MySqlDbType.Decimal or MySqlDbType.NewDecimal => Decimal.Parse(buf.ToStr()),
+                MySqlDbType.Byte or MySqlDbType.Int16 or MySqlDbType.Int32 or MySqlDbType.Int64 or MySqlDbType.UInt16 or MySqlDbType.UInt32 or MySqlDbType.UInt64 => Int64.Parse(buf.ToStr()),
+                MySqlDbType.Float or MySqlDbType.Double => Double.Parse(buf.ToStr()),
+                MySqlDbType.DateTime => buf.ToStr().ToDateTime(),
+                MySqlDbType.VarChar or MySqlDbType.String or MySqlDbType.TinyText or MySqlDbType.MediumText or MySqlDbType.LongText or MySqlDbType.Text or MySqlDbType.VarString or MySqlDbType.Enum => buf.ToStr(),
+                MySqlDbType.Blob => buf.ToStr(),
+                _ => buf,
+            };
 
             //ms.Position = p + len;
         }
