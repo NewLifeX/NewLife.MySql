@@ -34,9 +34,9 @@ namespace NewLife.MySql
 
         /// <summary>销毁</summary>
         /// <param name="disposing"></param>
-        protected override void OnDispose(Boolean disposing)
+        protected override void Dispose(Boolean disposing)
         {
-            base.OnDispose(disposing);
+            base.Dispose(disposing);
 
             Close();
         }
@@ -123,8 +123,8 @@ namespace NewLife.MySql
             // 加密种子
             var seedPart2 = reader.ReadZero();
             var ms2 = new MemoryStream();
-            seedPart1.WriteTo(ms2);
-            seedPart2.WriteTo(ms2);
+            seedPart1.CopyTo(ms2);
+            seedPart2.CopyTo(ms2);
             var seed = ms2.ToArray();
 
             // 验证方法
@@ -218,7 +218,7 @@ namespace NewLife.MySql
             pk2[2] = (Byte)((len >> 16) & 0xFF);
             pk2[3] = _seq++;
 
-            pk2.WriteTo(_Stream);
+            pk2.CopyTo(_Stream);
             _Stream.Flush();
         }
 

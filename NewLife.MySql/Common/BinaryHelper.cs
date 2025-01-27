@@ -52,7 +52,7 @@ namespace NewLife.MySql.Common
         public static void WriteZero(this BinaryWriter writer, Packet pk)
         {
             //writer.Write(pk.Data, pk.Offset, pk.Count);
-            pk.WriteTo(writer.BaseStream);
+            pk.CopyTo(writer.BaseStream);
             writer.Write((Byte)0);
         }
 
