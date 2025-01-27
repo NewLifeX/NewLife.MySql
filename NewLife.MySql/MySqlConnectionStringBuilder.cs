@@ -7,19 +7,19 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
 {
     #region 属性
     /// <summary>服务器</summary>
-    public String Server { get => this[nameof(Server)] + ""; set => this[nameof(Server)] = value; }
+    public String? Server { get => this[nameof(Server)] as String; set => this[nameof(Server)] = value; }
 
     /// <summary>端口</summary>
     public Int32 Port { get => this[nameof(Port)].ToInt(); set => this[nameof(Port)] = value; }
 
     /// <summary>数据库</summary>
-    public String Database { get => this[nameof(Database)] + ""; set => this[nameof(Database)] = value; }
+    public String? Database { get => this[nameof(Database)] as String; set => this[nameof(Database)] = value; }
 
     /// <summary>用户名</summary>
-    public String UserID { get => this[nameof(UserID)] + ""; set => this[nameof(UserID)] = value; }
+    public String? UserID { get => this[nameof(UserID)] as String; set => this[nameof(UserID)] = value; }
 
     /// <summary>密码</summary>
-    public String Password { get => this[nameof(Password)] + ""; set => this[nameof(Password)] = value; }
+    public String? Password { get => this[nameof(Password)] as String; set => this[nameof(Password)] = value; }
 
     /// <summary>连接超时</summary>
     public Int32 ConnectionTimeout { get => this[nameof(ConnectionTimeout)].ToInt(); set => this[nameof(ConnectionTimeout)] = value; }
@@ -49,17 +49,14 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// <summary>实例化</summary>
     public MySqlConnectionStringBuilder()
     {
-        //Port = 3306;
-        //ConnectionTimeout = 15;
-        //CommandTimeout = 30;
+        Port = 3306;
+        ConnectionTimeout = 15;
+        CommandTimeout = 30;
     }
 
     /// <summary>使用连接字符串实例化</summary>
     /// <param name="connStr"></param>
-    public MySqlConnectionStringBuilder(String connStr) : this()
-    {
-        ConnectionString = connStr;
-    }
+    public MySqlConnectionStringBuilder(String connStr) : this() => ConnectionString = connStr;
     #endregion
 
     #region 方法
@@ -85,9 +82,5 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
             base[keyword] = value;
         }
     }
-
-    //private void Save() { }
-
-    //private void Load() { }
     #endregion
 }

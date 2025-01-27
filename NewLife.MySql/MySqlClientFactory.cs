@@ -23,4 +23,7 @@ public sealed partial class MySqlClientFactory : DbProviderFactory
     /// <summary>创建连接构造器</summary>
     /// <returns></returns>
     public override DbConnectionStringBuilder CreateConnectionStringBuilder() => new MySqlConnectionStringBuilder();
+
+    /// <summary>不支持创建数据源枚举</summary>
+    public override Boolean CanCreateDataSourceEnumerator => false;
 }
