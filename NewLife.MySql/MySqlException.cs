@@ -6,6 +6,9 @@ public class MySqlException : Exception
     #region 属性
     /// <summary>错误码</summary>
     public Int32 ErrorCode { get; private set; }
+
+    /// <summary>是否致命错误</summary>
+    public Boolean IsFatal => ErrorCode == 4031;
     #endregion
 
     #region 构造

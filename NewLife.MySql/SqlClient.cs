@@ -18,7 +18,16 @@ public class SqlClient : DisposeBase
     public UInt32 Capabilities { get; set; }
 
     /// <summary>服务器变量</summary>
-    public IDictionary<String, String> Variables { get; private set; }
+    public IDictionary<String, String> Variables { get; private set; } = new Dictionary<String, String>();
+
+    internal String? AuthMethod { get; private set; }
+
+    private Stream? _stream;
+    /// <summary>基础数据流</summary>
+    public Stream? BaseStream { get => _stream; set => _stream = value; }
+
+    private TcpClient? _Client;
+    private Byte _seq = 1;
     #endregion
 
     #region 构造
@@ -37,9 +46,6 @@ public class SqlClient : DisposeBase
     #endregion
 
     #region 打开关闭
-    private TcpClient? _Client;
-    private Stream? _Stream;
-
     /// <summary>打开</summary>
     public void Open()
     {
@@ -58,7 +64,7 @@ public class SqlClient : DisposeBase
         };
         client.Connect(server, port);
 
-        _Stream = client.GetStream();
+        _stream = client.GetStream();
 
         // 从欢迎信息读取服务器特性
         var seed = GetWelcome();
@@ -73,7 +79,7 @@ public class SqlClient : DisposeBase
     {
         _Client.TryDispose();
         _Client = null;
-        _Stream = null;
+        _stream = null;
     }
 
     /// <summary>配置</summary>
@@ -89,8 +95,6 @@ public class SqlClient : DisposeBase
     #endregion
 
     #region 方法
-    internal String AuthMethod { get; private set; }
-
     private Byte[] GetWelcome()
     {
         // 读取数据包
@@ -157,12 +161,14 @@ public class SqlClient : DisposeBase
     /// <returns></returns>
     public Packet ReadPacket()
     {
-        // 3字节长度 + 1字节序列号
-        var buf = _Stream.ReadBytes(4);
-        var len = buf[0] + (buf[1] << 8) + (buf[2] << 16);
-        _seq = (Byte)(buf[3] + 1);
+        if (_stream == null) throw new InvalidOperationException("未打开连接");
 
-        buf = _Stream.ReadBytes(len);
+        // 3字节长度 + 1字节序列号
+        var buf = _stream.ReadBytes(4);
+        var len = buf[0] + (buf[1] << 8) + (buf[2] << 16);
+        _seq = buf[3];
+
+        buf = _stream.ReadBytes(len);
         var pk = new Packet(buf);
 
         // 错误包
@@ -188,7 +194,6 @@ public class SqlClient : DisposeBase
         return pk;
     }
 
-    private Byte _seq = 1;
     /// <summary>发送数据包</summary>
     /// <param name="pk"></param>
     public void SendPacket(Packet pk)
@@ -210,8 +215,8 @@ public class SqlClient : DisposeBase
         pk2[2] = (Byte)((len >> 16) & 0xFF);
         pk2[3] = _seq++;
 
-        pk2.CopyTo(_Stream);
-        _Stream.Flush();
+        pk2.CopyTo(_stream);
+        _stream.Flush();
     }
 
     /// <summary>读取OK</summary>

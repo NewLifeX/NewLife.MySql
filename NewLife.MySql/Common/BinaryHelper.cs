@@ -2,7 +2,7 @@
 
 namespace NewLife.MySql.Common;
 
-static class BinaryHelper
+public static class BinaryHelper
 {
     /// <summary>读取零结尾的C格式字符串</summary>
     /// <param name="pk"></param>

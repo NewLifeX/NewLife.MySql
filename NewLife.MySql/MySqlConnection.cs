@@ -14,10 +14,10 @@ public sealed partial class MySqlConnection : DbConnection
     public override String ConnectionString { get => Setting.ConnectionString; set => Setting.ConnectionString = value; }
 
     /// <summary>数据库</summary>
-    public override String Database => Setting.Server;
+    public override String? Database => Setting.Server;
 
     /// <summary>服务器</summary>
-    public override String DataSource => Setting.Server;
+    public override String? DataSource => Setting.Server;
 
     private String? _Version;
     /// <summary>版本</summary>
@@ -51,7 +51,7 @@ public sealed partial class MySqlConnection : DbConnection
         // 打开网络连接
         try
         {
-            var dr = Client = new SqlClient(Setting);
+            var dr = Client ??= new SqlClient(Setting);
             dr.Open();
 
             // 配置参数
