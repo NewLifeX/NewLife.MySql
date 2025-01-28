@@ -28,13 +28,14 @@ public class SqlClientTests
         Assert.Equal(len, pk.Count);
         Assert.Equal(buf, pk.Data);
         Assert.Equal(seq, (Byte)client.GetValue("_seq")!);
+        Assert.Equal(ms.Position, ms.Length);
     }
 
     [Fact]
     public void ReadPacket_Error()
     {
         // 通过Mod基础数据流BaseStream来测试数据包读取
-        var code = Rand.Next(1, 1 << 16);
+        var code = (UInt16)Rand.Next(1, 1 << 16);
         var msg = Rand.NextString(64);
         var seq = (Byte)Rand.Next(1, 256);
 
@@ -49,7 +50,7 @@ public class SqlClientTests
         //writer.Write(buf);
 
         writer.Write((Byte)0xFF);
-        writer.Write((UInt16)code);
+        writer.Write(code);
         writer.WriteZeroString(msg);
 
         ms.Position = 0;
@@ -59,15 +60,20 @@ public class SqlClientTests
 
         Assert.Equal(code, ex.ErrorCode);
         Assert.Equal(msg, ex.Message);
+        Assert.Equal(ms.Position, ms.Length);
     }
 
     [Fact]
     public void ReadPacket_FE()
     {
         // 通过Mod基础数据流BaseStream来测试数据包读取
-        var len = Rand.Next(10, 1 << 24);
-        var buf = Rand.NextBytes(len);
+        //var len = Rand.Next(10, 1 << 24);
+        //var buf = Rand.NextBytes(len);
         var seq = (Byte)Rand.Next(1, 256);
+        var warnings = (UInt16)Rand.Next(1, 1 << 16);
+        var status = (UInt16)Rand.Next(1, 1 << 16);
+
+        var len = 1 + 2 + 2;
 
         var ms = new MemoryStream();
         var writer = new BinaryWriter(ms);
@@ -75,15 +81,19 @@ public class SqlClientTests
         // 3字节长度 + 1字节序列号。小端字节序
         var n = len | seq << 24;
         writer.Write(n);
-        writer.Write(buf);
+        //writer.Write(buf);
+
+        writer.Write((Byte)0xFE);
+        writer.Write(warnings);
+        writer.Write(status);
 
         ms.Position = 0;
         var client = new SqlClient(null!) { BaseStream = ms };
         var pk = client.ReadPacket();
 
-        Assert.Equal(len, pk.Count);
-        Assert.Equal(buf, pk.Data);
+        Assert.Null(pk);
         Assert.Equal(seq, (Byte)client.GetValue("_seq")!);
+        Assert.Equal(ms.Position, ms.Length);
     }
 
     [Fact]
