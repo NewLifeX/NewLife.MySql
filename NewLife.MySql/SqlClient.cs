@@ -1,6 +1,7 @@
 ﻿using System.Net.Sockets;
 using NewLife.Data;
 using NewLife.MySql.Common;
+using NewLife.MySql.Messages;
 
 namespace NewLife.MySql;
 
@@ -99,6 +100,10 @@ public class SqlClient : DisposeBase
     {
         // 读取数据包
         var pk = ReadPacket();
+
+        var msg = new WelcomeMessage();
+        msg.Read(pk.AsSpan());
+
         var ms = pk.GetStream();
         var reader = new BinaryReader(ms);
 
@@ -127,7 +132,8 @@ public class SqlClient : DisposeBase
 
         // 验证方法
         var method = reader.ReadZeroString();
-        if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password", "caching_sha2_password")) throw new NotSupportedException("不支持验证方式 " + method);
+        if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password", "caching_sha2_password"))
+            throw new NotSupportedException("不支持验证方式 " + method);
 
         AuthMethod = method;
 
@@ -142,14 +148,13 @@ public class SqlClient : DisposeBase
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SHOW VARIABLES";
 
-        using (var reader = cmd.ExecuteReader())
+        using var reader = cmd.ExecuteReader();
+
+        while (reader.Read())
         {
-            while (reader.Read())
-            {
-                var key = reader.GetString(0);
-                var value = reader.GetString(1);
-                dic[key] = value;
-            }
+            var key = reader.GetString(0);
+            var value = reader.GetString(1);
+            dic[key] = value;
         }
 
         return dic;
@@ -161,14 +166,14 @@ public class SqlClient : DisposeBase
     /// <returns></returns>
     public Packet ReadPacket()
     {
-        if (_stream == null) throw new InvalidOperationException("未打开连接");
+        var ms = _stream ?? throw new InvalidOperationException("未打开连接");
 
         // 3字节长度 + 1字节序列号
-        var buf = _stream.ReadBytes(4);
+        var buf = ms.ReadBytes(4);
         var len = buf[0] + (buf[1] << 8) + (buf[2] << 16);
         _seq = buf[3];
 
-        buf = _stream.ReadBytes(len);
+        buf = ms.ReadBytes(len);
         var pk = new Packet(buf);
 
         // 错误包
@@ -196,27 +201,21 @@ public class SqlClient : DisposeBase
 
     /// <summary>发送数据包</summary>
     /// <param name="pk"></param>
-    public void SendPacket(Packet pk)
+    public void SendPacket(IPacket pk)
     {
+        var ms = _stream ?? throw new InvalidOperationException("未打开连接");
+
         var len = pk.Total;
 
-        var pk2 = pk;
-        if (pk.Offset < 4)
-        {
-            pk2 = new Packet(new Byte[4]) { Next = pk };
-        }
-        else
-        {
-            pk2.Set(pk.Data, pk.Offset - 4, pk.Count + 4);
-        }
+        var pk2 = pk.ExpandHeader(4);
 
         pk2[0] = (Byte)(len & 0xFF);
         pk2[1] = (Byte)((len >> 8) & 0xFF);
         pk2[2] = (Byte)((len >> 16) & 0xFF);
         pk2[3] = _seq++;
 
-        pk2.CopyTo(_stream);
-        _stream.Flush();
+        pk2.CopyTo(ms);
+        ms.Flush();
     }
 
     /// <summary>读取OK</summary>

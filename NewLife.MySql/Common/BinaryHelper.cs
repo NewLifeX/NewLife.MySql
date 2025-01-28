@@ -1,4 +1,5 @@
-﻿using NewLife.Data;
+﻿using NewLife.Buffers;
+using NewLife.Data;
 
 namespace NewLife.MySql.Common;
 
@@ -38,6 +39,34 @@ public static class BinaryHelper
     }
 
     /// <summary>读取零结尾的C格式字符串</summary>
+    public static ReadOnlySpan<Byte> ReadZero(this ReadOnlySpan<Byte> span)
+    {
+        for (var k = 0; k < span.Length; k++)
+        {
+            if (span[k] == 0) return span[..(k + 1)];
+        }
+
+        return span;
+    }
+
+    /// <summary>读取零结尾的C格式字符串</summary>
+    public static ReadOnlySpan<Byte> ReadZero(this ref SpanReader reader)
+    {
+        var span = reader.GetSpan();
+        for (var k = 0; k < span.Length; k++)
+        {
+            if (span[k] == 0)
+            {
+                reader.Advance(k + 1);
+                return span[..(k + 1)];
+            }
+        }
+
+        reader.Advance(span.Length);
+        return span;
+    }
+
+    /// <summary>读取零结尾的C格式字符串</summary>
     /// <param name="pk"></param>
     /// <returns></returns>
     public static String ReadZeroString(this Packet pk) => pk.ReadZero().ToStr();
@@ -46,6 +75,8 @@ public static class BinaryHelper
     /// <param name="reader"></param>
     /// <returns></returns>
     public static String ReadZeroString(this BinaryReader reader) => reader.ReadZero().ToStr();
+
+    public static String ReadZeroString(this ref SpanReader reader) => reader.ReadZero()[..^1].ToStr();
 
     public static void WriteZero(this BinaryWriter writer, Packet pk)
     {
