@@ -15,23 +15,22 @@ public class WelcomeMessage
     public String? Version { get; set; }
 
     /// <summary>连接ID</summary>
-    public UInt32 ConnectionId { get; set; }
+    public UInt32 ThreadID { get; set; }
 
     /// <summary>握手数据</summary>
     public Byte[]? Seed { get; set; }
 
     /// <summary>能力标志</summary>
-    public UInt32 Capability { get; set; }
+    public ClientFlags Capability { get; set; }
 
     /// <summary>字符集</summary>
-    public Byte CharacterSet { get; set; }
+    public Byte CharSet { get; set; }
 
     /// <summary>状态标志</summary>
-    public UInt16 StatusFlags { get; set; }
+    public ServerStatus Status { get; set; }
 
     /// <summary>认证插件名</summary>
     public String? AuthMethod { get; set; }
-
     #endregion
 
     #region 方法
@@ -42,14 +41,14 @@ public class WelcomeMessage
 
         Protocol = reader.ReadByte();
         Version = reader.ReadZeroString();
-        ConnectionId = reader.ReadUInt32();
+        ThreadID = reader.ReadUInt32();
 
         var seed1 = reader.ReadZero();
-        var cap = (UInt32)reader.ReadUInt16();
-        CharacterSet = reader.ReadByte();
-        StatusFlags = reader.ReadUInt16();
+        var cap = (ClientFlags)reader.ReadUInt16();
+        CharSet = reader.ReadByte();
+        Status = (ServerStatus)reader.ReadUInt16();
 
-        Capability = cap | (UInt32)(reader.ReadUInt16() << 16);
+        Capability = cap | (ClientFlags)(reader.ReadUInt16() << 16);
 
         var len = reader.ReadByte();
         reader.Advance(10);

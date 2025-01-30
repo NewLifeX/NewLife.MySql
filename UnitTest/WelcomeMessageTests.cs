@@ -1,5 +1,4 @@
-﻿using System;
-using NewLife;
+﻿using NewLife;
 using NewLife.MySql.Messages;
 
 namespace UnitTest;
@@ -34,12 +33,12 @@ public class WelcomeMessageTests
         // Assert
         Assert.Equal(10, message.Protocol);
         Assert.Equal("5.7.2", message.Version);
-        Assert.Equal(1u, message.ConnectionId);
+        Assert.Equal(1u, message.ThreadID);
         Assert.Equal([97, 98, 99, 0, 100, 101, 102, 0], message.Seed);
-        Assert.Equal((UInt32)0xFFFF, message.Capability & 0xFFFF);
-        Assert.Equal(0xFFFF0000, message.Capability & 0xFFFF0000);
-        Assert.Equal((Byte)8, message.CharacterSet);
-        Assert.Equal((UInt16)2, message.StatusFlags);
+        Assert.Equal((UInt32)0xFFFF, (UInt32)message.Capability & 0xFFFF);
+        Assert.Equal(0xFFFF0000, (UInt32)message.Capability & 0xFFFF0000);
+        Assert.Equal((Byte)8, message.CharSet);
+        Assert.Equal(ServerStatus.AutoCommitMode, message.Status);
         Assert.Equal("mysql_native_password", message.AuthMethod);
     }
 
@@ -57,12 +56,12 @@ public class WelcomeMessageTests
         // Assert
         Assert.Equal(10, message.Protocol);
         Assert.Equal("8.0.39", message.Version);
-        Assert.Equal(28u, message.ConnectionId);
-        Assert.Equal([2, 68, 57, 82, 62, 83, 7, 65, 0], message.Seed);
-        Assert.Equal((UInt32)0xFFFF, message.Capability & 0xFFFF);
-        Assert.Equal(0xFFFF0000, message.Capability & 0xFFFF0000);
-        Assert.Equal((Byte)8, message.CharacterSet);
-        Assert.Equal((UInt16)2, message.StatusFlags);
-        Assert.Equal("mysql_native_password", message.AuthMethod);
+        Assert.Equal(28u, message.ThreadID);
+        Assert.Equal([2, 68, 57, 82, 62, 83, 7, 65, 0, 127, 20, 70, 126, 27, 11, 19, 29, 28, 92, 92, 37, 0], message.Seed);
+        Assert.Equal((UInt32)0xFFFF, (UInt32)message.Capability & 0xFFFF);
+        Assert.Equal(0xDFFF0000, (UInt32)message.Capability & 0xFFFF0000);
+        Assert.Equal((Byte)0xFF, message.CharSet);
+        Assert.Equal(ServerStatus.AutoCommitMode, message.Status);
+        Assert.Equal("caching_sha2_password", message.AuthMethod);
     }
 }
