@@ -16,16 +16,17 @@ public class SqlClient : DisposeBase
     public Int64 MaxPacketSize { get; private set; } = 1024;
 
     /// <summary>服务器特性</summary>
-    public UInt32 Capabilities { get; set; }
+    public ClientFlags Capability { get; set; }
 
     /// <summary>服务器变量</summary>
     public IDictionary<String, String> Variables { get; private set; } = new Dictionary<String, String>();
 
-    internal String? AuthMethod { get; private set; }
-
     private Stream? _stream;
     /// <summary>基础数据流</summary>
     public Stream? BaseStream { get => _stream; set => _stream = value; }
+
+    /// <summary>欢迎信息</summary>
+    public WelcomeMessage? Welcome { get; set; }
 
     private TcpClient? _Client;
     private Byte _seq = 1;
@@ -68,11 +69,13 @@ public class SqlClient : DisposeBase
         _stream = client.GetStream();
 
         // 从欢迎信息读取服务器特性
-        var seed = GetWelcome();
+        var welcome = GetWelcome();
+        Welcome = welcome;
+        Capability = welcome.Capability;
 
         // 验证
-        var auth = new Authentication() { Client = this };
-        auth.Authenticate(false, Capabilities, seed);
+        var auth = new Authentication(this);
+        auth.Authenticate(welcome, false);
     }
 
     /// <summary>关闭</summary>
@@ -96,7 +99,7 @@ public class SqlClient : DisposeBase
     #endregion
 
     #region 方法
-    private Byte[] GetWelcome()
+    private WelcomeMessage GetWelcome()
     {
         // 读取数据包
         var pk = ReadPacket();
@@ -104,40 +107,12 @@ public class SqlClient : DisposeBase
         var msg = new WelcomeMessage();
         msg.Read(pk.AsSpan());
 
-        var ms = pk.GetStream();
-        var reader = new BinaryReader(ms);
-
-        // 欢迎包
-        var protocol = ms.ReadByte();
-        var version = reader.ReadZeroString();
-        var threadId = reader.ReadInt32();
-
-        var seedPart1 = reader.ReadZero();
-
-        // 服务器特性
-        var caps = (UInt32)reader.ReadUInt16();
-        var charSet = reader.ReadByte();
-        var serverStatus = reader.ReadUInt16();
-        caps |= ((UInt32)reader.ReadUInt16() << 16);
-        Capabilities = caps;
-
-        ms.Seek(11, SeekOrigin.Current);
-
-        // 加密种子
-        var seedPart2 = reader.ReadZero();
-        var ms2 = new MemoryStream();
-        seedPart1.CopyTo(ms2);
-        seedPart2.CopyTo(ms2);
-        var seed = ms2.ToArray();
-
         // 验证方法
-        var method = reader.ReadZeroString();
+        var method = msg.AuthMethod;
         if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password", "caching_sha2_password"))
             throw new NotSupportedException("不支持验证方式 " + method);
 
-        AuthMethod = method;
-
-        return seed;
+        return msg;
     }
 
     /// <summary>加载服务器变量</summary>

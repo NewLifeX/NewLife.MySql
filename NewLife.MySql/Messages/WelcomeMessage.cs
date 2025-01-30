@@ -1,5 +1,4 @@
 ﻿using NewLife.Buffers;
-using NewLife.Data;
 using NewLife.MySql.Common;
 
 namespace NewLife.MySql.Messages;
@@ -58,7 +57,11 @@ public class WelcomeMessage
         seed2.CopyTo(new Span<Byte>(seed, seed1.Length, seed2.Length));
         Seed = seed;
 
-        AuthMethod = reader.ReadZeroString();
+        if (Capability.HasFlag(ClientFlags.PLUGIN_AUTH))
+            AuthMethod = reader.ReadZeroString();
+        else
+            // 一些 MySql 版本如 5.1，不提供插件名称，默认为 native password。
+            AuthMethod = "mysql_native_password";
     }
     #endregion
 }

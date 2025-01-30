@@ -3,36 +3,37 @@ using System.Security.Cryptography;
 using System.Text;
 using NewLife.Data;
 using NewLife.MySql.Common;
+using NewLife.MySql.Messages;
 
 namespace NewLife.MySql;
 
-class Authentication
+class Authentication(SqlClient client)
 {
-    public SqlClient Client { get; set; }
+    public SqlClient Client { get; set; } = client;
 
-    private Byte[] _Seed;
+    private Byte[]? _Seed;
 
-    public void Authenticate(Boolean reset, UInt32 flags, Byte[] seed)
+    public void Authenticate(WelcomeMessage welcome, Boolean reset)
     {
-        var dr = Client;
-        var set = dr.Setting;
+        var client = Client;
+        var set = client.Setting;
         var ms = new MemoryStream();
         ms.Seek(4, SeekOrigin.Current);
         var writer = new BinaryWriter(ms);
 
         // 设置连接标识
-        var flags2 = GetFlags((ClientFlags)flags);
+        var flags2 = GetFlags(welcome.Capability);
         writer.Write((UInt32)flags2);
         writer.Write(0xFF_FFFF);
         writer.Write((Byte)33); // UTF-8
         writer.Write(new Byte[23]);
 
-        var method = Client.AuthMethod;
+        var method = welcome.AuthMethod;
 
         // 发送验证
-        _Seed = seed;
+        _Seed = welcome.Seed;
         writer.WriteZeroString(set.UserID);
-        var pass = method.Contains("sha2") ? GetSha256Passord(set.Password) : GetPassword(set.Password, seed);
+        var pass = method.Contains("sha2") ? GetSha256Passord(set.Password) : GetPassword(set.Password, _Seed);
         writer.Write(pass);
 
         var db = set.Database;
@@ -49,10 +50,10 @@ class Authentication
 
         ms.Position = 4;
         var pk = new Packet(ms);
-        dr.SendPacket(pk);
+        client.SendPacket(pk);
 
         // 读取响应
-        var rs = dr.ReadOK();
+        var rs = client.ReadOK();
 
         // sha256
         if (method.Contains("sha2"))
@@ -218,8 +219,8 @@ class Authentication
         rawPublicKey = (from b in rawPublicKey where b != 10 select b).ToArray();
         rawPublicKey = TrimByteArray(rawPublicKey);
 
-        var array = new Byte[] { 45, 45, 45, 45, 45, 66, 69, 71, 73, 78, 32, 80, 85, 66, 76, 73, 67, 32, 75, 69, 89, 45, 45, 45, 45, 45 };
-        var array2 = new Byte[] { 45, 45, 45, 45, 45, 69, 78, 68, 32, 80, 85, 66, 76, 73, 67, 32, 75, 69, 89, 45, 45, 45, 45, 45 };
+        var array = "-----BEGIN PUBLIC KEY-----"u8.ToArray();
+        var array2 = "-----END PUBLIC KEY-----"u8.ToArray();
         if (StartsWith(rawPublicKey, array) && EndsWith(rawPublicKey, array2))
         {
             var array3 = new Byte[rawPublicKey.Length - array.Length - array2.Length];
