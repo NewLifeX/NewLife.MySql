@@ -118,9 +118,9 @@ public class MySqlCommand : DbCommand, IDisposable
         BindParameter(ms);
 
         ms.Position = 4;
-        var pk = new Packet(ms);
+        var pk = new ArrayPacket(ms);
 
-        var client = _DbConnection.Client;
+        var client = _DbConnection.Client!;
         client.SendQuery(pk);
     }
 

@@ -1,4 +1,5 @@
-﻿using NewLife.MySql;
+﻿using NewLife.Data;
+using NewLife.MySql;
 using NewLife.MySql.Common;
 using NewLife.Reflection;
 using NewLife.Security;
@@ -23,10 +24,10 @@ public class SqlClientTests
 
         ms.Position = 0;
         var client = new SqlClient(null!) { BaseStream = ms };
-        var pk = client.ReadPacket();
+        var pk = (ArrayPacket)client.ReadPacket();
 
-        Assert.Equal(len, pk.Count);
-        Assert.Equal(buf, pk.Data);
+        Assert.Equal(len, pk.Length);
+        Assert.Equal(buf, pk.Buffer);
         Assert.Equal(seq, (Byte)client.GetValue("_seq")!);
         Assert.Equal(ms.Position, ms.Length);
     }

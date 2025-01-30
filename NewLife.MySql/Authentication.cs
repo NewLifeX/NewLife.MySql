@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel;
 using System.Security.Cryptography;
 using System.Text;
+using NewLife.Buffers;
 using NewLife.Data;
 using NewLife.MySql.Common;
 using NewLife.MySql.Messages;
@@ -17,23 +18,25 @@ class Authentication(SqlClient client)
     {
         var client = Client;
         var set = client.Setting;
-        var ms = new MemoryStream();
-        ms.Seek(4, SeekOrigin.Current);
-        var writer = new BinaryWriter(ms);
+
+        using var pk = new OwnerPacket(1024);
+        var writer = new SpanWriter(pk);
+        writer.Advance(4);
 
         // 设置连接标识
         var flags2 = GetFlags(welcome.Capability);
         writer.Write((UInt32)flags2);
-        writer.Write(0xFF_FFFF);
+        writer.Write(0xFF_FFFF); // MaxPacket
         writer.Write((Byte)33); // UTF-8
         writer.Write(new Byte[23]);
 
-        var method = welcome.AuthMethod;
+        var method = welcome.AuthMethod!;
 
         // 发送验证
-        _Seed = welcome.Seed;
-        writer.WriteZeroString(set.UserID);
-        var pass = method.Contains("sha2") ? GetSha256Passord(set.Password) : GetPassword(set.Password, _Seed);
+        var seed = welcome.Seed!;
+        writer.WriteZeroString(set.UserID!);
+        var pass = method.Contains("sha2") ? GetSha256Password(set.Password!, seed) : GetPassword(set.Password!, seed);
+        writer.WriteByte(pass.Length);
         writer.Write(pass);
 
         var db = set.Database;
@@ -48,9 +51,9 @@ class Authentication(SqlClient client)
         writer.WriteLength(attrs.Length);
         writer.Write(attrs);
 
-        ms.Position = 4;
-        var pk = new Packet(ms);
-        client.SendPacket(pk);
+        var pk2 = pk.Slice(4, writer.Position - 4);
+
+        client.SendPacket(pk2);
 
         // 读取响应
         var rs = client.ReadOK();
@@ -93,13 +96,37 @@ class Authentication(SqlClient client)
         return buf;
     }
 
-    private Byte[] _rsaKey;
-    protected Byte[] GetSha256Passord(String password)
+    protected Byte[] GetSha256Password(String password, Byte[] seed)
     {
-        if (_rsaKey == null) return [1];
+        if (password.IsNullOrEmpty()) return [1];
+
+        return password.GetBytes().SHA256(seed);
+        //var sha = SHA256.Create();
+
+        //var firstHash = sha.ComputeHash(Encoding.Default.GetBytes(password));
+        //var secondHash = sha.ComputeHash(firstHash);
+
+        //var input = new Byte[seed.Length + secondHash.Length];
+        //Array.Copy(secondHash, 0, input, 0, secondHash.Length);
+        //Array.Copy(seed, 0, input, secondHash.Length, seed.Length);
+        //var thirdHash = sha.ComputeHash(input);
+
+        //var finalHash = new Byte[thirdHash.Length];
+        //for (var i = 0; i < firstHash.Length; i++)
+        //    finalHash[i] = (Byte)(firstHash[i] ^ thirdHash[i]);
+
+        //var buffer = new Byte[finalHash.Length + 1];
+        //Array.Copy(finalHash, 0, buffer, 1, finalHash.Length);
+        //buffer[0] = 0x20;
+        //return buffer;
+    }
+
+    private Byte[] _rsaKey;
+    protected Byte[] GetSha256Passord(String password, Byte[] seed)
+    {
+        if (password.IsNullOrEmpty()) return [1];
 
         var src = password.GetBytes();
-        var seed = _Seed;
 
         // 异或加密
         var pass = new Byte[src.Length + 1];

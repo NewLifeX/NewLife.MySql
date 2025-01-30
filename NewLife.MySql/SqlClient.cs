@@ -105,7 +105,7 @@ public class SqlClient : DisposeBase
         var pk = ReadPacket();
 
         var msg = new WelcomeMessage();
-        msg.Read(pk.AsSpan());
+        msg.Read(pk.GetSpan());
 
         // 验证方法
         var method = msg.AuthMethod;
@@ -139,7 +139,7 @@ public class SqlClient : DisposeBase
     #region 网络操作
     /// <summary>读取数据包</summary>
     /// <returns></returns>
-    public Packet ReadPacket()
+    public IPacket ReadPacket()
     {
         var ms = _stream ?? throw new InvalidOperationException("未打开连接");
 
@@ -149,17 +149,19 @@ public class SqlClient : DisposeBase
         _seq = buf[3];
 
         buf = ms.ReadBytes(len);
-        var pk = new Packet(buf);
+        var pk = new ArrayPacket(buf);
 
         // 错误包
         if (buf[0] == 0xFF)
         {
             var code = buf.ToUInt16(1);
             var msg = pk.Slice(1 + 2).ReadZeroString();
-            // 前面有6字符错误码
-            //if (!msg.IsNullOrEmpty() && msg[0] == '#') msg = msg.Substring(6);
 
-            throw new MySqlException(code, msg);
+            // 前面有6字符错误码
+            if (!msg.IsNullOrEmpty() && msg[0] == '#')
+                throw new MySqlException(code, msg[..6], msg[6..]);
+            else
+                throw new MySqlException(code, msg);
         }
         else if (pk[0] == 0xFE)
         {
@@ -168,7 +170,7 @@ public class SqlClient : DisposeBase
             var warnings = reader.ReadUInt16();
             var status = reader.ReadUInt16();
 
-            pk = null;
+            //pk = null;
         }
 
         return pk;
@@ -187,14 +189,14 @@ public class SqlClient : DisposeBase
         pk2[0] = (Byte)(len & 0xFF);
         pk2[1] = (Byte)((len >> 8) & 0xFF);
         pk2[2] = (Byte)((len >> 16) & 0xFF);
-        pk2[3] = _seq++;
+        pk2[3] = ++_seq;
 
         pk2.CopyTo(ms);
         ms.Flush();
     }
 
     /// <summary>读取OK</summary>
-    public Packet ReadOK()
+    public IPacket ReadOK()
     {
         var pk = ReadPacket();
         var reader = new BinaryReader(pk.GetStream());
@@ -221,7 +223,7 @@ public class SqlClient : DisposeBase
 
     /// <summary>发送查询请求</summary>
     /// <param name="pk"></param>
-    public void SendQuery(Packet pk)
+    public void SendQuery(IPacket pk)
     {
         pk[0] = (Byte)DbCmd.QUERY;
 
