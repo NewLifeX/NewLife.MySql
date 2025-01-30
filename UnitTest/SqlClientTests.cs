@@ -1,4 +1,5 @@
-﻿using NewLife.Data;
+﻿using NewLife;
+using NewLife.Data;
 using NewLife.MySql;
 using NewLife.MySql.Common;
 using NewLife.Reflection;
@@ -52,7 +53,10 @@ public class SqlClientTests
 
         writer.Write((Byte)0xFF);
         writer.Write(code);
-        writer.WriteZeroString(msg);
+        //writer.WriteZeroString(msg);
+        var buf = msg.GetBytes();
+        writer.Write(buf);
+        writer.Write((Byte)0);
 
         ms.Position = 0;
         var client = new SqlClient(null!) { BaseStream = ms };

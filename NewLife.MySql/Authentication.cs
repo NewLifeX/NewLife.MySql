@@ -370,13 +370,13 @@ class Authentication(SqlClient client)
             var name = pi.Name;
             var dis = pi.GetCustomAttributes(typeof(DisplayNameAttribute), false);
             if (dis.Length > 0)
-                name = (dis[0] as DisplayNameAttribute).DisplayName;
+                name = (dis[0] as DisplayNameAttribute)!.DisplayName;
 
             var value = (String)pi.GetValue(att, null);
             sb.AppendFormat("{0}{1}", (Char)name.Length, name);
-            sb.AppendFormat("{0}{1}", (Char)value.Length, value);
+            sb.AppendFormat("{0}{1}", (Char)Encoding.UTF8.GetByteCount(value), value);
         }
 
-        return sb.ToString(); ;
+        return sb.ToString();
     }
 }

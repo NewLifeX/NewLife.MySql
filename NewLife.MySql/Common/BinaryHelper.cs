@@ -19,37 +19,6 @@ public static class BinaryHelper
     }
 
     /// <summary>读取零结尾的C格式字符串</summary>
-    /// <param name="reader"></param>
-    /// <returns></returns>
-    public static IPacket ReadZero(this BinaryReader reader)
-    {
-        var ms = reader.BaseStream as MemoryStream;
-        var p = (Int32)ms.Position;
-        var buf = ms.GetBuffer();
-        var k = 0;
-        for (k = p; k < ms.Length; k++)
-        {
-            if (buf[k] == 0) break;
-        }
-
-        var len = k - p;
-        ms.Seek(len + 1, SeekOrigin.Current);
-
-        return new ArrayPacket(buf, p, len);
-    }
-
-    /// <summary>读取零结尾的C格式字符串</summary>
-    public static ReadOnlySpan<Byte> ReadZero(this ReadOnlySpan<Byte> span)
-    {
-        for (var k = 0; k < span.Length; k++)
-        {
-            if (span[k] == 0) return span[..(k + 1)];
-        }
-
-        return span;
-    }
-
-    /// <summary>读取零结尾的C格式字符串</summary>
     public static ReadOnlySpan<Byte> ReadZero(this ref SpanReader reader)
     {
         var span = reader.GetSpan();
@@ -74,21 +43,7 @@ public static class BinaryHelper
     /// <summary>读取零结尾的C格式字符串</summary>
     /// <param name="reader"></param>
     /// <returns></returns>
-    public static String ReadZeroString(this BinaryReader reader) => reader.ReadZero().ToStr();
-
     public static String ReadZeroString(this ref SpanReader reader) => reader.ReadZero()[..^1].ToStr();
-
-    public static void WriteZero(this BinaryWriter writer, IPacket pk)
-    {
-        //writer.Write(pk.Data, pk.Offset, pk.Count);
-        pk.CopyTo(writer.BaseStream);
-        writer.Write((Byte)0);
-    }
-
-    public static void WriteZeroString(this BinaryWriter writer, String value)
-    {
-        WriteZero(writer, (ArrayPacket)value.GetBytes());
-    }
 
     /// <summary>写入C格式字符串</summary>
     /// <param name="writer"></param>
@@ -113,39 +68,16 @@ public static class BinaryHelper
         };
     }
 
-    public static void WriteLength(this BinaryWriter writer, Int64 length)
+    public static void WriteLength(this ref SpanWriter writer, Int64 length)
     {
         if (length < 251)
             writer.Write((Byte)length);
-        else if (length < 65536L)
+        else if (length < 0xFFFF)
         {
             writer.Write((Byte)252);
             writer.Write((UInt16)length);
         }
-        else if (length < 16777216L)
-        {
-            writer.Write((Byte)253);
-            writer.Write((Byte)(length & 0xFF));
-            writer.Write((Byte)((length >> 8) & 0xFF));
-            writer.Write((Byte)((length >> 16) & 0xFF));
-        }
-        else
-        {
-            writer.Write((Byte)254);
-            writer.Write((UInt32)length);
-        }
-    }
-
-    public static void WriteLength(this SpanWriter writer, Int64 length)
-    {
-        if (length < 251)
-            writer.Write((Byte)length);
-        else if (length < 65536L)
-        {
-            writer.Write((Byte)252);
-            writer.Write((UInt16)length);
-        }
-        else if (length < 16777216L)
+        else if (length <= 0xFF_FFFF)
         {
             writer.Write((Byte)253);
             writer.Write((Byte)(length & 0xFF));
