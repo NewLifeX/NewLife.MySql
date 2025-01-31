@@ -120,47 +120,14 @@ public class SqlClientTests
         Assert.NotNull(client);
         Assert.NotNull(client.Setting);
         Assert.Equal(3306, client.Setting.Port);
-    }
 
-    [Fact]
-    public void TestClose()
-    {
-        var setting = new MySqlConnectionStringBuilder
-        {
-            Server = "localhost",
-            Port = 3306,
-            UserID = "root",
-            Password = "password",
-            Database = "test",
-            ConnectionTimeout = 15
-        };
-
-        var client = new SqlClient(setting);
-        client.Open();
-        client.Close();
-
-        //Assert.Null(client._Client);
-        //Assert.Null(client._Stream);
-    }
-
-    [Fact]
-    public void TestConfigure()
-    {
-        var setting = new MySqlConnectionStringBuilder
-        {
-            Server = "localhost",
-            Port = 3306,
-            UserID = "root",
-            Password = "password",
-            Database = "test",
-            ConnectionTimeout = 15
-        };
-
-        var client = new SqlClient(setting);
         var conn = new MySqlConnection(setting.ConnectionString);
+        conn.Client = client;
         client.Configure(conn);
 
         Assert.NotNull(client.Variables);
         Assert.True(client.Variables.Count > 0);
+
+        client.Close();
     }
 }

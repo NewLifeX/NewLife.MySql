@@ -10,13 +10,11 @@ namespace NewLife.MySql;
 
 class Authentication(SqlClient client)
 {
-    public SqlClient Client { get; set; } = client;
-
-    private Byte[]? _Seed;
+    private SqlClient _client = client;
 
     public void Authenticate(WelcomeMessage welcome, Boolean reset)
     {
-        var client = Client;
+        var client = _client;
         var set = client.Setting;
 
         using var pk = new OwnerPacket(1024);
@@ -76,7 +74,7 @@ class Authentication(SqlClient client)
         if (authMethod == "mysql_native_password")
         {
             var pass = Get411Password(password, authData[..^1].ToArray());
-            Client.SendPacket(pass.ReadBytes(1, -1));
+            _client.SendPacket(pass);
 
             return client.ReadPacket();
         }
@@ -99,12 +97,9 @@ class Authentication(SqlClient client)
         Array.Copy(secondHash, 0, input, seed.Length, secondHash.Length);
         var thirdHash = sha.ComputeHash(input);
 
-        var buf = new Byte[thirdHash.Length + 1];
-        buf[0] = 0x14;
-        Array.Copy(thirdHash, 0, buf, 1, thirdHash.Length);
-
-        for (var i = 1; i < buf.Length; i++)
-            buf[i] = (Byte)(buf[i] ^ firstHash[i - 1]);
+        var buf = thirdHash;
+        for (var i = 0; i < buf.Length; i++)
+            buf[i] = (Byte)(buf[i] ^ firstHash[i]);
 
         return buf;
     }
@@ -114,24 +109,6 @@ class Authentication(SqlClient client)
         if (password.IsNullOrEmpty()) return [1];
 
         return password.GetBytes().SHA256(seed);
-        //var sha = SHA256.Create();
-
-        //var firstHash = sha.ComputeHash(Encoding.Default.GetBytes(password));
-        //var secondHash = sha.ComputeHash(firstHash);
-
-        //var input = new Byte[seed.Length + secondHash.Length];
-        //Array.Copy(secondHash, 0, input, 0, secondHash.Length);
-        //Array.Copy(seed, 0, input, secondHash.Length, seed.Length);
-        //var thirdHash = sha.ComputeHash(input);
-
-        //var finalHash = new Byte[thirdHash.Length];
-        //for (var i = 0; i < firstHash.Length; i++)
-        //    finalHash[i] = (Byte)(firstHash[i] ^ thirdHash[i]);
-
-        //var buffer = new Byte[finalHash.Length + 1];
-        //Array.Copy(finalHash, 0, buffer, 1, finalHash.Length);
-        //buffer[0] = 0x20;
-        //return buffer;
     }
 
     private ClientFlags GetFlags(ClientFlags caps)

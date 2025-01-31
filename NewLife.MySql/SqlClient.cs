@@ -146,7 +146,7 @@ public class SqlClient : DisposeBase
         // 3字节长度 + 1字节序列号
         var buf = ms.ReadBytes(4);
         var len = buf[0] + (buf[1] << 8) + (buf[2] << 16);
-        _seq = buf[3];
+        _seq = (Byte)(buf[3] + 1);
 
         buf = ms.ReadBytes(len);
         var pk = new ArrayPacket(buf);
@@ -189,7 +189,7 @@ public class SqlClient : DisposeBase
         pk2[0] = (Byte)(len & 0xFF);
         pk2[1] = (Byte)((len >> 8) & 0xFF);
         pk2[2] = (Byte)((len >> 16) & 0xFF);
-        pk2[3] = ++_seq;
+        pk2[3] = _seq++;
 
         pk2.CopyTo(ms);
         ms.Flush();

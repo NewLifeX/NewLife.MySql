@@ -10,7 +10,7 @@ public class MySqlCommand : DbCommand, IDisposable
     #region 属性
     private MySqlConnection _DbConnection;
     /// <summary>连接</summary>
-    protected override DbConnection DbConnection { get => _DbConnection; set => _DbConnection = value as MySqlConnection; }
+    protected override DbConnection DbConnection { get => _DbConnection; set => _DbConnection = (value as MySqlConnection)!; }
 
     /// <summary>命令语句</summary>
     public override String CommandText { get; set; }

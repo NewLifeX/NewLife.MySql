@@ -51,13 +51,11 @@ public sealed partial class MySqlConnection : DbConnection
         // 打开网络连接
         try
         {
-            var dr = Client ??= new SqlClient(Setting);
-            dr.Open();
+            var client = Client ??= new SqlClient(Setting);
+            client.Open();
 
             // 配置参数
-            dr.Configure(this);
-
-            //LoadVariables();
+            client.Configure(this);
         }
         catch (Exception)
         {
@@ -115,30 +113,5 @@ public sealed partial class MySqlConnection : DbConnection
 
         return cmd;
     }
-    #endregion
-
-    #region 方法
-    ///// <summary>加载服务器变量</summary>
-    ///// <returns></returns>
-    //private IDictionary<String, String> LoadVariables()
-    //{
-    //    var dic = new Dictionary<String, String>();
-    //    using (var cmd = CreateCommand())
-    //    {
-    //        cmd.CommandText = "SHOW VARIABLES";
-
-    //        using (var reader = cmd.ExecuteReader())
-    //        {
-    //            while (reader.Read())
-    //            {
-    //                var key = reader.GetString(0);
-    //                var value = reader.GetString(1);
-    //                dic[key] = value;
-    //            }
-    //        }
-
-    //        return dic;
-    //    }
-    //}
     #endregion
 }
