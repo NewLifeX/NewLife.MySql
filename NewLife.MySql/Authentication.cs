@@ -35,7 +35,7 @@ class Authentication(SqlClient client)
         // 发送验证
         var seed = welcome.Seed!;
         writer.WriteZeroString(set.UserID!);
-        var pass = method.Contains("sha2") ? GetSha256Password(set.Password!, seed) : GetPassword(set.Password!, seed);
+        var pass = method.Contains("sha2") ? GetSha256Password(set.Password!, seed) : Get411Password(set.Password!, seed);
         writer.WriteByte(pass.Length);
         writer.Write(pass);
 
@@ -56,34 +56,47 @@ class Authentication(SqlClient client)
         client.SendPacket(pk2);
 
         // 读取响应
-        var rs = client.ReadOK();
+        var rs = client.ReadPacket();
 
-        // sha256
-        if (method.Contains("sha2"))
-        {
-            ContinueAuthentication([1]);
-        }
+        //// sha256
+        //if (method.Contains("sha2"))
+        //{
+        //    ContinueAuthentication([1]);
+        //}
+
+        if (rs[0] == 0xFE) rs = ContinueAuthentication(rs.Slice(1), set.Password!);
     }
 
-    public Byte[] GetPassword(String pass, Byte[] seed)
+    private IPacket ContinueAuthentication(IPacket rs, String password)
     {
-        var bytes = Get411Password(pass, seed);
-        if (bytes != null && bytes.Length == 1 && bytes[0] == 0) return null;
-        return bytes;
+        var reader = new SpanReader(rs);
+
+        var authMethod = reader.ReadZeroString();
+        var authData = reader.ReadZero();
+        if (authMethod == "mysql_native_password")
+        {
+            var pass = Get411Password(password, authData[..^1].ToArray());
+            Client.SendPacket(pass.ReadBytes(1, -1));
+
+            return client.ReadPacket();
+        }
+        else
+            throw new NotSupportedException(authMethod);
     }
 
-    protected Byte[] Get411Password(String password, Byte[] seedBytes)
+    protected Byte[] Get411Password(String password, Byte[] seed)
     {
         if (password.Length == 0) return new Byte[1];
 
+        //return password.GetBytes().SHA1(seed);
         var sha = SHA1.Create();
 
         var firstHash = sha.ComputeHash(password.GetBytes());
         var secondHash = sha.ComputeHash(firstHash);
 
-        var input = new Byte[seedBytes.Length + secondHash.Length];
-        Array.Copy(seedBytes, 0, input, 0, seedBytes.Length);
-        Array.Copy(secondHash, 0, input, seedBytes.Length, secondHash.Length);
+        var input = new Byte[seed.Length + secondHash.Length];
+        Array.Copy(seed, 0, input, 0, seed.Length);
+        Array.Copy(secondHash, 0, input, seed.Length, secondHash.Length);
         var thirdHash = sha.ComputeHash(input);
 
         var buf = new Byte[thirdHash.Length + 1];
@@ -119,210 +132,6 @@ class Authentication(SqlClient client)
         //Array.Copy(finalHash, 0, buffer, 1, finalHash.Length);
         //buffer[0] = 0x20;
         //return buffer;
-    }
-
-    private Byte[] _rsaKey;
-    protected Byte[] GetSha256Passord(String password, Byte[] seed)
-    {
-        if (password.IsNullOrEmpty()) return [1];
-
-        var src = password.GetBytes();
-
-        // 异或加密
-        var pass = new Byte[src.Length + 1];
-        Array.Copy(src, 0, pass, 0, src.Length);
-        pass[src.Length] = 0;
-
-        var xor = new Byte[pass.Length];
-        for (var i = 0; i < pass.Length; i++)
-        {
-            xor[i] = (Byte)(pass[i] ^ seed[i % seed.Length]);
-        }
-
-        var rsa = DecodeX509Key(DecodeOpenSslKey(_rsaKey));
-        return rsa.Encrypt(xor, true);
-    }
-
-    private static RSACryptoServiceProvider DecodeX509Key(Byte[] key)
-    {
-        if (key == null) return null;
-
-        var array = new Byte[] { 48, 13, 6, 9, 42, 134, 72, 134, 247, 13, 1, 1, 1, 5, 0 };
-        using var input = new MemoryStream(key);
-        using var reader = new BinaryReader(input);
-        switch (reader.ReadUInt16())
-        {
-            case 33072:
-                reader.ReadByte();
-                break;
-            case 33328:
-                reader.ReadInt16();
-                break;
-            default:
-                return null;
-        }
-        var array2 = reader.ReadBytes(15);
-        var flag = true;
-        if (array2.Length == array.Length)
-        {
-            for (var i = 0; i < array.Length; i++)
-            {
-                if (array2[i] != array[i])
-                {
-                    flag = false;
-                }
-            }
-        }
-        if (!flag) return null;
-
-        switch (reader.ReadUInt16())
-        {
-            case 33027:
-                reader.ReadByte();
-                break;
-            case 33283:
-                reader.ReadInt16();
-                break;
-            default:
-                return null;
-        }
-        if (reader.ReadByte() != 0) return null;
-
-        switch (reader.ReadUInt16())
-        {
-            case 33072:
-                reader.ReadByte();
-                break;
-            case 33328:
-                reader.ReadInt16();
-                break;
-            default:
-                return null;
-        }
-        var num = reader.ReadUInt16();
-        Byte b = 0;
-        Byte b2 = 0;
-        switch (num)
-        {
-            case 33026:
-                b = reader.ReadByte();
-                break;
-            case 33282:
-                b2 = reader.ReadByte();
-                b = reader.ReadByte();
-                break;
-            default:
-                return null;
-        }
-        var num2 = BitConverter.ToInt32([b, b2, 0, 0], 0);
-        var num3 = reader.ReadByte();
-        reader.BaseStream.Seek(-1L, SeekOrigin.Current);
-        if (num3 == 0)
-        {
-            reader.ReadByte();
-            num2--;
-        }
-        var modulus = reader.ReadBytes(num2);
-        if (reader.ReadByte() != 2) return null;
-
-        var exponent = reader.ReadBytes(reader.ReadByte());
-
-        var rsa = new RSACryptoServiceProvider();
-        var parameters = new RSAParameters
-        {
-            Modulus = modulus,
-            Exponent = exponent
-        };
-        rsa.ImportParameters(parameters);
-
-        return rsa;
-    }
-
-    private static Byte[] DecodeOpenSslKey(Byte[] rawPublicKey)
-    {
-        if (rawPublicKey == null) return null;
-
-        rawPublicKey = (from b in rawPublicKey where b != 13 select b).ToArray();
-        rawPublicKey = (from b in rawPublicKey where b != 10 select b).ToArray();
-        rawPublicKey = TrimByteArray(rawPublicKey);
-
-        var array = "-----BEGIN PUBLIC KEY-----"u8.ToArray();
-        var array2 = "-----END PUBLIC KEY-----"u8.ToArray();
-        if (StartsWith(rawPublicKey, array) && EndsWith(rawPublicKey, array2))
-        {
-            var array3 = new Byte[rawPublicKey.Length - array.Length - array2.Length];
-            Array.Copy(rawPublicKey, array.Length, array3, 0, array3.Length);
-
-            return Convert.FromBase64String(Encoding.Default.GetString(array3));
-        }
-        return null;
-    }
-
-    private static Byte[] TrimByteArray(Byte[] array)
-    {
-        var list = new List<Byte>();
-        var flag = false;
-        var array2 = array;
-        foreach (var b in array2)
-        {
-            if (!flag)
-            {
-                if (b == 32)
-                {
-                    continue;
-                }
-                flag = true;
-            }
-            list.Add(b);
-        }
-        array = list.ToArray();
-        list = [];
-        for (var num = array.Length - 1; num >= 0; num--)
-        {
-            if (!flag)
-            {
-                if (array[num] == 32)
-                {
-                    continue;
-                }
-                flag = true;
-            }
-            list.Add(array[num]);
-        }
-        return list.ToArray().Reverse().ToArray();
-    }
-
-    private static Boolean StartsWith(Byte[] array, Byte[] containedArray)
-    {
-        for (var i = 0; i < array.Length && i != containedArray.Length; i++)
-        {
-            if (array[i] != containedArray[i])
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static Boolean EndsWith(Byte[] array, Byte[] containedArray)
-    {
-        var num = array.Length - 1;
-        var num2 = 0;
-        while (num >= 0 && num2 != containedArray.Length)
-        {
-            if (array[num] != containedArray[containedArray.Length - num2 - 1])
-            {
-                return false;
-            }
-            num--;
-            num2++;
-        }
-        return true;
-    }
-
-    private void ContinueAuthentication(Byte[] data)
-    {
-        _rsaKey = data;
     }
 
     private ClientFlags GetFlags(ClientFlags caps)

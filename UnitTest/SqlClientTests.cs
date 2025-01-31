@@ -110,7 +110,7 @@ public class SqlClientTests
             Port = 3306,
             UserID = "root",
             Password = "root",
-            Database = "test",
+            Database = "sys",
             ConnectionTimeout = 15
         };
 

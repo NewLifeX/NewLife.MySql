@@ -195,6 +195,8 @@ public class SqlClient : DisposeBase
         ms.Flush();
     }
 
+    public void SendPacket(Byte[] buf) => SendPacket((ArrayPacket)buf);
+
     /// <summary>读取OK</summary>
     public IPacket ReadOK()
     {
