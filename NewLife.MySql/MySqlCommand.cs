@@ -89,6 +89,7 @@ public class MySqlCommand : DbCommand, IDisposable
     {
         using var reader = ExecuteReader();
         reader.Close();
+
         return reader.RecordsAffected;
     }
 

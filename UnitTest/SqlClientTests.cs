@@ -1,6 +1,8 @@
 ﻿using NewLife;
+using NewLife.Buffers;
 using NewLife.Data;
 using NewLife.MySql;
+using NewLife.MySql.Common;
 using NewLife.Reflection;
 using NewLife.Security;
 
@@ -103,6 +105,81 @@ public class SqlClientTests
     }
 
     [Fact]
+    public void SendPacket()
+    {
+        // 通过Mod基础数据流BaseStream来测试数据包写入
+        var len = Rand.Next(10, 1 << 24);
+        var buf = Rand.NextBytes(len);
+        var seq = (Byte)Rand.Next(1, 256);
+
+        using var pk = new OwnerPacket(4 + len);
+        var writer = new SpanWriter(pk);
+        writer.Advance(4);
+
+        writer.Write(buf);
+
+        var ms = new MemoryStream();
+        var client = new SqlClient(null!) { BaseStream = ms };
+
+        client.SetValue("_seq", seq);
+        client.SendPacket(pk.Slice(4, -1));
+
+        var rs = ms.ToArray();
+        Assert.Equal(pk.Length, rs.Length);
+        Assert.Equal(len, (Int32)(rs.ToUInt32(0) & 0xFF_FFFF));
+        Assert.Equal(seq, rs[3]);
+        Assert.Equal(seq + 1, (Byte)client.GetValue("_seq")!);
+        Assert.Equal(buf, rs.ReadBytes(4, -1));
+    }
+
+    [Fact]
+    public void SendPacket_NoExpand()
+    {
+        // 通过Mod基础数据流BaseStream来测试数据包写入
+        var len = Rand.Next(10, 1 << 24);
+        var buf = Rand.NextBytes(len);
+        var seq = (Byte)Rand.Next(1, 256);
+
+        var ms = new MemoryStream();
+        var client = new SqlClient(null!) { BaseStream = ms };
+
+        client.SetValue("_seq", seq);
+        client.SendPacket(buf);
+
+        var rs = ms.ToArray();
+        Assert.Equal(4 + buf.Length, rs.Length);
+        Assert.Equal(len, (Int32)(rs.ToUInt32(0) & 0xFF_FFFF));
+        Assert.Equal(seq, rs[3]);
+        Assert.Equal(seq + 1, (Byte)client.GetValue("_seq")!);
+        Assert.Equal(buf, rs.ReadBytes(4, -1));
+    }
+
+    [Fact]
+    public void SendQuery()
+    {
+        // 通过Mod基础数据流BaseStream来测试数据包写入
+        var sql = "select * from role";
+
+        using var pk = new OwnerPacket(4 + 1 + sql.Length);
+        var writer = new SpanWriter(pk);
+        writer.Advance(4);
+
+        writer.WriteByte(0);
+        writer.Write(sql, -1);
+
+        var ms = new MemoryStream();
+        var client = new SqlClient(null!) { BaseStream = ms };
+        client.SendQuery(pk.Slice(4, -1));
+
+        var buf = ms.ToArray();
+        Assert.Equal(pk.Length, buf.Length);
+        Assert.Equal(0, buf[3]);
+        Assert.Equal(1, (Byte)client.GetValue("_seq")!);
+        Assert.Equal(DbCmd.QUERY, (DbCmd)buf[4]);
+        Assert.Equal(sql, buf.ReadBytes(4 + 1, -1).ToStr());
+    }
+
+    [Fact]
     public void TestOpen()
     {
         var setting = new MySqlConnectionStringBuilder
@@ -121,6 +198,31 @@ public class SqlClientTests
         Assert.NotNull(client);
         Assert.NotNull(client.Setting);
         Assert.Equal(3306, client.Setting.Port);
+        Assert.NotNull(client.GetValue("_client"));
+
+        client.Close();
+        Assert.Null(client.GetValue("_client"));
+    }
+
+    [Fact]
+    public void TestConfigure()
+    {
+        var setting = new MySqlConnectionStringBuilder
+        {
+            Server = "localhost",
+            Port = 3306,
+            UserID = "root",
+            Password = "root",
+            Database = "sys",
+            ConnectionTimeout = 15
+        };
+
+        using var client = new SqlClient(setting);
+        client.Open();
+
+        Assert.NotNull(client);
+        Assert.NotNull(client.Setting);
+        Assert.Equal(3306, client.Setting.Port);
 
         var conn = new MySqlConnection(setting.ConnectionString);
         conn.Client = client;
@@ -128,7 +230,5 @@ public class SqlClientTests
 
         Assert.NotNull(client.Variables);
         Assert.True(client.Variables.Count > 0);
-
-        client.Close();
     }
 }

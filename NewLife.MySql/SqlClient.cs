@@ -28,7 +28,7 @@ public class SqlClient : DisposeBase
     /// <summary>欢迎信息</summary>
     public WelcomeMessage? Welcome { get; set; }
 
-    private TcpClient? _Client;
+    private TcpClient? _client;
     private Byte _seq = 1;
     #endregion
 
@@ -66,6 +66,7 @@ public class SqlClient : DisposeBase
         };
         client.Connect(server, port);
 
+        _client = client;
         _stream = client.GetStream();
 
         // 从欢迎信息读取服务器特性
@@ -81,8 +82,8 @@ public class SqlClient : DisposeBase
     /// <summary>关闭</summary>
     public void Close()
     {
-        _Client.TryDispose();
-        _Client = null;
+        _client.TryDispose();
+        _client = null;
         _stream = null;
     }
 
@@ -195,6 +196,8 @@ public class SqlClient : DisposeBase
         ms.Flush();
     }
 
+    /// <summary>发送数据包</summary>
+    /// <param name="buf"></param>
     public void SendPacket(Byte[] buf) => SendPacket((ArrayPacket)buf);
 
     /// <summary>读取OK</summary>
