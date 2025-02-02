@@ -229,7 +229,9 @@ public class SqlClient : DisposeBase
     {
         pk[0] = (Byte)DbCmd.QUERY;
 
+        // 每一次查询请求，序列号都要重置为0
         _seq = 0;
+
         SendPacket(pk);
     }
 

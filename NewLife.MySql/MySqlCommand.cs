@@ -110,6 +110,7 @@ public class MySqlCommand : DbCommand, IDisposable
     #endregion
 
     #region 执行
+    /// <summary>执行命令，绑定参数后发送请求</summary>
     private void Execute()
     {
         var ms = new MemoryStream();
