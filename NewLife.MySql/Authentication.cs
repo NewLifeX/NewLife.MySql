@@ -17,6 +17,7 @@ class Authentication(SqlClient client)
         var client = _client;
         var set = client.Setting;
 
+        // 从共享池申请内存，跳过4字节头部，便于SendPacket内部填充帧头
         using var pk = new OwnerPacket(1024);
         var writer = new SpanWriter(pk);
         writer.Advance(4);
@@ -30,13 +31,14 @@ class Authentication(SqlClient client)
 
         var method = welcome.AuthMethod!;
 
-        // 发送验证
+        // 写入用户名密码
         var seed = welcome.Seed!;
         writer.WriteZeroString(set.UserID!);
         var pass = method.Contains("sha2") ? GetSha256Password(set.Password!, seed) : Get411Password(set.Password!, seed);
         writer.WriteByte(pass.Length);
         writer.Write(pass);
 
+        // 写入数据库
         var db = set.Database;
         if (!db.IsNullOrEmpty()) writer.WriteZeroString(db);
 
@@ -45,12 +47,14 @@ class Authentication(SqlClient client)
         //writer.WriteZeroString("mysql_native_password");
         writer.WriteZeroString(method);
 
+        // 连接属性
         var attrs = GetConnectAttrs().GetBytes();
         writer.WriteLength(attrs.Length);
         writer.Write(attrs);
 
         var pk2 = pk.Slice(4, writer.Position - 4);
 
+        // 发送验证
         client.SendPacket(pk2);
 
         // 读取响应
@@ -62,6 +66,7 @@ class Authentication(SqlClient client)
         //    ContinueAuthentication([1]);
         //}
 
+        // 如果返回0xFE，表示需要继续验证。例如 caching_sha2_password 验证升级为 mysql_native_password 验证
         if (rs[0] == 0xFE) rs = ContinueAuthentication(rs.Slice(1), set.Password!);
     }
 
@@ -113,8 +118,10 @@ class Authentication(SqlClient client)
 
     private ClientFlags GetFlags(ClientFlags caps)
     {
-        // 从本地文件加载数据
-        var flags = ClientFlags.LOCAL_FILES;
+        ClientFlags flags = 0;
+
+        //// 从本地文件加载数据
+        //flags |= ClientFlags.LOCAL_FILES;
 
         // UseAffectedRows
         flags |= ClientFlags.FOUND_ROWS;
@@ -143,6 +150,17 @@ class Authentication(SqlClient client)
 
         if ((caps & ClientFlags.CAN_HANDLE_EXPIRED_PASSWORD) != 0)
             flags |= ClientFlags.CAN_HANDLE_EXPIRED_PASSWORD;
+
+        // 支持发送会话跟踪变量
+        flags |= ClientFlags.CLIENT_SESSION_TRACK;
+
+        // 查询属性
+        if ((caps & ClientFlags.CLIENT_QUERY_ATTRIBUTES) != 0)
+            flags |= ClientFlags.CLIENT_QUERY_ATTRIBUTES;
+
+        // MFA
+        if ((caps & ClientFlags.MULTI_FACTOR_AUTHENTICATION) != 0)
+            flags |= ClientFlags.MULTI_FACTOR_AUTHENTICATION;
 
         return flags;
     }

@@ -74,6 +74,11 @@ public class SqlClient : DisposeBase
         Welcome = welcome;
         Capability = welcome.Capability;
 
+        // 验证方法
+        var method = welcome.AuthMethod;
+        if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password", "caching_sha2_password"))
+            throw new NotSupportedException("不支持验证方式 " + method);
+
         // 验证
         var auth = new Authentication(this);
         auth.Authenticate(welcome, false);
@@ -100,6 +105,9 @@ public class SqlClient : DisposeBase
     #endregion
 
     #region 方法
+    /// <summary>握手欢迎消息。从中得知服务器验证方式等一系列参数信息</summary>
+    /// <returns></returns>
+    /// <exception cref="NotSupportedException"></exception>
     private WelcomeMessage GetWelcome()
     {
         // 读取数据包
@@ -107,11 +115,6 @@ public class SqlClient : DisposeBase
 
         var msg = new WelcomeMessage();
         msg.Read(pk.GetSpan());
-
-        // 验证方法
-        var method = msg.AuthMethod;
-        if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password", "caching_sha2_password"))
-            throw new NotSupportedException("不支持验证方式 " + method);
 
         return msg;
     }
@@ -177,7 +180,7 @@ public class SqlClient : DisposeBase
         return pk;
     }
 
-    /// <summary>发送数据包</summary>
+    /// <summary>发送数据包。建议数据包头部预留4字节空间以填充帧头</summary>
     /// <param name="pk"></param>
     public void SendPacket(IPacket pk)
     {
@@ -207,8 +210,8 @@ public class SqlClient : DisposeBase
         var reader = new BinaryReader(pk.GetStream());
 
         // 影响行数、最后插入ID
-        reader.ReadFieldLength();
-        reader.ReadFieldLength();
+        reader.ReadLength();
+        reader.ReadLength();
 
         return pk;
     }
@@ -248,7 +251,7 @@ public class SqlClient : DisposeBase
         var reader = new BinaryReader(pk.GetStream());
 
         // 读取列信息
-        var fieldCount = (Int32)reader.ReadFieldLength();
+        var fieldCount = (Int32)reader.ReadLength();
 
         return fieldCount;
     }
@@ -300,7 +303,7 @@ public class SqlClient : DisposeBase
         var reader = new BinaryReader(ms);
         for (var i = 0; i < values.Length; i++)
         {
-            var len = (Int32)reader.ReadFieldLength();
+            var len = (Int32)reader.ReadLength();
             if (len == -1)
             {
                 values[i] = DBNull.Value;

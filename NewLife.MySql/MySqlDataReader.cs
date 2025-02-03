@@ -56,14 +56,15 @@ public class MySqlDataReader : DbDataReader
         var insertedId = 0L;
         var fieldCount = client.GetResult(ref affectedRow, ref insertedId);
 
+        _FieldCount = fieldCount;
+        if (fieldCount <= 0) return false;
+
         var names = new String[fieldCount];
         var types = new MySqlDbType[fieldCount];
         client.GetColumns(names, types);
 
         _Names = names;
         _Types = types;
-
-        _FieldCount = fieldCount;
 
         return true;
     }

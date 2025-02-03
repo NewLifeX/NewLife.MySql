@@ -54,7 +54,10 @@ public static class BinaryHelper
         writer.Write((Byte)0);
     }
 
-    public static Int64 ReadFieldLength(this BinaryReader reader)
+    /// <summary>读取集合元素个数</summary>
+    /// <param name="reader"></param>
+    /// <returns></returns>
+    public static Int64 ReadLength(this BinaryReader reader)
     {
         var c = reader.ReadByte();
 
@@ -68,6 +71,9 @@ public static class BinaryHelper
         };
     }
 
+    /// <summary>写入集合元素个数</summary>
+    /// <param name="writer"></param>
+    /// <param name="length"></param>
     public static void WriteLength(this ref SpanWriter writer, Int64 length)
     {
         if (length < 251)

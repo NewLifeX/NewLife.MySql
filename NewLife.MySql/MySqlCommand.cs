@@ -1,6 +1,7 @@
 ﻿using System.Data;
 using System.Data.Common;
 using NewLife.Data;
+using NewLife.MySql.Messages;
 
 namespace NewLife.MySql;
 
@@ -131,6 +132,15 @@ public class MySqlCommand : DbCommand, IDisposable
         // 一个字节的查询类型
         ms.WriteByte(0x00);
 
+        var client = _DbConnection.Client!;
+        if (client.Capability.Has(ClientFlags.CLIENT_QUERY_ATTRIBUTES))
+        {
+            // 查询特性
+            ms.WriteByte(0x00);
+            ms.WriteByte(0x01);
+        }
+
+        // 命令文本
         ms.Write(CommandText.GetBytes());
     }
     #endregion
