@@ -220,13 +220,13 @@ public class SqlClient : DisposeBase
     public void ReadEOF()
     {
         var pk = ReadPacket();
-        //if (pk[0] == 254)
-        //{
-        //    var reader = new BinaryReader(pk.GetStream());
+        if (pk[0] == 254)
+        {
+            var reader = new BinaryReader(pk.GetStream());
 
-        //    var warnings = reader.ReadUInt16();
-        //    var status = reader.ReadUInt16();
-        //}
+            var warnings = reader.ReadUInt16();
+            var status = reader.ReadUInt16();
+        }
     }
 
     /// <summary>发送查询请求</summary>
@@ -298,6 +298,9 @@ public class SqlClient : DisposeBase
     {
         var pk = ReadPacket();
         if (pk == null) return false;
+
+        // EOF包
+        if (pk[0] == 0xFE) return false;
 
         var ms = pk.GetStream();
         var reader = new BinaryReader(ms);

@@ -57,7 +57,7 @@ public static class BinaryHelper
     /// <summary>读取集合元素个数</summary>
     /// <param name="reader"></param>
     /// <returns></returns>
-    public static Int64 ReadLength(this BinaryReader reader)
+    public static Int32 ReadLength(this BinaryReader reader)
     {
         var c = reader.ReadByte();
 
@@ -66,7 +66,7 @@ public static class BinaryHelper
             251 => -1,
             252 => reader.ReadUInt16(),
             253 => reader.ReadBytes(3).ToInt(),
-            254 => reader.ReadInt64(),
+            254 => reader.ReadInt32(),
             _ => c,
         };
     }
