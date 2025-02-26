@@ -8,7 +8,7 @@ public class MySqlConnectionTests
     [Fact]
     public void TestOpenConnection()
     {
-        var connStr = "Server=myServerAddress;Database=myDataBase;User Id=myUsername;Password=myPassword;";
+        var connStr = "Server=localhost;Database=sys;User Id=root;Password=root;";
         var connection = new MySqlConnection(connStr);
 
         Assert.Equal(ConnectionState.Closed, connection.State);
@@ -25,7 +25,7 @@ public class MySqlConnectionTests
     [Fact]
     public void TestCloseConnection()
     {
-        var connStr = "Server=myServerAddress;Database=myDataBase;User Id=myUsername;Password=myPassword;";
+        var connStr = "Server=localhost;Database=sys;User Id=root;Password=root;";
         var connection = new MySqlConnection(connStr);
 
         connection.Open();

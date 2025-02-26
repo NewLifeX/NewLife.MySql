@@ -5,6 +5,7 @@ using NewLife.Buffers;
 using NewLife.Data;
 using NewLife.MySql.Common;
 using NewLife.MySql.Messages;
+using NewLife.Security;
 
 namespace NewLife.MySql;
 
@@ -60,17 +61,15 @@ class Authentication(SqlClient client)
         // 读取响应
         var rs = client.ReadPacket();
 
-        //// sha256
-        //if (method.Contains("sha2"))
-        //{
-        //    ContinueAuthentication([1]);
-        //}
-
-        // 如果返回0xFE，表示需要继续验证。例如 caching_sha2_password 验证升级为 mysql_native_password 验证
-        if (rs[0] == 0xFE) rs = ContinueAuthentication(rs.Slice(1), set.Password!);
+        // 如果返回0xFE，表示需要继续验证。例如 caching_sha2_password 验证降级为 mysql_native_password 验证
+        if (rs[0] == 0xFE)
+            rs = ToNativePassword(rs.Slice(1), set.Password!);
+        else if (rs[0] == 0x01 && rs[1] == 0x04)
+            // perform_full_authentication
+            rs = PerformFullAuthentication(set.Password!, seed);
     }
 
-    private IPacket ContinueAuthentication(IPacket rs, String password)
+    private IPacket ToNativePassword(IPacket rs, String password)
     {
         var reader = new SpanReader(rs);
 
@@ -87,6 +86,32 @@ class Authentication(SqlClient client)
             throw new NotSupportedException(authMethod);
     }
 
+    private IPacket PerformFullAuthentication(String password, Byte[] seedBytes)
+    {
+        // request_public_key
+        var buf = new Byte[] { 0x02 };
+        _client.SendPacket(buf);
+
+        // 读取响应
+        var rs = _client.ReadPacket();
+        if (rs[0] != 0x01) return null!;
+
+        var key = rs.Slice(1).ReadZeroString();
+
+        // 混淆密码
+        var obfuscated = GetXor(Encoding.Default.GetBytes(password), seedBytes);
+
+        // 使用公钥加密密码
+        var encryptedPassword = RSAHelper.Encrypt(obfuscated, key);
+
+        // 发送加密后的密码
+        _client.SendPacket(encryptedPassword);
+
+        // 读取响应
+        return _client.ReadPacket();
+    }
+
+    #region 辅助
     protected Byte[] Get411Password(String password, Byte[] seed)
     {
         if (password.Length == 0) return new Byte[1];
@@ -114,6 +139,19 @@ class Authentication(SqlClient client)
         if (password.IsNullOrEmpty()) return [1];
 
         return password.GetBytes().SHA256(seed);
+    }
+
+    protected Byte[] GetXor(Byte[] src, Byte[] pattern)
+    {
+        var src2 = new Byte[src.Length + 1];
+        Array.Copy(src, 0, src2, 0, src.Length);
+        src2[src.Length] = 0;
+        var result = new Byte[src2.Length];
+        for (var i = 0; i < src2.Length; i++)
+        {
+            result[i] = (Byte)(src2[i] ^ (pattern[i % pattern.Length]));
+        }
+        return result;
     }
 
     private ClientFlags GetFlags(ClientFlags caps)
@@ -183,4 +221,5 @@ class Authentication(SqlClient client)
 
         return sb.ToString();
     }
+    #endregion
 }

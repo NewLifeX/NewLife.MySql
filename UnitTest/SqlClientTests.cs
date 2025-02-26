@@ -184,7 +184,7 @@ public class SqlClientTests
     {
         var setting = new MySqlConnectionStringBuilder
         {
-            Server = "localhost",
+            Server = "127.0.0.2",
             Port = 3306,
             UserID = "root",
             Password = "root",
@@ -209,7 +209,7 @@ public class SqlClientTests
     {
         var setting = new MySqlConnectionStringBuilder
         {
-            Server = "localhost",
+            Server = "127.0.0.2",
             Port = 3306,
             UserID = "root",
             Password = "root",
