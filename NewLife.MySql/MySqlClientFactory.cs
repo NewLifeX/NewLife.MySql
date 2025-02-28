@@ -14,7 +14,7 @@ public sealed partial class MySqlClientFactory : DbProviderFactory
 
     /// <summary>创建连接</summary>
     /// <returns></returns>
-    public override DbConnection CreateConnection() => new MySqlConnection();
+    public override DbConnection CreateConnection() => new MySqlConnection { Factory = this };
 
     /// <summary>创建参数</summary>
     /// <returns></returns>
@@ -26,4 +26,7 @@ public sealed partial class MySqlClientFactory : DbProviderFactory
 
     /// <summary>不支持创建数据源枚举</summary>
     public override Boolean CanCreateDataSourceEnumerator => false;
+
+    /// <summary>连接池管理器</summary>
+    public MySqlPoolManager PoolManager { get; set; } = new();
 }

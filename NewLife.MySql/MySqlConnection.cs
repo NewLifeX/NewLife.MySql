@@ -1,5 +1,6 @@
 ﻿using System.Data;
 using System.Data.Common;
+using NewLife.Collections;
 
 namespace NewLife.MySql;
 
@@ -27,8 +28,13 @@ public sealed partial class MySqlConnection : DbConnection
     /// <summary>连接状态</summary>
     public override ConnectionState State => _State;
 
+    /// <summary>工厂</summary>
+    public MySqlClientFactory Factory { get; set; } = MySqlClientFactory.Instance;
+
     /// <summary>客户端连接</summary>
     public SqlClient? Client { get; set; }
+
+    private IPool<SqlClient>? _pool;
     #endregion
 
     #region 构造
@@ -38,6 +44,24 @@ public sealed partial class MySqlConnection : DbConnection
     /// <summary>使用连接字符串实例化</summary>
     /// <param name="connStr"></param>
     public MySqlConnection(String connStr) : this() => ConnectionString = connStr;
+
+    /// <summary>销毁</summary>
+    protected override void Dispose(Boolean disposing)
+    {
+        base.Dispose(disposing);
+
+        Close();
+    }
+
+#if NETSTANDARD2_1_OR_GREATER
+    /// <summary>销毁</summary>
+    public override async ValueTask DisposeAsync()
+    {
+        await base.DisposeAsync().ConfigureAwait(false);
+
+        await CloseAsync().ConfigureAwait(false);
+    }
+#endif
     #endregion
 
     #region 打开关闭
@@ -51,11 +75,20 @@ public sealed partial class MySqlConnection : DbConnection
         // 打开网络连接
         try
         {
-            var client = Client ??= new SqlClient(Setting);
-            client.Open();
+            var client = Client;
+            if (client == null)
+            {
+                // 根据连接字符串创建连接池，然后从连接池获取连接
+                _pool = Factory?.PoolManager?.GetPool(Setting);
 
-            // 配置参数
-            client.Configure(this);
+                client = _pool?.Get() ?? new SqlClient(Setting);
+
+                client.Open();
+                Client = client;
+
+                // 配置参数
+                client.Configure(this);
+            }
         }
         catch (Exception)
         {
@@ -73,9 +106,17 @@ public sealed partial class MySqlConnection : DbConnection
 
         // 关闭附属对象
 
-        // 关闭网络连接
-        Client.TryDispose();
-        Client = null;
+        var client = Client;
+        if (client != null)
+        {
+            // 关闭网络连接，归还连接池
+            if (_pool != null)
+                _pool.Return(client);
+            else
+                client.TryDispose();
+            Client = null;
+            _pool = null;
+        }
 
         SetState(ConnectionState.Closed);
     }
@@ -108,7 +149,7 @@ public sealed partial class MySqlConnection : DbConnection
     /// <returns></returns>
     protected override DbCommand CreateDbCommand()
     {
-        var cmd = MySqlClientFactory.Instance.CreateCommand();
+        var cmd = Factory.CreateCommand();
         cmd.Connection = this;
 
         return cmd;

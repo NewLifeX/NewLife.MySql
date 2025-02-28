@@ -52,7 +52,7 @@ public class MySqlCommand : DbCommand, IDisposable
     #region 方法
     /// <summary>创建参数</summary>
     /// <returns></returns>
-    protected override DbParameter CreateDbParameter() => MySqlClientFactory.Instance.CreateParameter();
+    protected override DbParameter CreateDbParameter() => _DbConnection.Factory.CreateParameter();
 
     /// <summary>执行读取器</summary>
     /// <param name="behavior"></param>
