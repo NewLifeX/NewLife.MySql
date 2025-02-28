@@ -40,9 +40,10 @@ public class MySqlDataReader : DbDataReader
     /// <summary>影响行数</summary>
     public override Int32 RecordsAffected => _RecordsAffected;
 
-    private String[] _Names;
-    private MySqlDbType[] _Types;
-    private Object[] _Values;
+    //private String[] _Names;
+    //private MySqlDbType[] _Types;
+    private MySqlColumn[]? _Columns;
+    private Object[]? _Values;
     #endregion
 
     #region 核心方法
@@ -59,12 +60,12 @@ public class MySqlDataReader : DbDataReader
         _FieldCount = fieldCount;
         if (fieldCount <= 0) return false;
 
-        var names = new String[fieldCount];
-        var types = new MySqlDbType[fieldCount];
-        client.GetColumns(names, types);
+        //var names = new String[fieldCount];
+        //var types = new MySqlDbType[fieldCount];
+        _Columns = client.GetColumns(fieldCount);
 
-        _Names = names;
-        _Types = types;
+        //_Names = names;
+        //_Types = types;
 
         return true;
     }
@@ -76,7 +77,7 @@ public class MySqlDataReader : DbDataReader
         var client = (Command.Connection as MySqlConnection)!.Client!;
 
         var values = new Object[_FieldCount];
-        if (!client.NextRow(values, _Types)) return false;
+        if (!client.NextRow(values, _Columns)) return false;
 
         _Values = values;
 
@@ -96,21 +97,21 @@ public class MySqlDataReader : DbDataReader
     /// </summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的名称。</returns>
-    public override String GetName(Int32 ordinal) => _Names[ordinal];
+    public override String GetName(Int32 ordinal) => _Columns[ordinal].Name;
 
     /// <summary>
     /// 在给定列名时获取相应的列序号。
     /// </summary>
     /// <param name="name">列的名称，不区分大小写。</param>
     /// <returns>从零开始的列序号，如果不存在给定列，返回-1。</returns>
-    public override Int32 GetOrdinal(String name) => Array.FindIndex(_Names, p => name.EqualIgnoreCase(p));
+    public override Int32 GetOrdinal(String name) => Array.FindIndex(_Columns, p => name.EqualIgnoreCase(p.Name));
 
     /// <summary>
     /// 获取指定列的数据类型的名称。
     /// </summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>一个字符串，表示数据类型的名称。</returns>
-    public override String GetDataTypeName(Int32 ordinal) => _Types[ordinal].ToString();
+    public override String GetDataTypeName(Int32 ordinal) => _Columns[ordinal].Type.ToString();
 
     private static ICollection<String> _mytypes = ["VarString", "VarChar", "String", "TinyText", "MediumText", "LongText", "Text"];
     /// <summary>
@@ -120,7 +121,7 @@ public class MySqlDataReader : DbDataReader
     /// <returns>指定列的数据类型。</returns>
     public override Type GetFieldType(Int32 ordinal)
     {
-        var typeName = _Types[ordinal].ToString();
+        var typeName = _Columns[ordinal].Type.ToString();
         //var _mytypes = new String[] { "VarString", "VarChar", "String", "TinyText", "MediumText", "LongText", "Text" };
         if (_mytypes.Contains(typeName)) return typeof(String);
 

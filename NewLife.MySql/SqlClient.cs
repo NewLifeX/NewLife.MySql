@@ -1,4 +1,5 @@
-﻿using System.Net.Sockets;
+﻿using System.Data;
+using System.Net.Sockets;
 using NewLife.Data;
 using NewLife.MySql.Common;
 using NewLife.MySql.Messages;
@@ -220,7 +221,7 @@ public class SqlClient : DisposeBase
     public void ReadEOF()
     {
         var pk = ReadPacket();
-        if (pk[0] == 254)
+        if (pk[0] == 0xFE)
         {
             var reader = new BinaryReader(pk.GetStream());
 
@@ -257,44 +258,47 @@ public class SqlClient : DisposeBase
     }
 
     /// <summary>读取列信息</summary>
-    /// <param name="names"></param>
-    /// <param name="types"></param>
-    public void GetColumns(String[] names, MySqlDbType[] types)
+    /// <param name="count"></param>
+    public MySqlColumn[] GetColumns(Int32 count)
     {
-        for (var i = 0; i < names.Length; i++)
+        var list = new MySqlColumn[count];
+        for (var i = 0; i < count; i++)
         {
             var pk = ReadPacket();
             var ms = pk.GetStream();
             var reader = new BinaryReader(ms);
 
-            var catelog = reader.ReadString();
-            var database = reader.ReadString();
-            var table = reader.ReadString();
-            var realtable = reader.ReadString();
-
-            names[i] = reader.ReadString();
-
-            var oriName = reader.ReadString();
-            var b = reader.ReadByte();
-            var charSet = reader.ReadInt16();
-            var length = reader.ReadInt32();
-
-            types[i] = (MySqlDbType)reader.ReadByte();
-
-            var colFlags = reader.ReadInt16();
-            var scale = reader.ReadByte();
+            var dc = new MySqlColumn
+            {
+                Catalog = reader.ReadString(),
+                Database = reader.ReadString(),
+                Table = reader.ReadString(),
+                RealTable = reader.ReadString(),
+                Name = reader.ReadString(),
+                OriginalName = reader.ReadString(),
+                Flag = reader.ReadByte(),
+                Charset = reader.ReadInt16(),
+                Length = reader.ReadInt32(),
+                Type = (MySqlDbType)reader.ReadByte(),
+                ColumnFlags = reader.ReadInt16(),
+                Scale = reader.ReadByte()
+            };
 
             if (ms.Position + 2 < ms.Length) reader.ReadInt16();
+
+            list[i] = dc;
         }
 
         ReadEOF();
+
+        return list.ToArray();
     }
 
     /// <summary>读取下一行</summary>
     /// <param name="values"></param>
-    /// <param name="types"></param>
+    /// <param name="columns"></param>
     /// <returns></returns>
-    public Boolean NextRow(Object[] values, MySqlDbType[] types)
+    public Boolean NextRow(Object[] values, MySqlColumn[] columns)
     {
         var pk = ReadPacket();
         if (pk == null) return false;
@@ -313,11 +317,11 @@ public class SqlClient : DisposeBase
                 continue;
             }
 
-            var p = ms.Position;
+            //var p = ms.Position;
             var buf = reader.ReadBytes(len);
             //values[i] = buf;
 
-            values[i] = types[i] switch
+            values[i] = columns[i].Type switch
             {
                 MySqlDbType.Decimal or MySqlDbType.NewDecimal => Decimal.Parse(buf.ToStr()),
                 MySqlDbType.Byte or MySqlDbType.Int16 or MySqlDbType.Int32 or MySqlDbType.Int64 or MySqlDbType.UInt16 or MySqlDbType.UInt32 or MySqlDbType.UInt64 => Int64.Parse(buf.ToStr()),
