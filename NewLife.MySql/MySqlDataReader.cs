@@ -9,7 +9,7 @@ public class MySqlDataReader : DbDataReader
 {
     #region 属性
     /// <summary>命令</summary>
-    public DbCommand Command { get; set; }
+    public DbCommand Command { get; set; } = null!;
 
     /// <summary>根据索引读取</summary>
     /// <param name="ordinal"></param>
@@ -39,10 +39,13 @@ public class MySqlDataReader : DbDataReader
     /// <summary>影响行数</summary>
     public override Int32 RecordsAffected => _RecordsAffected;
 
-    //private String[] _Names;
-    //private MySqlDbType[] _Types;
     private MySqlColumn[]? _Columns;
+    /// <summary>列集合</summary>
+    public MySqlColumn[]? Columns => _Columns;
+
     private Object[]? _Values;
+    /// <summary>当前行数值集合</summary>
+    public Object[]? Values => _Values;
     #endregion
 
     #region 核心方法
@@ -59,12 +62,7 @@ public class MySqlDataReader : DbDataReader
         _FieldCount = fieldCount;
         if (fieldCount <= 0) return false;
 
-        //var names = new String[fieldCount];
-        //var types = new MySqlDbType[fieldCount];
         _Columns = client.GetColumns(fieldCount);
-
-        //_Names = names;
-        //_Types = types;
 
         return true;
     }
@@ -76,7 +74,7 @@ public class MySqlDataReader : DbDataReader
         var client = (Command.Connection as MySqlConnection)!.Client!;
 
         var values = new Object[_FieldCount];
-        if (!client.NextRow(values, _Columns)) return false;
+        if (!client.NextRow(values, _Columns!)) return false;
 
         _Values = values;
 
@@ -96,7 +94,7 @@ public class MySqlDataReader : DbDataReader
     /// </summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的名称。</returns>
-    public override String GetName(Int32 ordinal) => _Columns[ordinal].Name;
+    public override String GetName(Int32 ordinal) => _Columns![ordinal].Name;
 
     /// <summary>
     /// 在给定列名时获取相应的列序号。
@@ -110,7 +108,7 @@ public class MySqlDataReader : DbDataReader
     /// </summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>一个字符串，表示数据类型的名称。</returns>
-    public override String GetDataTypeName(Int32 ordinal) => _Columns[ordinal].Type.ToString();
+    public override String GetDataTypeName(Int32 ordinal) => _Columns![ordinal].Type.ToString();
 
     private static ICollection<String> _mytypes = ["VarString", "VarChar", "String", "TinyText", "MediumText", "LongText", "Text"];
     /// <summary>
@@ -120,11 +118,10 @@ public class MySqlDataReader : DbDataReader
     /// <returns>指定列的数据类型。</returns>
     public override Type GetFieldType(Int32 ordinal)
     {
-        var typeName = _Columns[ordinal].Type.ToString();
-        //var _mytypes = new String[] { "VarString", "VarChar", "String", "TinyText", "MediumText", "LongText", "Text" };
+        var typeName = _Columns![ordinal].Type.ToString();
         if (_mytypes.Contains(typeName)) return typeof(String);
 
-        //暂时把Enum和Set类型也算做是string
+        // 暂时把Enum和Set类型也算做是string
         if (typeName.EqualIgnoreCase("Enum", "Set")) return typeof(String);
 
         return Type.GetType("System." + typeName);
@@ -135,7 +132,7 @@ public class MySqlDataReader : DbDataReader
     /// </summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的值。</returns>
-    public override Object GetValue(Int32 ordinal) => _Values[ordinal];
+    public override Object GetValue(Int32 ordinal) => _Values![ordinal];
 
     /// <summary>
     /// 将当前行的值复制到制定的object数组
@@ -147,7 +144,7 @@ public class MySqlDataReader : DbDataReader
         var count = values.Length < _FieldCount ? values.Length : _FieldCount;
         for (var i = 0; i < count; i++)
         {
-            values[i] = _Values[i];
+            values[i] = _Values![i];
         }
         return count;
     }
@@ -162,14 +159,14 @@ public class MySqlDataReader : DbDataReader
     /// </summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Boolean GetBoolean(Int32 ordinal) => (Boolean)_Values[ordinal];
+    public override Boolean GetBoolean(Int32 ordinal) => (Boolean)_Values![ordinal];
 
     /// <summary>
     /// 以字节的形式获取指定列的值。
     /// </summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的值。</returns>
-    public override Byte GetByte(Int32 ordinal) => (Byte)_Values[ordinal];
+    public override Byte GetByte(Int32 ordinal) => (Byte)_Values![ordinal];
 
     /// <summary>
     /// 从指定的列中，从 dataOffset 处开始读取字节流到 buffer 缓冲区，从 bufferOffset 所指示的位置开始写入 。
@@ -182,7 +179,7 @@ public class MySqlDataReader : DbDataReader
     /// <returns></returns>
     public override Int64 GetBytes(Int32 ordinal, Int64 dataOffset, Byte[] buffer, Int32 bufferOffset, Int32 length)
     {
-        var buf = _Values[ordinal] as Byte[];
+        var buf = _Values![ordinal] as Byte[];
         if (buf == null || buf.Length == 0) return 0L;
 
         //return buffer.Write(bufferOffset, buf, dataOffset, length);
@@ -202,7 +199,7 @@ public class MySqlDataReader : DbDataReader
     /// </summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的值。</returns>
-    public override Char GetChar(Int32 ordinal) => Convert.ToChar(_Values[ordinal]);
+    public override Char GetChar(Int32 ordinal) => Convert.ToChar(_Values![ordinal]);
 
     /// <summary>
     /// 
@@ -243,63 +240,63 @@ public class MySqlDataReader : DbDataReader
     /// </summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的值。</returns>
-    public override DateTime GetDateTime(Int32 ordinal) => (DateTime)_Values[ordinal];
+    public override DateTime GetDateTime(Int32 ordinal) => (DateTime)_Values![ordinal];
 
     /// <summary>
     /// 以 System.Decimal 对象的形式获取指定列的值。
     /// </summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的值。</returns>
-    public override Decimal GetDecimal(Int32 ordinal) => (Decimal)_Values[ordinal];
+    public override Decimal GetDecimal(Int32 ordinal) => (Decimal)_Values![ordinal];
 
     /// <summary>
     /// 以双精度浮点数字的形式获取指定列的值。
     /// </summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的值。</returns>
-    public override Double GetDouble(Int32 ordinal) => (Double)_Values[ordinal];
+    public override Double GetDouble(Int32 ordinal) => (Double)_Values![ordinal];
 
     /// <summary>
     /// 以单精度浮点数字的形式获取指定列的值。
     /// </summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的值。</returns>
-    public override Single GetFloat(Int32 ordinal) => (Single)_Values[ordinal];
+    public override Single GetFloat(Int32 ordinal) => (Single)_Values![ordinal];
 
     /// <summary>
     /// 以全局唯一标识符 (GUID) 的形式获取指定列的值。
     /// </summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的值。</returns>
-    public override Guid GetGuid(Int32 ordinal) => (Guid)_Values[ordinal];
+    public override Guid GetGuid(Int32 ordinal) => (Guid)_Values![ordinal];
 
     /// <summary>
     /// 16 位有符号整数形式获取指定列的值。
     /// </summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的值。</returns>
-    public override Int16 GetInt16(Int32 ordinal) => (Int16)_Values[ordinal];
+    public override Int16 GetInt16(Int32 ordinal) => (Int16)_Values![ordinal];
 
     /// <summary>
     /// 作为 32 位有符号整数获取指定列的值。
     /// </summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的值。</returns>
-    public override Int32 GetInt32(Int32 ordinal) => (Int32)_Values[ordinal];
+    public override Int32 GetInt32(Int32 ordinal) => (Int32)_Values![ordinal];
 
     /// <summary>
     /// 以 64 位有符号整数的形式获取指定列的值。
     /// </summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的值。</returns>
-    public override Int64 GetInt64(Int32 ordinal) => (Int64)_Values[ordinal];
+    public override Int64 GetInt64(Int32 ordinal) => (Int64)_Values![ordinal];
 
     /// <summary>
     /// 以 System.String 实例的形式获取指定列的值。
     /// </summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的值。</returns>
-    public override String GetString(Int32 ordinal) => (String)_Values[ordinal];
+    public override String GetString(Int32 ordinal) => (String)_Values![ordinal];
     #endregion
 
     #region 辅助

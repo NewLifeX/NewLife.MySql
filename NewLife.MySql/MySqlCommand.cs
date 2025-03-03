@@ -1,5 +1,6 @@
 ﻿using System.Data;
 using System.Data.Common;
+using NewLife.Collections;
 using NewLife.Data;
 using NewLife.MySql.Messages;
 
@@ -115,7 +116,7 @@ public class MySqlCommand : DbCommand, IDisposable
     /// <summary>执行命令，绑定参数后发送请求</summary>
     private void Execute()
     {
-        var ms = new MemoryStream();
+        var ms = Pool.MemoryStream.Get();
         ms.Seek(4, SeekOrigin.Current);
 
         BindParameter(ms);
@@ -125,6 +126,8 @@ public class MySqlCommand : DbCommand, IDisposable
 
         var client = _DbConnection.Client!;
         client.SendQuery(pk);
+
+        Pool.MemoryStream.Return(ms);
     }
 
     private void BindParameter(Stream ms)
