@@ -1,4 +1,5 @@
-﻿using NewLife.MySql;
+﻿using System.Data.Common;
+using NewLife.MySql;
 
 namespace UnitTest;
 
@@ -58,5 +59,12 @@ public class MySqlClientFactoryTests
         // Assert
         Assert.NotNull(connectionStringBuilder);
         Assert.IsType<MySqlConnectionStringBuilder>(connectionStringBuilder);
+    }
+
+    [Fact]
+    public void Test1()
+    {
+        var factory = DbProviderFactories.GetFactory("NewLife.MySql.MySqlClient");
+        Assert.NotNull(factory);
     }
 }

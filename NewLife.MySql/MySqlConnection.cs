@@ -20,6 +20,9 @@ public sealed partial class MySqlConnection : DbConnection
     /// <summary>服务器</summary>
     public override String? DataSource => Setting.Server;
 
+    /// <summary>连接超时</summary>
+    public override Int32 ConnectionTimeout => Setting.ConnectionTimeout;
+
     private String? _Version;
     /// <summary>版本</summary>
     public override String? ServerVersion => _Version;
@@ -30,6 +33,9 @@ public sealed partial class MySqlConnection : DbConnection
 
     /// <summary>工厂</summary>
     public MySqlClientFactory Factory { get; set; } = MySqlClientFactory.Instance;
+
+    /// <summary>提供者工厂</summary>
+    protected override DbProviderFactory DbProviderFactory => Factory;
 
     /// <summary>客户端连接</summary>
     public SqlClient? Client { get; set; }

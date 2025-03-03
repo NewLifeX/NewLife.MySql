@@ -8,6 +8,13 @@ public sealed partial class MySqlClientFactory : DbProviderFactory
     /// <summary>默认实例</summary>
     public static MySqlClientFactory Instance = new();
 
+    static MySqlClientFactory()
+    {
+#if NETSTANDARD2_1_OR_GREATER
+        DbProviderFactories.RegisterFactory("NewLife.MySql.MySqlClient", Instance);
+#endif
+    }
+
     /// <summary>创建命令</summary>
     /// <returns></returns>
     public override DbCommand CreateCommand() => new MySqlCommand();
