@@ -49,18 +49,24 @@ public class MySqlConnectionTests
     }
 
     [Fact]
-    public void TestChangeDatabase_NotImplemented()
+    public void TestChangeDatabase()
     {
-        var connStr = "Server=myServerAddress;Database=myDataBase;User Id=myUsername;Password=myPassword;";
+        var connStr = "Server=localhost;Database=myDataBase;User Id=root;Password=root;";
         var connection = new MySqlConnection(connStr);
 
-        Assert.Throws<NotImplementedException>(() => connection.ChangeDatabase("newDatabase"));
+        Assert.Equal("myDataBase", connection.Database);
+
+        connection.ChangeDatabase("newDatabase");
+
+        Assert.Equal("newDatabase", connection.Database);
+
+        //Assert.Throws<NotImplementedException>(() => connection.ChangeDatabase("newDatabase"));
     }
 
     [Fact]
     public void TestBeginTransaction_NotImplemented()
     {
-        var connStr = "Server=myServerAddress;Database=myDataBase;User Id=myUsername;Password=myPassword;";
+        var connStr = "Server=localhost;Database=myDataBase;User Id=root;Password=root;";
         var connection = new MySqlConnection(connStr);
 
         Assert.Throws<NotImplementedException>(() => connection.BeginTransaction(IsolationLevel.ReadCommitted));

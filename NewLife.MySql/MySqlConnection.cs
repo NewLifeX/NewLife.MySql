@@ -86,7 +86,7 @@ public sealed partial class MySqlConnection : DbConnection
                 client.Open();
 
                 var welcome = client.Welcome;
-                if(welcome != null)
+                if (welcome != null)
                 {
                     _Version = welcome.ServerVersion;
                 }
@@ -150,7 +150,15 @@ public sealed partial class MySqlConnection : DbConnection
 
     /// <summary>改变数据库</summary>
     /// <param name="databaseName"></param>
-    public override void ChangeDatabase(String databaseName) => throw new NotImplementedException();
+    public override void ChangeDatabase(String databaseName)
+    {
+        var opened = State == ConnectionState.Open;
+        if (opened) Close();
+
+        Setting.Database = databaseName;
+
+        if (opened) Open();
+    }
 
     /// <summary>创建命令</summary>
     /// <returns></returns>
