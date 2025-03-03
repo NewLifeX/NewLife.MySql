@@ -39,4 +39,65 @@ public class MySqlCommandTests
                 Assert.Equal("root", values[0]);
         }
     }
+
+    [Fact]
+    public void ExecuteScalar()
+    {
+        using var conn = new MySqlConnection(_ConnStr);
+        conn.Open();
+
+        {
+            var sql = "select statements u from sys.user_summary where user='root'";
+            using var cmd = new MySqlCommand(conn, sql);
+            var rs = cmd.ExecuteScalar();
+
+            var n = rs.ToInt();
+            Assert.True(n > 0);
+        }
+    }
+
+    [Fact]
+    public void TestExecuteNonQuery()
+    {
+        using var conn = new MySqlConnection(_ConnStr);
+        conn.Open();
+
+        {
+            var sql = "delete from sys.sys_config where variable='test'";
+            using var cmd = new MySqlCommand(conn, sql);
+            var rs = cmd.ExecuteNonQuery();
+            Assert.True(rs >= 0);
+        }
+
+        {
+            var sql = "insert into sys.sys_config(variable,value,set_time,set_by) values('test','123',now(),'Stone')";
+            using var cmd = new MySqlCommand(conn, sql);
+            var rs = cmd.ExecuteNonQuery();
+            Assert.True(rs >= 0);
+        }
+        {
+            var sql = "select value v from sys.sys_config where set_by='Stone'";
+            using var cmd = new MySqlCommand(conn, sql);
+            var rs = cmd.ExecuteScalar();
+            Assert.Equal("123", rs);
+        }
+        {
+            var sql = "update sys.sys_config set value=456 where set_by='Stone'";
+            using var cmd = new MySqlCommand(conn, sql);
+            var rs = cmd.ExecuteNonQuery();
+            Assert.True(rs >= 0);
+        }
+        {
+            var sql = "select value v from sys.sys_config where set_by='Stone'";
+            using var cmd = new MySqlCommand(conn, sql);
+            var rs = cmd.ExecuteScalar();
+            Assert.Equal("456", rs);
+        }
+        {
+            var sql = "delete from sys.sys_config where variable='test'";
+            using var cmd = new MySqlCommand(conn, sql);
+            var rs = cmd.ExecuteNonQuery();
+            Assert.True(rs >= 0);
+        }
+    }
 }
