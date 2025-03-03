@@ -5,10 +5,12 @@ namespace UnitTest;
 
 public class MySqlConnectionTests
 {
+    private String _ConnStr = "Server=localhost;Database=sys;User Id=root;Password=root;";
+
     [Fact]
     public void TestOpenConnection()
     {
-        var connStr = "Server=localhost;Database=sys;User Id=root;Password=root;";
+        var connStr = _ConnStr;
         var connection = new MySqlConnection(connStr);
 
         Assert.Equal(ConnectionState.Closed, connection.State);
@@ -38,7 +40,7 @@ public class MySqlConnectionTests
     [Fact]
     public void TestCloseConnection()
     {
-        var connStr = "Server=localhost;Database=sys;User Id=root;Password=root;";
+        var connStr = _ConnStr;
         var connection = new MySqlConnection(connStr);
 
         connection.Open();
@@ -70,5 +72,17 @@ public class MySqlConnectionTests
         var connection = new MySqlConnection(connStr);
 
         Assert.Throws<NotImplementedException>(() => connection.BeginTransaction(IsolationLevel.ReadCommitted));
+    }
+
+    [Fact]
+    public void TestGetSchema()
+    {
+        var connStr = _ConnStr;
+        using var connection = new MySqlConnection(connStr);
+
+        connection.Open();
+
+        var dt = connection.GetSchema();
+        Assert.NotNull(dt);
     }
 }

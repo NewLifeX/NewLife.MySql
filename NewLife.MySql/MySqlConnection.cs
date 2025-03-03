@@ -41,6 +41,7 @@ public sealed partial class MySqlConnection : DbConnection
     public SqlClient? Client { get; set; }
 
     private IPool<SqlClient>? _pool;
+    //private SchemaProvider? _schemaProvider;
     #endregion
 
     #region 构造
@@ -174,6 +175,14 @@ public sealed partial class MySqlConnection : DbConnection
         cmd.Connection = this;
 
         return cmd;
+    }
+
+    /// <summary>获取架构信息</summary>
+    public override DataTable GetSchema(String collectionName, String[] restrictionValues)
+    {
+        //var provider = _schemaProvider ??= new SchemaProvider(this);
+        //return provider.GetSchema(collectionName, restrictionValues).AsDataTable();
+        throw new NotImplementedException();
     }
     #endregion
 }
