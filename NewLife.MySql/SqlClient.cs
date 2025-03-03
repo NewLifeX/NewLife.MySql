@@ -88,6 +88,12 @@ public class SqlClient : DisposeBase
     /// <summary>关闭</summary>
     public void Close()
     {
+        if (_stream != null)
+        {
+            _seq = 0;
+            SendPacket([1]);
+        }
+
         _client.TryDispose();
         _client = null;
         _stream = null;

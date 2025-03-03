@@ -156,6 +156,23 @@ public class SqlClientTests
     }
 
     [Fact]
+    public void SendPacket_Close()
+    {
+        // 通过Mod基础数据流BaseStream来测试数据包写入
+        var ms = new MemoryStream();
+        var client = new SqlClient(null!) { BaseStream = ms };
+
+        var seq = (Byte)Rand.Next(1, 256);
+        client.SetValue("_seq", seq);
+        client.Close();
+
+        var rs = ms.ToArray();
+        Assert.Equal(5, rs.Length);
+        Assert.Equal(1, rs[4]);
+        Assert.Equal(1, (Byte)client.GetValue("_seq")!);
+    }
+
+    [Fact]
     public void SendQuery()
     {
         // 通过Mod基础数据流BaseStream来测试数据包写入
