@@ -29,24 +29,24 @@ class Program
         var conn = new MySqlConnection(connStr);
         conn.Open();
 
-        using (var cmd = new MySqlCommand(conn, "select * from `user`"))
-        using (var dr = cmd.ExecuteReader())
+        using var cmd = new MySqlCommand(conn, "select * from `user`");
+        using var dr = cmd.ExecuteReader();
+
+        Console.WriteLine();
+        for (var i = 0; i < dr.FieldCount; i++)
         {
-            Console.WriteLine();
+            Console.Write("{0}\t", dr.GetName(i));
+        }
+
+        Console.WriteLine();
+        while (dr.Read())
+        {
+            //Console.WriteLine(dr[0]);
             for (var i = 0; i < dr.FieldCount; i++)
             {
-                Console.Write("{0}\t", dr.GetName(i));
+                Console.Write("{0}\t", dr.GetValue(i));
             }
             Console.WriteLine();
-            while (dr.Read())
-            {
-                //Console.WriteLine(dr[0]);
-                for (var i = 0; i < dr.FieldCount; i++)
-                {
-                    Console.Write("{0}\t", dr.GetValue(i));
-                }
-                Console.WriteLine();
-            }
         }
     }
 
