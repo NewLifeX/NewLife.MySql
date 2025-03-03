@@ -204,7 +204,7 @@ public class SqlClientTests
 
         var welcome = client.Welcome;
         Assert.NotNull(welcome);
-        Assert.NotEmpty(welcome.Version);
+        Assert.NotEmpty(welcome.ServerVersion);
         Assert.Equal(ServerStatus.AutoCommitMode, welcome.Status);
 
         client.Close();

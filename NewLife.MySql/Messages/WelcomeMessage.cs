@@ -11,7 +11,7 @@ public class WelcomeMessage
     public Byte Protocol { get; set; } = 10;
 
     /// <summary>服务器版本</summary>
-    public String? Version { get; set; }
+    public String? ServerVersion { get; set; }
 
     /// <summary>连接ID</summary>
     public UInt32 ThreadID { get; set; }
@@ -39,7 +39,7 @@ public class WelcomeMessage
         var reader = new SpanReader(span) { IsLittleEndian = true };
 
         Protocol = reader.ReadByte();
-        Version = reader.ReadZeroString();
+        ServerVersion = reader.ReadZeroString();
         ThreadID = reader.ReadUInt32();
 
         var seed1 = reader.ReadZero();

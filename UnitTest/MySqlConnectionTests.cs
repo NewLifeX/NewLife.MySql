@@ -12,14 +12,27 @@ public class MySqlConnectionTests
         var connection = new MySqlConnection(connStr);
 
         Assert.Equal(ConnectionState.Closed, connection.State);
+        Assert.NotNull(connection.Setting);
+        Assert.Equal(connStr.Replace("User Id", "UserID").TrimEnd(';'), connection.ConnectionString);
+        Assert.Equal("sys", connection.Database);
+        Assert.Equal("localhost", connection.DataSource);
+        Assert.Null(connection.ServerVersion);
+        Assert.NotNull(connection.Factory);
+        Assert.Null(connection.Client);
 
         connection.Open();
 
         Assert.Equal(ConnectionState.Open, connection.State);
+        Assert.NotNull(connection.Client);
+        Assert.NotNull(connection.ServerVersion);
+
+        var pool = connection.Factory.PoolManager.GetPool(connection.Setting);
+        Assert.True(pool.Total > 0);
 
         connection.Close();
 
         Assert.Equal(ConnectionState.Closed, connection.State);
+        Assert.Null(connection.Client);
     }
 
     [Fact]

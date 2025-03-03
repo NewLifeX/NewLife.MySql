@@ -32,7 +32,7 @@ public class WelcomeMessageTests
 
         // Assert
         Assert.Equal(10, message.Protocol);
-        Assert.Equal("5.7.2", message.Version);
+        Assert.Equal("5.7.2", message.ServerVersion);
         Assert.Equal(1u, message.ThreadID);
         Assert.Equal([97, 98, 99, 0, 100, 101, 102, 0], message.Seed);
         Assert.Equal((UInt32)0xFFFF, (UInt32)message.Capability & 0xFFFF);
@@ -55,7 +55,7 @@ public class WelcomeMessageTests
 
         // Assert
         Assert.Equal(10, message.Protocol);
-        Assert.Equal("8.0.39", message.Version);
+        Assert.Equal("8.0.39", message.ServerVersion);
         Assert.Equal(28u, message.ThreadID);
         Assert.Equal([2, 68, 57, 82, 62, 83, 7, 65, 0, 127, 20, 70, 126, 27, 11, 19, 29, 28, 92, 92, 37, 0], message.Seed);
         Assert.Equal((UInt32)0xFFFF, (UInt32)message.Capability & 0xFFFF);
