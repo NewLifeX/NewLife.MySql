@@ -177,12 +177,18 @@ public sealed partial class MySqlConnection : DbConnection
         return cmd;
     }
 
+    ///// <summary>获取架构信息</summary>
+    //public override DataTable GetSchema() => GetSchema(null!, null!);
+
+    ///// <summary>获取架构信息</summary>
+    //public override DataTable GetSchema(String collectionName) => GetSchema(collectionName, null!);
+
     /// <summary>获取架构信息</summary>
     public override DataTable GetSchema(String collectionName, String[] restrictionValues)
     {
         //var provider = _schemaProvider ??= new SchemaProvider(this);
         //return provider.GetSchema(collectionName, restrictionValues).AsDataTable();
-        throw new NotImplementedException();
+        throw new NotSupportedException();
     }
     #endregion
 }

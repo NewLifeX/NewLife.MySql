@@ -82,7 +82,8 @@ public class MySqlConnectionTests
 
         connection.Open();
 
-        var dt = connection.GetSchema();
-        Assert.NotNull(dt);
+        //var dt = connection.GetSchema();
+        //Assert.NotNull(dt);
+        Assert.Throws<NotSupportedException>(() => connection.GetSchema());
     }
 }
