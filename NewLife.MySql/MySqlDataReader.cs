@@ -1,7 +1,6 @@
 ﻿using System.Collections;
 using System.Data;
 using System.Data.Common;
-using NewLife.MySql.Common;
 
 namespace NewLife.MySql;
 

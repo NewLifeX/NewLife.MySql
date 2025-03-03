@@ -87,7 +87,7 @@ public sealed partial class MySqlConnection : DbConnection
                 Client = client;
 
                 // 配置参数
-                client.Configure(this);
+                client.Configure();
             }
         }
         catch (Exception)

@@ -9,21 +9,21 @@ namespace NewLife.MySql;
 public class MySqlCommand : DbCommand, IDisposable
 {
     #region 属性
-    private MySqlConnection _DbConnection;
+    private MySqlConnection _DbConnection = null!;
     /// <summary>连接</summary>
     protected override DbConnection DbConnection { get => _DbConnection; set => _DbConnection = (value as MySqlConnection)!; }
 
     /// <summary>命令语句</summary>
-    public override String CommandText { get; set; }
+    public override String CommandText { get; set; } = null!;
 
     /// <summary>命令类型</summary>
     public override CommandType CommandType { get; set; }
 
     /// <summary>事务</summary>
-    protected override DbTransaction DbTransaction { get; set; }
+    protected override DbTransaction? DbTransaction { get; set; }
 
     /// <summary>参数集合</summary>
-    protected override DbParameterCollection DbParameterCollection { get; }
+    protected override DbParameterCollection? DbParameterCollection { get; }
 
     /// <summary>命令语句</summary>
     public override Int32 CommandTimeout { get; set; }
@@ -96,7 +96,7 @@ public class MySqlCommand : DbCommand, IDisposable
 
     /// <summary>执行并返回第一行</summary>
     /// <returns></returns>
-    public override Object ExecuteScalar()
+    public override Object? ExecuteScalar()
     {
         using var reader = ExecuteReader();
         if (reader.Read()) return reader.GetValue(0);

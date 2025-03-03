@@ -94,10 +94,9 @@ public class SqlClient : DisposeBase
     }
 
     /// <summary>配置</summary>
-    /// <param name="conn"></param>
-    public virtual void Configure(MySqlConnection conn)
+    public virtual void Configure()
     {
-        var vs = Variables = LoadVariables(conn);
+        var vs = Variables = LoadVariables();
 
         if (vs.TryGetValue("max_allowed_packet", out var str)) MaxPacketSize = str.ToLong();
         vs.TryGetValue("character_set_client", out var clientCharSet);
@@ -122,9 +121,10 @@ public class SqlClient : DisposeBase
 
     /// <summary>加载服务器变量</summary>
     /// <returns></returns>
-    private IDictionary<String, String> LoadVariables(MySqlConnection conn)
+    private IDictionary<String, String> LoadVariables()
     {
         var dic = new Dictionary<String, String>();
+        var conn = new MySqlConnection { Client = this };
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SHOW VARIABLES";
 

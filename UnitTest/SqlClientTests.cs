@@ -3,6 +3,7 @@ using NewLife.Buffers;
 using NewLife.Data;
 using NewLife.MySql;
 using NewLife.MySql.Common;
+using NewLife.MySql.Messages;
 using NewLife.Reflection;
 using NewLife.Security;
 
@@ -199,6 +200,12 @@ public class SqlClientTests
         Assert.NotNull(client.Setting);
         Assert.Equal(3306, client.Setting.Port);
         Assert.NotNull(client.GetValue("_client"));
+        Assert.NotEqual(0, (Int32)client.Capability);
+
+        var welcome = client.Welcome;
+        Assert.NotNull(welcome);
+        Assert.NotEmpty(welcome.Version);
+        Assert.Equal(ServerStatus.AutoCommitMode, welcome.Status);
 
         client.Close();
         Assert.Null(client.GetValue("_client"));
@@ -224,9 +231,10 @@ public class SqlClientTests
         Assert.NotNull(client.Setting);
         Assert.Equal(3306, client.Setting.Port);
 
-        var conn = new MySqlConnection(setting.ConnectionString);
-        conn.Client = client;
-        client.Configure(conn);
+        //var conn = new MySqlConnection(setting.ConnectionString);
+        //conn.Client = client;
+        client.Configure();
+        Assert.True(client.MaxPacketSize >= 1024 * 1024);
 
         Assert.NotNull(client.Variables);
         Assert.True(client.Variables.Count > 0);
