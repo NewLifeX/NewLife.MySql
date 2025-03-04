@@ -91,7 +91,7 @@ public class SqlClient : DisposeBase
         if (_stream != null)
         {
             _seq = 0;
-            SendPacket([1]);
+            SendPacket([(Byte)DbCmd.QUIT]);
         }
 
         _client.TryDispose();
@@ -235,7 +235,9 @@ public class SqlClient : DisposeBase
             var status = reader.ReadUInt16();
         }
     }
+    #endregion
 
+    #region 查询命令
     /// <summary>发送查询请求</summary>
     /// <param name="pk"></param>
     public void SendQuery(IPacket pk)

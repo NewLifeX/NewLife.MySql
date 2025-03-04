@@ -168,7 +168,7 @@ public class SqlClientTests
 
         var rs = ms.ToArray();
         Assert.Equal(5, rs.Length);
-        Assert.Equal(1, rs[4]);
+        Assert.Equal(DbCmd.QUIT, (DbCmd)rs[4]);
         Assert.Equal(1, (Byte)client.GetValue("_seq")!);
     }
 
