@@ -10,6 +10,24 @@ public class MySqlPool : ObjectPool<SqlClient>
     /// <summary>设置</summary>
     public MySqlConnectionStringBuilder? Setting { get; set; }
 
+    private IDictionary<String, String>? _Variables;
+    private DateTime _nextTime;
+    /// <summary>服务器变量</summary>
+    public IDictionary<String, String>? Variables
+    {
+        get
+        {
+            if (_Variables == null || _nextTime < DateTime.Now) return null;
+
+            return _Variables;
+        }
+        set
+        {
+            _Variables = value;
+            _nextTime = DateTime.Now.AddMinutes(10);
+        }
+    }
+
     /// <summary>创建连接</summary>
     protected override SqlClient OnCreate()
     {

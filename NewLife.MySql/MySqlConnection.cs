@@ -40,8 +40,8 @@ public sealed partial class MySqlConnection : DbConnection
     /// <summary>客户端连接</summary>
     public SqlClient? Client { get; set; }
 
-    private IPool<SqlClient>? _pool;
-    //private SchemaProvider? _schemaProvider;
+    private MySqlPool? _pool;
+    private SchemaProvider? _schemaProvider;
     #endregion
 
     #region 构造
@@ -100,8 +100,12 @@ public sealed partial class MySqlConnection : DbConnection
 
                 Client = client;
 
-                // 配置参数
+                // 配置参数，优先从连接池获取缓存的变量
+                var vs = _pool?.Variables;
+                if (vs != null) client.Variables = vs;
+
                 client.Configure();
+                if (_pool != null) _pool.Variables = client.Variables;
             }
         }
         catch (Exception)

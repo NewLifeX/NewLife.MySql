@@ -21,7 +21,7 @@ public class SqlClient : DisposeBase
     public ClientFlags Capability { get; set; }
 
     /// <summary>服务器变量</summary>
-    public IDictionary<String, String> Variables { get; private set; } = new Dictionary<String, String>();
+    public IDictionary<String, String> Variables { get; set; } = new Dictionary<String, String>();
 
     private Stream? _stream;
     /// <summary>基础数据流</summary>
@@ -103,7 +103,7 @@ public class SqlClient : DisposeBase
     /// <summary>配置</summary>
     public virtual void Configure()
     {
-        var vs = Variables = LoadVariables();
+        var vs = Variables ??= LoadVariables();
 
         if (vs.TryGetValue("max_allowed_packet", out var str)) MaxPacketSize = str.ToLong();
         vs.TryGetValue("character_set_client", out var clientCharSet);
