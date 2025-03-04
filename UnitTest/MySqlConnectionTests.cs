@@ -82,8 +82,18 @@ public class MySqlConnectionTests
 
         connection.Open();
 
-        //var dt = connection.GetSchema();
-        //Assert.NotNull(dt);
-        Assert.Throws<NotSupportedException>(() => connection.GetSchema());
+        var dt = connection.GetSchema();
+        Assert.NotNull(dt);
+        Assert.Equal(8, dt.Rows.Count);
+        //Assert.Throws<NotSupportedException>(() => connection.GetSchema());
+
+        foreach (DataRow dr in dt.Rows)
+        {
+            var name = dr["CollectionName"]?.ToString();
+
+            var dt2 = connection.GetSchema(name);
+            Assert.NotNull(dt2);
+            Assert.NotEmpty(dt2.Rows);
+        }
     }
 }

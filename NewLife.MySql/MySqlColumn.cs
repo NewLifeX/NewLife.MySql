@@ -40,4 +40,7 @@ public class MySqlColumn
 
     /// <summary>小数位数</summary>
     public Byte Scale { get; set; }
+
+    /// <summary>已重载</summary>
+    public override String ToString() => $"{Name} {Type}({Length})";
 }

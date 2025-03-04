@@ -23,9 +23,9 @@ public sealed partial class MySqlConnection : DbConnection
     /// <summary>连接超时</summary>
     public override Int32 ConnectionTimeout => Setting.ConnectionTimeout;
 
-    private String? _Version;
+    private String _Version = null!;
     /// <summary>版本</summary>
-    public override String? ServerVersion => _Version;
+    public override String ServerVersion => _Version;
 
     private ConnectionState _State;
     /// <summary>连接状态</summary>
@@ -181,18 +181,18 @@ public sealed partial class MySqlConnection : DbConnection
         return cmd;
     }
 
-    ///// <summary>获取架构信息</summary>
-    //public override DataTable GetSchema() => GetSchema(null!, null!);
-
-    ///// <summary>获取架构信息</summary>
-    //public override DataTable GetSchema(String collectionName) => GetSchema(collectionName, null!);
+    /// <summary>获取架构信息</summary>
+    public override DataTable GetSchema() => GetSchema(null, null);
 
     /// <summary>获取架构信息</summary>
-    public override DataTable GetSchema(String collectionName, String[] restrictionValues)
+    public override DataTable GetSchema(String collectionName) => GetSchema(collectionName, null);
+
+    /// <summary>获取架构信息</summary>
+    public override DataTable GetSchema(String? collectionName, String[]? restrictionValues)
     {
-        //var provider = _schemaProvider ??= new SchemaProvider(this);
-        //return provider.GetSchema(collectionName, restrictionValues).AsDataTable();
-        throw new NotSupportedException();
+        var provider = _schemaProvider ??= new SchemaProvider(this);
+        return provider.GetSchema(collectionName, restrictionValues).AsDataTable();
+        //throw new NotSupportedException();
     }
     #endregion
 }

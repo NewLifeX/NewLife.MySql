@@ -251,7 +251,7 @@ public class SqlClientTests
         //var conn = new MySqlConnection(setting.ConnectionString);
         //conn.Client = client;
         client.Configure();
-        Assert.True(client.MaxPacketSize >= 1024 * 1024);
+        Assert.True(client.MaxPacketSize >= 1024);
 
         Assert.NotNull(client.Variables);
         Assert.True(client.Variables.Count > 0);

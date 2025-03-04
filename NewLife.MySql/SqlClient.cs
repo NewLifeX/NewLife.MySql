@@ -15,13 +15,13 @@ public class SqlClient : DisposeBase
     public MySqlConnectionStringBuilder Setting { get; }
 
     /// <summary>最大包大小</summary>
-    public Int64 MaxPacketSize { get; private set; } = 1024;
+    public Int64 MaxPacketSize { get; private set; }
 
     /// <summary>服务器特性</summary>
     public ClientFlags Capability { get; set; }
 
     /// <summary>服务器变量</summary>
-    public IDictionary<String, String> Variables { get; set; } = new Dictionary<String, String>();
+    public IDictionary<String, String>? Variables { get; set; }
 
     private Stream? _stream;
     /// <summary>基础数据流</summary>
@@ -303,11 +303,14 @@ public class SqlClient : DisposeBase
             values[i] = columns[i].Type switch
             {
                 MySqlDbType.Decimal or MySqlDbType.NewDecimal => Decimal.Parse(buf.ToStr()),
-                MySqlDbType.Byte or MySqlDbType.Int16 or MySqlDbType.Int32 or MySqlDbType.Int64 or MySqlDbType.UInt16 or MySqlDbType.UInt32 or MySqlDbType.UInt64 => Int64.Parse(buf.ToStr()),
+                MySqlDbType.Byte or MySqlDbType.Int16 or MySqlDbType.Int24 or MySqlDbType.Int32 or MySqlDbType.Int64 or MySqlDbType.UInt16 or MySqlDbType.UInt24 or MySqlDbType.UInt32 or MySqlDbType.UInt64 => Int64.Parse(buf.ToStr()),
                 MySqlDbType.Float or MySqlDbType.Double => Double.Parse(buf.ToStr()),
-                MySqlDbType.DateTime => buf.ToStr().ToDateTime(),
+                MySqlDbType.DateTime or MySqlDbType.Timestamp or MySqlDbType.Date or MySqlDbType.Time => buf.ToStr().ToDateTime(),
                 MySqlDbType.VarChar or MySqlDbType.String or MySqlDbType.TinyText or MySqlDbType.MediumText or MySqlDbType.LongText or MySqlDbType.Text or MySqlDbType.VarString or MySqlDbType.Enum => buf.ToStr(),
-                MySqlDbType.Blob => buf.ToStr(),
+                MySqlDbType.Blob or MySqlDbType.TinyBlob or MySqlDbType.MediumBlob or MySqlDbType.LongBlob => buf.ToStr(),
+                MySqlDbType.Bit => buf[0],
+                MySqlDbType.Json => buf.ToStr(),
+                MySqlDbType.Guid => buf.ToStr(),
                 _ => buf,
             };
         }
