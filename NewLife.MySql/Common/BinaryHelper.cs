@@ -3,6 +3,7 @@ using NewLife.Data;
 
 namespace NewLife.MySql.Common;
 
+/// <summary>二进制辅助</summary>
 public static class BinaryHelper
 {
     /// <summary>读取零结尾的C格式字符串</summary>
@@ -96,4 +97,10 @@ public static class BinaryHelper
             writer.Write((UInt32)length);
         }
     }
+
+    /// <summary>是否结尾数据包</summary>
+    public static Boolean IsEOF(this IPacket pk) => pk.Length != 0 && pk[0] == 0xFE;
+
+    /// <summary>是否OK数据包</summary>
+    public static Boolean IsOK(this IPacket pk) => pk.Length != 0 && pk[0] == 0x00;
 }

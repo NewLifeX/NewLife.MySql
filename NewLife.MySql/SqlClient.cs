@@ -1,5 +1,6 @@
 ﻿using System.Data;
 using System.Net.Sockets;
+using NewLife.Collections;
 using NewLife.Data;
 using NewLife.MySql.Common;
 using NewLife.MySql.Messages;
@@ -117,7 +118,7 @@ public class SqlClient : DisposeBase
     private WelcomeMessage GetWelcome()
     {
         // 读取数据包
-        var pk = ReadPacket();
+        using var pk = ReadPacket();
 
         var msg = new WelcomeMessage();
         msg.Read(pk.GetSpan());
@@ -150,38 +151,35 @@ public class SqlClient : DisposeBase
     #region 网络操作
     /// <summary>读取数据包</summary>
     /// <returns></returns>
-    public IPacket ReadPacket()
+    public IOwnerPacket ReadPacket()
     {
         var ms = _stream ?? throw new InvalidOperationException("未打开连接");
 
         // 3字节长度 + 1字节序列号
-        var buf = ms.ReadBytes(4);
+        var buf = Pool.Shared.Rent(4);
+        var count = ms.Read(buf, 0, 4);
+        if (count < 4) throw new InvalidDataException("读取数据包头部失败");
+
         var len = buf[0] + (buf[1] << 8) + (buf[2] << 16);
         _seq = (Byte)(buf[3] + 1);
+        Pool.Shared.Return(buf);
 
-        buf = ms.ReadBytes(len);
-        var pk = new ArrayPacket(buf);
+        var pk = new OwnerPacket(len);
+        count = ms.Read(pk.Buffer, pk.Offset, len);
+        pk.Resize(count);
 
         // 错误包
-        if (buf[0] == 0xFF)
+        if (pk[0] == 0xFF)
         {
-            var code = buf.ToUInt16(1);
-            var msg = pk.Slice(1 + 2).ReadZeroString();
+            var code = pk.ReadBytes(1, 2).ToUInt16();
+            var msg = pk.Slice(1 + 2, -1).ReadZeroString();
+            pk.TryDispose();
 
             // 前面有6字符错误码
             if (!msg.IsNullOrEmpty() && msg[0] == '#')
                 throw new MySqlException(code, msg[..6], msg[6..]);
             else
                 throw new MySqlException(code, msg);
-        }
-        else if (pk[0] == 0xFE)
-        {
-            var reader = new BinaryReader(pk.GetStream());
-
-            var warnings = reader.ReadUInt16();
-            var status = reader.ReadUInt16();
-
-            //pk = null;
         }
 
         return pk;
@@ -209,32 +207,6 @@ public class SqlClient : DisposeBase
     /// <summary>发送数据包</summary>
     /// <param name="buf"></param>
     public void SendPacket(Byte[] buf) => SendPacket((ArrayPacket)buf);
-
-    /// <summary>读取OK</summary>
-    public IPacket ReadOK()
-    {
-        var pk = ReadPacket();
-        var reader = new BinaryReader(pk.GetStream());
-
-        // 影响行数、最后插入ID
-        reader.ReadLength();
-        reader.ReadLength();
-
-        return pk;
-    }
-
-    /// <summary>读取EOF</summary>
-    public void ReadEOF()
-    {
-        var pk = ReadPacket();
-        if (pk[0] == 0xFE)
-        {
-            var reader = new BinaryReader(pk.GetStream());
-
-            var warnings = reader.ReadUInt16();
-            var status = reader.ReadUInt16();
-        }
-    }
     #endregion
 
     #region 查询命令
@@ -256,11 +228,11 @@ public class SqlClient : DisposeBase
     /// <returns></returns>
     public Int32 GetResult(ref Int32 affectedRow, ref Int64 insertedId)
     {
-        var pk = ReadPacket();
+        using var pk = ReadPacket();
         var reader = new BinaryReader(pk.GetStream());
 
         // 读取列信息
-        var fieldCount = (Int32)reader.ReadLength();
+        var fieldCount = reader.ReadLength();
 
         return fieldCount;
     }
@@ -269,10 +241,12 @@ public class SqlClient : DisposeBase
     /// <param name="count"></param>
     public MySqlColumn[] GetColumns(Int32 count)
     {
-        var list = new MySqlColumn[count];
+        var list = new List<MySqlColumn>(count);
         for (var i = 0; i < count; i++)
         {
-            var pk = ReadPacket();
+            using var pk = ReadPacket();
+            if (pk.IsEOF()) break;
+
             var ms = pk.GetStream();
             var reader = new BinaryReader(ms);
 
@@ -294,10 +268,13 @@ public class SqlClient : DisposeBase
 
             if (ms.Position + 2 < ms.Length) reader.ReadInt16();
 
-            list[i] = dc;
+            list.Add(dc);
         }
 
-        ReadEOF();
+        {
+            using var pk = ReadPacket();
+            if (pk.IsEOF()) { }
+        }
 
         return list.ToArray();
     }
@@ -308,27 +285,21 @@ public class SqlClient : DisposeBase
     /// <returns></returns>
     public Boolean NextRow(Object[] values, MySqlColumn[] columns)
     {
-        var pk = ReadPacket();
-        if (pk == null) return false;
-
-        // EOF包
-        if (pk[0] == 0xFE) return false;
+        using var pk = ReadPacket();
+        if (pk.IsEOF()) return false;
 
         var ms = pk.GetStream();
         var reader = new BinaryReader(ms);
         for (var i = 0; i < values.Length; i++)
         {
-            var len = (Int32)reader.ReadLength();
+            var len = reader.ReadLength();
             if (len == -1)
             {
                 values[i] = DBNull.Value;
                 continue;
             }
 
-            //var p = ms.Position;
             var buf = reader.ReadBytes(len);
-            //values[i] = buf;
-
             values[i] = columns[i].Type switch
             {
                 MySqlDbType.Decimal or MySqlDbType.NewDecimal => Decimal.Parse(buf.ToStr()),
@@ -339,11 +310,7 @@ public class SqlClient : DisposeBase
                 MySqlDbType.Blob => buf.ToStr(),
                 _ => buf,
             };
-
-            //ms.Position = p + len;
         }
-
-        //ReadEOF();
 
         return true;
     }

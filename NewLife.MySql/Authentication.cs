@@ -59,17 +59,17 @@ class Authentication(SqlClient client)
         client.SendPacket(pk2);
 
         // 读取响应
-        var rs = client.ReadPacket();
+        using var rs = client.ReadPacket();
 
         // 如果返回0xFE，表示需要继续验证。例如 caching_sha2_password 验证降级为 mysql_native_password 验证
         if (rs[0] == 0xFE)
-            rs = ToNativePassword(rs.Slice(1), set.Password!);
+            ToNativePassword(rs.Slice(1), set.Password!);
         else if (rs[0] == 0x01 && rs[1] == 0x04)
             // perform_full_authentication
-            rs = PerformFullAuthentication(set.Password!, seed);
+            PerformFullAuthentication(set.Password!, seed);
     }
 
-    private IPacket ToNativePassword(IPacket rs, String password)
+    private void ToNativePassword(IPacket rs, String password)
     {
         var reader = new SpanReader(rs);
 
@@ -80,21 +80,23 @@ class Authentication(SqlClient client)
             var pass = Get411Password(password, authData[..^1].ToArray());
             _client.SendPacket(pass);
 
-            return client.ReadPacket();
+            using var rs2 = client.ReadPacket();
+            if (!rs2.IsOK())
+                throw new InvalidOperationException("验证失败");
         }
         else
             throw new NotSupportedException(authMethod);
     }
 
-    private IPacket PerformFullAuthentication(String password, Byte[] seedBytes)
+    private void PerformFullAuthentication(String password, Byte[] seedBytes)
     {
         // request_public_key
         var buf = new Byte[] { 0x02 };
         _client.SendPacket(buf);
 
         // 读取响应
-        var rs = _client.ReadPacket();
-        if (rs[0] != 0x01) return null!;
+        using var rs = _client.ReadPacket();
+        if (rs[0] != 0x01) return;
 
         var key = rs.Slice(1).ReadZeroString();
 
@@ -108,7 +110,9 @@ class Authentication(SqlClient client)
         _client.SendPacket(encryptedPassword);
 
         // 读取响应
-        return _client.ReadPacket();
+        using var rs2 = _client.ReadPacket();
+        if (!rs2.IsOK())
+            throw new InvalidOperationException("验证失败");
     }
 
     #region 辅助
