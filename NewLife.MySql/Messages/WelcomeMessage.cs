@@ -63,5 +63,35 @@ public class WelcomeMessage
             // 一些 MySql 版本如 5.1，不提供插件名称，默认为 native password。
             AuthMethod = "mysql_native_password";
     }
+
+    /// <summary>读取</summary>
+    public void Read(BinaryReader reader)
+    {
+        Protocol = reader.ReadByte();
+        ServerVersion = reader.ReadZeroString();
+        ThreadID = reader.ReadUInt32();
+
+        var seed1 = reader.ReadZero();
+        var cap = (ClientFlags)reader.ReadUInt16();
+        CharSet = reader.ReadByte();
+        Status = (ServerStatus)reader.ReadUInt16();
+
+        Capability = cap | (ClientFlags)(reader.ReadUInt16() << 16);
+
+        var len = reader.ReadByte();
+        //reader.Advance(10);
+        reader.ReadBytes(10);
+        var seed2 = reader.ReadZero();
+        var seed = new Byte[seed1.Length + seed2.Length];
+        seed1.CopyTo(seed);
+        seed2.CopyTo(new Span<Byte>(seed, seed1.Length, seed2.Length));
+        Seed = seed;
+
+        if (Capability.HasFlag(ClientFlags.PLUGIN_AUTH))
+            AuthMethod = reader.ReadZeroString();
+        else
+            // 一些 MySql 版本如 5.1，不提供插件名称，默认为 native password。
+            AuthMethod = "mysql_native_password";
+    }
     #endregion
 }

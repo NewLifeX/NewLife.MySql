@@ -118,10 +118,10 @@ public class SqlClient : DisposeBase
     private WelcomeMessage GetWelcome()
     {
         // 读取数据包
-        using var pk = ReadPacket();
+        var rs = ReadPacket();
 
         var msg = new WelcomeMessage();
-        msg.Read(pk.GetSpan());
+        msg.Read(rs.GetReader());
 
         return msg;
     }
@@ -151,29 +151,34 @@ public class SqlClient : DisposeBase
     #region 网络操作
     /// <summary>读取数据包</summary>
     /// <returns></returns>
-    public IOwnerPacket ReadPacket()
+    public Response ReadPacket()
     {
         var ms = _stream ?? throw new InvalidOperationException("未打开连接");
 
-        // 3字节长度 + 1字节序列号
-        var buf = Pool.Shared.Rent(4);
-        var count = ms.Read(buf, 0, 4);
+        // 3字节长度 + 1字节序列号。多读取1字节命令字
+        var buf = Pool.Shared.Rent(5);
+        var count = ms.Read(buf, 0, 5);
         if (count < 4) throw new InvalidDataException("读取数据包头部失败");
 
-        var len = buf[0] + (buf[1] << 8) + (buf[2] << 16);
-        _seq = (Byte)(buf[3] + 1);
+        var rs = new Response(ms)
+        {
+            Length = buf[0] + (buf[1] << 8) + (buf[2] << 16),
+            Sequence = buf[3],
+            Kind = buf[4],
+        };
+        _seq = (Byte)(rs.Sequence + 1);
         Pool.Shared.Return(buf);
 
-        var pk = new OwnerPacket(len);
-        count = ms.Read(pk.Buffer, pk.Offset, len);
-        pk.Resize(count);
+        //var pk = new OwnerPacket(len);
+        //count = ms.Read(pk.Buffer, pk.Offset, len);
+        //pk.Resize(count);
 
         // 错误包
-        if (pk[0] == 0xFF)
+        if (rs.IsError)
         {
-            var code = pk.ReadBytes(1, 2).ToUInt16();
-            var msg = pk.Slice(1 + 2, -1).ReadZeroString();
-            pk.TryDispose();
+            //var reader = rs.GetReader();
+            var code = ms.ReadBytes(2).ToUInt16();
+            var msg = ms.ReadBytes(rs.Length - 1 - 2).ReadZeroString();
 
             // 前面有6字符错误码
             if (!msg.IsNullOrEmpty() && msg[0] == '#')
@@ -182,7 +187,7 @@ public class SqlClient : DisposeBase
                 throw new MySqlException(code, msg);
         }
 
-        return pk;
+        return rs;
     }
 
     /// <summary>发送数据包。建议数据包头部预留4字节空间以填充帧头</summary>
@@ -228,11 +233,10 @@ public class SqlClient : DisposeBase
     /// <returns></returns>
     public Int32 GetResult(ref Int32 affectedRow, ref Int64 insertedId)
     {
-        using var pk = ReadPacket();
-        var reader = new BinaryReader(pk.GetStream());
+        var rs = ReadPacket();
 
         // 读取列信息
-        var fieldCount = reader.ReadLength();
+        var fieldCount = rs.ReadLength();
 
         return fieldCount;
     }
@@ -244,11 +248,10 @@ public class SqlClient : DisposeBase
         var list = new List<MySqlColumn>(count);
         for (var i = 0; i < count; i++)
         {
-            using var pk = ReadPacket();
-            if (pk.IsEOF()) break;
+            var rs = ReadPacket();
+            if (rs.IsEOF) break;
 
-            var ms = pk.GetStream();
-            var reader = new BinaryReader(ms);
+            var reader = rs.GetReader();
 
             var dc = new MySqlColumn
             {
@@ -266,14 +269,15 @@ public class SqlClient : DisposeBase
                 Scale = reader.ReadByte()
             };
 
+            var ms = rs.Stream;
             if (ms.Position + 2 < ms.Length) reader.ReadInt16();
 
             list.Add(dc);
         }
 
         {
-            using var pk = ReadPacket();
-            if (pk.IsEOF()) { }
+            var pk = ReadPacket();
+            if (pk.IsEOF) { }
         }
 
         return list.ToArray();
@@ -285,14 +289,15 @@ public class SqlClient : DisposeBase
     /// <returns></returns>
     public Boolean NextRow(Object[] values, MySqlColumn[] columns)
     {
-        using var pk = ReadPacket();
-        if (pk.IsEOF()) return false;
+        var rs = ReadPacket();
+        if (rs.IsEOF) return false;
 
-        var ms = pk.GetStream();
-        var reader = new BinaryReader(ms);
+        // 第一回读取长度
+        var len = rs.ReadLength();
+        var reader = rs.GetReader();
         for (var i = 0; i < values.Length; i++)
         {
-            var len = reader.ReadLength();
+            if (len < 0) len = reader.ReadLength();
             if (len == -1)
             {
                 values[i] = DBNull.Value;
@@ -313,6 +318,8 @@ public class SqlClient : DisposeBase
                 MySqlDbType.Guid => buf.ToStr(),
                 _ => buf,
             };
+
+            len = -1;
         }
 
         return true;

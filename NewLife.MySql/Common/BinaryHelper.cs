@@ -1,4 +1,5 @@
-﻿using NewLife.Buffers;
+﻿using System.Text;
+using NewLife.Buffers;
 using NewLife.Data;
 
 namespace NewLife.MySql.Common;
@@ -37,6 +38,35 @@ public static class BinaryHelper
     }
 
     /// <summary>读取零结尾的C格式字符串</summary>
+    /// <param name="stream"></param>
+    /// <param name="span"></param>
+    /// <returns></returns>
+    public static Span<Byte> ReadZero(this Stream stream, Span<Byte> span)
+    {
+        var i = 0;
+        for (i = 0; i < span.Length; i++)
+        {
+            var b = stream.ReadByte();
+            if (b <= 0) break;
+
+            span[i] = (Byte)b;
+        }
+
+        return span[..i];
+    }
+
+    /// <summary>读取零结尾的C格式字符串</summary>
+    /// <param name="reader"></param>
+    /// <returns></returns>
+    public static Span<Byte> ReadZero(this BinaryReader reader)
+    {
+        var maxLength = 1024;
+        //if (reader.BaseStream is NetworkStream ns) maxLength = ns.Socket.Available;
+
+        return reader.BaseStream.ReadZero(new Byte[maxLength]);
+    }
+
+    /// <summary>读取零结尾的C格式字符串</summary>
     /// <param name="pk"></param>
     /// <returns></returns>
     public static String ReadZeroString(this IPacket pk) => pk.ReadZero().ToStr();
@@ -45,6 +75,34 @@ public static class BinaryHelper
     /// <param name="reader"></param>
     /// <returns></returns>
     public static String ReadZeroString(this ref SpanReader reader) => reader.ReadZero()[..^1].ToStr();
+
+    /// <summary>读取零结尾的C格式字符串</summary>
+    /// <param name="data"></param>
+    /// <returns></returns>
+    public static String ReadZeroString(this Byte[] data)
+    {
+        var p = 0;
+        while (p < data.Length && data[p] != 0) p++;
+
+        return Encoding.UTF8.GetString(data, 0, p);
+    }
+
+    /// <summary>读取零结尾的C格式字符串</summary>
+    /// <param name="stream"></param>
+    /// <param name="maxLength"></param>
+    /// <returns></returns>
+    public static String ReadZeroString(this Stream stream, Int32 maxLength)
+    {
+        Span<Byte> span = stackalloc Byte[maxLength];
+        span = stream.ReadZero(span);
+
+        return Encoding.UTF8.GetString(span);
+    }
+
+    /// <summary>读取零结尾的C格式字符串</summary>
+    /// <param name="reader"></param>
+    /// <returns></returns>
+    public static String ReadZeroString(this BinaryReader reader) => reader.BaseStream.ReadZeroString(1024);
 
     /// <summary>写入C格式字符串</summary>
     /// <param name="writer"></param>

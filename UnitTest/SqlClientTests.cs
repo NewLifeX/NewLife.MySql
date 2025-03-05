@@ -29,7 +29,10 @@ public class SqlClientTests
 
         ms.Position = 0;
         var client = new SqlClient(null!) { BaseStream = ms };
-        var pk = (OwnerPacket)client.ReadPacket();
+        var rs = client.ReadPacket();
+        var pk = new OwnerPacket(rs.Length);
+        pk[0] = rs.Kind;
+        ms.Read(pk.Buffer, 1, rs.Length - 1);
 
         Assert.Equal(len, pk.Length);
         Assert.Equal(buf, pk.ReadBytes());
@@ -98,7 +101,8 @@ public class SqlClientTests
 
         ms.Position = 0;
         var client = new SqlClient(null!) { BaseStream = ms };
-        var pk = client.ReadPacket();
+        var rs = client.ReadPacket();
+        var pk = (ArrayPacket)rs.Stream.ReadBytes(-1);
 
         //Assert.Null(pk);
         Assert.Equal(seq + 1, (Byte)client.GetValue("_seq")!);

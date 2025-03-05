@@ -59,20 +59,19 @@ class Authentication(SqlClient client)
         client.SendPacket(pk2);
 
         // 读取响应
-        using var rs = client.ReadPacket();
+        var rs = client.ReadPacket();
 
         // 如果返回0xFE，表示需要继续验证。例如 caching_sha2_password 验证降级为 mysql_native_password 验证
-        if (rs[0] == 0xFE)
-            ToNativePassword(rs.Slice(1), set.Password!);
-        else if (rs[0] == 0x01 && rs[1] == 0x04)
+        if (rs.IsEOF)
+            ToNativePassword(rs, set.Password!);
+        else if (rs.Kind == 0x01 && rs.Stream.ReadByte() == 0x04)
             // perform_full_authentication
             PerformFullAuthentication(set.Password!, seed);
     }
 
-    private void ToNativePassword(IPacket rs, String password)
+    private void ToNativePassword(Response rs, String password)
     {
-        var reader = new SpanReader(rs);
-
+        var reader = rs.GetReader();
         var authMethod = reader.ReadZeroString();
         var authData = reader.ReadZero();
         if (authMethod == "mysql_native_password")
@@ -80,8 +79,8 @@ class Authentication(SqlClient client)
             var pass = Get411Password(password, authData[..^1].ToArray());
             _client.SendPacket(pass);
 
-            using var rs2 = client.ReadPacket();
-            if (!rs2.IsOK())
+            var rs2 = client.ReadPacket();
+            if (!rs2.IsOK)
                 throw new InvalidOperationException("验证失败");
         }
         else
@@ -95,10 +94,10 @@ class Authentication(SqlClient client)
         _client.SendPacket(buf);
 
         // 读取响应
-        using var rs = _client.ReadPacket();
-        if (rs[0] != 0x01) return;
+        var rs = _client.ReadPacket();
+        if (rs.Kind != 0x01) return;
 
-        var key = rs.Slice(1).ReadZeroString();
+        var key = rs.Stream.ReadZeroString(rs.Length - 1);
 
         // 混淆密码
         var obfuscated = GetXor(Encoding.Default.GetBytes(password), seedBytes);
@@ -110,8 +109,8 @@ class Authentication(SqlClient client)
         _client.SendPacket(encryptedPassword);
 
         // 读取响应
-        using var rs2 = _client.ReadPacket();
-        if (!rs2.IsOK())
+        var rs2 = _client.ReadPacket();
+        if (!rs2.IsOK)
             throw new InvalidOperationException("验证失败");
     }
 
