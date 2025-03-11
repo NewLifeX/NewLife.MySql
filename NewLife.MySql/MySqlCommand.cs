@@ -125,6 +125,7 @@ public class MySqlCommand : DbCommand, IDisposable
         var pk = new ArrayPacket(ms);
 
         var client = _DbConnection.Client!;
+        client.Reset();
         client.SendQuery(pk);
 
         Pool.MemoryStream.Return(ms);

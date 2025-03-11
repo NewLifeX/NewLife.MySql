@@ -216,6 +216,27 @@ public class SqlClient : DisposeBase
     /// <summary>发送数据包</summary>
     /// <param name="buf"></param>
     public void SendPacket(Byte[] buf) => SendPacket((ArrayPacket)buf);
+
+    /// <summary>重置。干掉历史残留数据</summary>
+    public void Reset()
+    {
+        var ns = _stream;
+        if (ns == null) return;
+
+        // 干掉历史残留数据
+        if (ns is NetworkStream { DataAvailable: true } nss)
+        {
+            var buf = Pool.Shared.Rent(1024);
+
+            Int32 count;
+            do
+            {
+                count = ns.Read(buf, 0, buf.Length);
+            } while (count > 0 && nss.DataAvailable);
+
+            Pool.Shared.Return(buf);
+        }
+    }
     #endregion
 
     #region 查询命令
@@ -238,11 +259,21 @@ public class SqlClient : DisposeBase
     public Int32 GetResult(ref Int32 affectedRow, ref Int64 insertedId)
     {
         var rs = ReadPacket();
+        var reader = rs.CreateReader(0);
 
-        // 读取列信息
-        var fieldCount = rs.CreateReader(0).ReadLength();
-
-        return fieldCount;
+        if (rs.IsOK)
+        {
+            reader.Advance(1);
+            affectedRow = reader.ReadUInt16();
+            var status = (ServerStatus)reader.ReadUInt16();
+            var warning = reader.ReadUInt16();
+            return 0;
+        }
+        else
+        {
+            // 读取列信息
+            return reader.ReadLength();
+        }
     }
 
     /// <summary>读取列信息</summary>

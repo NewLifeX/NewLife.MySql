@@ -1,6 +1,5 @@
 ﻿using System.Data;
 using System.Data.Common;
-using NewLife.Collections;
 
 namespace NewLife.MySql;
 
@@ -90,12 +89,15 @@ public sealed partial class MySqlConnection : DbConnection
 
                 client = _pool?.Get() ?? new SqlClient(Setting);
 
-                client.Open();
+                if (client.Welcome == null)
+                    client.Open();
+                else
+                    client.Reset();
 
                 var welcome = client.Welcome;
                 if (welcome != null)
                 {
-                    _Version = welcome.ServerVersion;
+                    _Version = welcome.ServerVersion!;
                 }
 
                 Client = client;
