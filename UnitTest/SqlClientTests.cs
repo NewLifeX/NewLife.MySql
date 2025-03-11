@@ -15,7 +15,7 @@ public class SqlClientTests
     public void ReadPacket()
     {
         // 通过Mod基础数据流BaseStream来测试数据包读取
-        var len = Rand.Next(10, 1 << 24);
+        var len = Rand.Next(10, 1024);
         var buf = Rand.NextBytes(len);
         var seq = (Byte)Rand.Next(1, 256);
 
@@ -30,12 +30,65 @@ public class SqlClientTests
         ms.Position = 0;
         var client = new SqlClient(null!) { BaseStream = ms };
         var rs = client.ReadPacket();
-        var pk = new OwnerPacket(rs.Length);
-        pk[0] = rs.Kind;
-        ms.Read(pk.Buffer, 1, rs.Length - 1);
+        var pk = rs.Data;
 
-        Assert.Equal(len, pk.Length);
+        Assert.Equal(len, rs.Length);
+        //Assert.Equal(len, pk.Length);
         Assert.Equal(buf, pk.ReadBytes());
+        Assert.Equal(seq + 1, (Byte)client.GetValue("_seq")!);
+        Assert.Equal(ms.Position, ms.Length);
+    }
+
+    [Fact]
+    public void ReadPacket_256()
+    {
+        // 通过Mod基础数据流BaseStream来测试数据包读取
+        var len = Rand.Next(1 << 8, 1 << 16);
+        var buf = Rand.NextBytes(len);
+        var seq = (Byte)Rand.Next(1, 256);
+
+        var ms = new MemoryStream();
+        var writer = new BinaryWriter(ms);
+
+        // 3字节长度 + 1字节序列号。小端字节序
+        var n = len | seq << 24;
+        writer.Write(n);
+        writer.Write(buf);
+
+        ms.Position = 0;
+        var client = new SqlClient(null!) { BaseStream = ms };
+        var rs = client.ReadPacket();
+        var reader = rs.CreateReader(0);
+
+        Assert.Equal(len, rs.Length);
+        Assert.Equal(buf, reader.ReadBytes(len));
+        Assert.Equal(seq + 1, (Byte)client.GetValue("_seq")!);
+        Assert.Equal(ms.Position, ms.Length);
+    }
+
+    [Fact]
+    public void ReadPacket_65536()
+    {
+        // 通过Mod基础数据流BaseStream来测试数据包读取
+        var len = Rand.Next(1 << 16, 1 << 24);
+        var buf = Rand.NextBytes(len);
+        var seq = (Byte)Rand.Next(1, 256);
+
+        var ms = new MemoryStream();
+        var writer = new BinaryWriter(ms);
+
+        // 3字节长度 + 1字节序列号。小端字节序
+        var n = len | seq << 24;
+        writer.Write(n);
+        writer.Write(buf);
+
+        ms.Position = 0;
+        var client = new SqlClient(null!) { BaseStream = ms };
+        var rs = client.ReadPacket();
+        var reader = rs.CreateReader(0);
+
+        Assert.Equal(len, rs.Length);
+        Assert.Equal(buf, reader.ReadBytes(len));
         Assert.Equal(seq + 1, (Byte)client.GetValue("_seq")!);
         Assert.Equal(ms.Position, ms.Length);
     }
@@ -102,8 +155,9 @@ public class SqlClientTests
         ms.Position = 0;
         var client = new SqlClient(null!) { BaseStream = ms };
         var rs = client.ReadPacket();
-        var pk = (ArrayPacket)rs.Stream.ReadBytes(-1);
+        //var pk = (ArrayPacket)rs.Stream.ReadBytes(-1);
 
+        Assert.True(rs.IsEOF);
         //Assert.Null(pk);
         Assert.Equal(seq + 1, (Byte)client.GetValue("_seq")!);
         Assert.Equal(ms.Position, ms.Length);

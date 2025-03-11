@@ -1,5 +1,5 @@
-﻿using System.Data;
-using System.Net.Sockets;
+﻿using System.Net.Sockets;
+using NewLife.Buffers;
 using NewLife.Collections;
 using NewLife.Data;
 using NewLife.MySql.Common;
@@ -68,6 +68,7 @@ public class SqlClient : DisposeBase
         };
         client.Connect(server, port);
 
+        // 获取网络流，将来可以在这里加上TLS支持
         _client = client;
         _stream = client.GetStream();
 
@@ -121,7 +122,7 @@ public class SqlClient : DisposeBase
         var rs = ReadPacket();
 
         var msg = new WelcomeMessage();
-        msg.Read(rs.GetReader());
+        msg.Read(rs.Data.GetSpan());
 
         return msg;
     }
@@ -155,30 +156,33 @@ public class SqlClient : DisposeBase
     {
         var ms = _stream ?? throw new InvalidOperationException("未打开连接");
 
-        // 3字节长度 + 1字节序列号。多读取1字节命令字
-        var buf = Pool.Shared.Rent(5);
-        var count = ms.Read(buf, 0, 5);
+        // 3字节长度 + 1字节序列号
+        var buf = Pool.Shared.Rent(4);
+        var count = ms.Read(buf, 0, 4);
         if (count < 4) throw new InvalidDataException("读取数据包头部失败");
 
         var rs = new Response(ms)
         {
             Length = buf[0] + (buf[1] << 8) + (buf[2] << 16),
             Sequence = buf[3],
-            Kind = buf[4],
+            //Kind = buf[4],
         };
         _seq = (Byte)(rs.Sequence + 1);
         Pool.Shared.Return(buf);
 
-        //var pk = new OwnerPacket(len);
-        //count = ms.Read(pk.Buffer, pk.Offset, len);
-        //pk.Resize(count);
+        // 读取数据。长度必须刚好，因为可能有多帧数据包
+        var len = rs.Length;
+        var pk = new OwnerPacket(len);
+        count = ms.Read(pk.Buffer, pk.Offset, len);
+        pk.Resize(count);
+        rs.Set(pk);
 
         // 错误包
         if (rs.IsError)
         {
-            //var reader = rs.GetReader();
-            var code = ms.ReadBytes(2).ToUInt16();
-            var msg = ms.ReadBytes(rs.Length - 1 - 2).ReadZeroString();
+            var reader = new SpanReader(pk.Slice(1, -1));
+            var code = reader.ReadUInt16();
+            var msg = reader.ReadZeroString();
 
             // 前面有6字符错误码
             if (!msg.IsNullOrEmpty() && msg[0] == '#')
@@ -236,7 +240,7 @@ public class SqlClient : DisposeBase
         var rs = ReadPacket();
 
         // 读取列信息
-        var fieldCount = rs.ReadLength();
+        var fieldCount = rs.CreateReader(0).ReadLength();
 
         return fieldCount;
     }
@@ -251,7 +255,8 @@ public class SqlClient : DisposeBase
             var rs = ReadPacket();
             if (rs.IsEOF) break;
 
-            var reader = rs.GetReader();
+            //var reader = rs.CreateReader(0);
+            var reader = new SpanReader(rs.Data);
 
             var dc = new MySqlColumn
             {
@@ -269,8 +274,9 @@ public class SqlClient : DisposeBase
                 Scale = reader.ReadByte()
             };
 
-            var ms = rs.Stream;
-            if (ms.Position + 2 < ms.Length) reader.ReadInt16();
+            //var ms = rs.Stream;
+            //if (ms.Position + 2 < ms.Length) reader.ReadInt16();
+            if (reader.FreeCapacity >= 2) reader.ReadInt16();
 
             list.Add(dc);
         }
@@ -293,11 +299,10 @@ public class SqlClient : DisposeBase
         if (rs.IsEOF) return false;
 
         // 第一回读取长度
-        var len = rs.ReadLength();
-        var reader = rs.GetReader();
+        var reader = rs.CreateReader(0);
         for (var i = 0; i < values.Length; i++)
         {
-            if (len < 0) len = reader.ReadLength();
+            var len = reader.ReadLength();
             if (len == -1)
             {
                 values[i] = DBNull.Value;
@@ -316,7 +321,7 @@ public class SqlClient : DisposeBase
                 MySqlDbType.Bit => buf[0],
                 MySqlDbType.Json => buf.ToStr(),
                 MySqlDbType.Guid => buf.ToStr(),
-                _ => buf,
+                _ => buf.ToArray(),
             };
 
             len = -1;

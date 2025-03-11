@@ -130,6 +130,23 @@ public static class BinaryHelper
         };
     }
 
+    /// <summary>读取集合元素个数</summary>
+    /// <param name="reader"></param>
+    /// <returns></returns>
+    public static Int32 ReadLength(this ref SpanReader reader)
+    {
+        var c = reader.ReadByte();
+
+        return c switch
+        {
+            251 => -1,
+            252 => reader.ReadUInt16(),
+            253 => reader.ReadByte() << 16 | reader.ReadByte() << 8 | reader.ReadByte(),
+            254 => reader.ReadInt32(),
+            _ => c,
+        };
+    }
+
     /// <summary>写入集合元素个数</summary>
     /// <param name="writer"></param>
     /// <param name="length"></param>
@@ -161,4 +178,7 @@ public static class BinaryHelper
 
     /// <summary>是否OK数据包</summary>
     public static Boolean IsOK(this IPacket pk) => pk.Length != 0 && pk[0] == 0x00;
+
+    /// <summary>是否错误数据包</summary>
+    public static Boolean IsError(this IPacket pk) => pk.Length != 0 && pk[0] == 0xFF;
 }
