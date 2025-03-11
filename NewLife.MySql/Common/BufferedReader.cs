@@ -1,5 +1,4 @@
 ﻿using System.Buffers.Binary;
-using System.Text;
 using NewLife.Data;
 
 namespace NewLife.MySql.Common;
@@ -16,8 +15,8 @@ public ref struct BufferedReader
     /// <summary>已读取字节数</summary>
     public Int32 Position { get => _index; set => _index = value; }
 
-    /// <summary>总容量</summary>
-    public Int32 Capacity => _span.Length;
+    /// <summary>最大容量</summary>
+    public Int32 MaxCapacity { get; set; }
 
     /// <summary>空闲容量</summary>
     public Int32 FreeCapacity => _span.Length - _index;
@@ -28,6 +27,7 @@ public ref struct BufferedReader
     private readonly Stream _stream;
     private readonly Int32 _bufferSize;
     private IPacket _data;
+    private Int32 _total;
     #endregion
 
     #region 构造
@@ -41,6 +41,7 @@ public ref struct BufferedReader
         _bufferSize = bufferSize;
         _data = data;
         _span = data.GetSpan();
+        _total = data.Total;
     }
     #endregion
 
@@ -79,7 +80,10 @@ public ref struct BufferedReader
         {
             // 申请指定大小的数据包缓冲区，实际大小可能更大
             var idx = 0;
-            var pk = new OwnerPacket(size <= _bufferSize ? _bufferSize : size);
+            var bsize = size;
+            if (bsize < _bufferSize) bsize = _bufferSize;
+            if (bsize > MaxCapacity - _total) bsize = MaxCapacity - _total;
+            var pk = new OwnerPacket(size <= bsize ? bsize : size);
             if (_data != null && remain > 0)
             {
                 if (!_data.TryGetArray(out var arr)) throw new NotSupportedException();
@@ -108,6 +112,7 @@ public ref struct BufferedReader
             pk.Resize(idx);
 
             _span = pk.GetSpan();
+            _total += idx - remain;
         }
 
         if (_index + size > _span.Length)
@@ -139,31 +144,6 @@ public ref struct BufferedReader
         return result;
     }
 
-    /// <summary>读取数据包</summary>
-    /// <param name="length"></param>
-    /// <returns></returns>
-    public IPacket ReadPacket(Int32 length)
-    {
-        EnsureSpace(length);
-
-        var result = _data.Slice(_index, length);
-        _index += length;
-        return result;
-    }
-
-    /// <summary>读取Int16整数</summary>
-    /// <returns></returns>
-    public Int16 ReadInt16()
-    {
-        var size = sizeof(Int16);
-        EnsureSpace(size);
-        var result = IsLittleEndian ?
-            BinaryPrimitives.ReadInt16LittleEndian(_span.Slice(_index, size)) :
-            BinaryPrimitives.ReadInt16BigEndian(_span.Slice(_index, size));
-        _index += size;
-        return result;
-    }
-
     /// <summary>读取UInt16整数</summary>
     /// <returns></returns>
     public UInt16 ReadUInt16()
@@ -189,51 +169,6 @@ public ref struct BufferedReader
         _index += size;
         return result;
     }
-
-    /// <summary>读取字符串。支持定长、全部和长度前缀</summary>
-    /// <param name="length">需要读取的长度。-1表示读取全部，默认0表示读取7位压缩编码整数长度</param>
-    /// <param name="encoding">字符串编码，默认UTF8</param>
-    /// <returns></returns>
-    /// <exception cref="InvalidOperationException"></exception>
-    public String ReadString(Int32 length = 0, Encoding? encoding = null)
-    {
-        if (length < 0)
-            length = _span.Length - _index;
-        else if (length == 0)
-            length = ReadEncodedInt();
-        if (length == 0) return String.Empty;
-
-        EnsureSpace(length);
-
-        encoding ??= Encoding.UTF8;
-
-        var result = encoding.GetString(_span.Slice(_index, length));
-        _index += length;
-        return result;
-    }
-
-    /// <summary>以压缩格式读取32位整数</summary>
-    /// <returns></returns>
-    public Int32 ReadEncodedInt()
-    {
-        Byte b;
-        UInt32 rs = 0;
-        Byte n = 0;
-        while (true)
-        {
-            var bt = ReadByte();
-            if (bt < 0) throw new Exception($"The data stream is out of range! The integer read is {rs: n0}");
-            b = (Byte)bt;
-
-            // 必须转为Int32，否则可能溢出
-            rs |= (UInt32)((b & 0x7f) << n);
-            if ((b & 0x80) == 0) break;
-
-            n += 7;
-            if (n >= 32) throw new FormatException("The number value is too large to read in compressed format!");
-        }
-        return (Int32)rs;
-    }
     #endregion
 
     #region 业务读取
@@ -252,26 +187,5 @@ public ref struct BufferedReader
             _ => c,
         };
     }
-
-    /// <summary>读取零结尾的C格式字符串</summary>
-    public ReadOnlySpan<Byte> ReadZero()
-    {
-        var span = GetSpan();
-        for (var k = 0; k < span.Length; k++)
-        {
-            if (span[k] == 0)
-            {
-                Advance(k + 1);
-                return span[..(k + 1)];
-            }
-        }
-
-        Advance(span.Length);
-        return span;
-    }
-
-    /// <summary>读取零结尾的C格式字符串</summary>
-    /// <returns></returns>
-    public String ReadZeroString() => ReadZero()[..^1].ToStr();
     #endregion
 }
