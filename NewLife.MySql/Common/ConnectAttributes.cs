@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using System.Xml.Linq;
 
 namespace NewLife.MySql.Common;
 

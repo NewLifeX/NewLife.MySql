@@ -152,13 +152,38 @@ public sealed partial class MySqlConnection : DbConnection
     }
     #endregion
 
+    #region 执行命令
+    /// <summary>执行SQL语句</summary>
+    /// <param name="sql"></param>
+    /// <returns></returns>
+    public Int32 ExecuteNonQuery(String sql)
+    {
+        using var cmd = CreateCommand();
+        cmd.CommandText = sql;
+        return cmd.ExecuteNonQuery();
+    }
+    #endregion
+
     #region 接口方法
     /// <summary>开始事务</summary>
     /// <param name="isolationLevel"></param>
     /// <returns></returns>
     protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel)
     {
-        throw new NotImplementedException();
+        var sql = "SET TRANSACTION ISOLATION LEVEL ";
+        sql += isolationLevel switch
+        {
+            IsolationLevel.ReadCommitted => "READ COMMITTED",
+            IsolationLevel.ReadUncommitted => "READ UNCOMMITTED",
+            IsolationLevel.Unspecified or IsolationLevel.RepeatableRead => "REPEATABLE READ",
+            IsolationLevel.Serializable => "SERIALIZABLE",
+            _ => throw new NotSupportedException(isolationLevel + ""),
+        };
+
+        ExecuteNonQuery(sql);
+        ExecuteNonQuery("BEGIN");
+
+        return new MySqlTransaction(this, isolationLevel);
     }
 
     /// <summary>改变数据库</summary>
@@ -194,7 +219,6 @@ public sealed partial class MySqlConnection : DbConnection
     {
         var provider = _schemaProvider ??= new SchemaProvider(this);
         return provider.GetSchema(collectionName, restrictionValues).AsDataTable();
-        //throw new NotSupportedException();
     }
     #endregion
 }
