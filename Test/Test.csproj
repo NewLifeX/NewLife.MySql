@@ -16,7 +16,7 @@
     <NoWarn>1701;1702;NU5104;NETSDK1138;CS7035</NoWarn>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="NewLife.XCode" Version="11.18.2025.201" />
+    <PackageReference Include="NewLife.XCode" Version="11.18.2025.313-beta0543" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\NewLife.MySql\NewLife.MySql.csproj" />
