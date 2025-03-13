@@ -29,7 +29,7 @@ public static class BinaryHelper
             if (span[k] == 0)
             {
                 reader.Advance(k + 1);
-                return span[..(k + 1)];
+                return span[..k];
             }
         }
 
@@ -74,7 +74,7 @@ public static class BinaryHelper
     /// <summary>读取零结尾的C格式字符串</summary>
     /// <param name="reader"></param>
     /// <returns></returns>
-    public static String ReadZeroString(this ref SpanReader reader) => reader.ReadZero()[..^1].ToStr();
+    public static String ReadZeroString(this ref SpanReader reader) => reader.ReadZero().ToStr();
 
     /// <summary>读取零结尾的C格式字符串</summary>
     /// <param name="data"></param>

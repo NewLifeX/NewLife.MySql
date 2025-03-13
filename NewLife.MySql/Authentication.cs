@@ -76,7 +76,7 @@ class Authentication(SqlClient client)
         var authData = reader.ReadZero();
         if (authMethod == "mysql_native_password")
         {
-            var pass = Get411Password(password, authData[..^1].ToArray());
+            var pass = Get411Password(password, authData.ToArray());
             _client.SendPacket(pass);
 
             var rs2 = client.ReadPacket();
