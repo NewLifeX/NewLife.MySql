@@ -59,6 +59,8 @@ public class MySqlDataReader : DbDataReader
         var insertedId = 0L;
         var fieldCount = client.GetResult(ref affectedRow, ref insertedId);
 
+        _RecordsAffected = affectedRow;
+
         _FieldCount = fieldCount;
         if (fieldCount <= 0) return false;
 

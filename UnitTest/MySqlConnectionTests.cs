@@ -1,4 +1,5 @@
 ﻿using System.Data;
+using NewLife;
 using NewLife.MySql;
 
 namespace UnitTest;
@@ -61,17 +62,56 @@ public class MySqlConnectionTests
         connection.ChangeDatabase("newDatabase");
 
         Assert.Equal("newDatabase", connection.Database);
-
-        //Assert.Throws<NotImplementedException>(() => connection.ChangeDatabase("newDatabase"));
     }
 
     [Fact]
-    public void TestBeginTransaction_NotImplemented()
+    public void TestBeginTransaction()
     {
-        var connStr = "Server=localhost;Database=myDataBase;User Id=root;Password=root;";
-        var connection = new MySqlConnection(connStr);
+        using var conn = new MySqlConnection(_ConnStr);
+        conn.Open();
 
-        Assert.Throws<NotImplementedException>(() => connection.BeginTransaction(IsolationLevel.ReadCommitted));
+        {
+            var rs = conn.ExecuteNonQuery("delete from sys.sys_config where variable='test_tt'");
+            Assert.True(rs >= 0);
+        }
+
+        // 插入 & 回滚
+        {
+            using var tr = conn.BeginTransaction();
+            var sql = "insert into sys.sys_config(variable,value,set_time,set_by) values('test_tt','123',now(),'Stone')";
+            var rs = conn.ExecuteNonQuery(sql);
+            tr.Rollback();
+            Assert.Equal(1, rs);
+        }
+        // 验证
+        {
+            var sql = "select count(*) from sys.sys_config where variable='test_tt'";
+            using var cmd = new MySqlCommand(conn, sql);
+            var rs = cmd.ExecuteScalar();
+            Assert.Equal(0, rs.ToInt());
+        }
+
+        // 插入 & 提交
+        {
+            using var tr = conn.BeginTransaction();
+            var sql = "insert into sys.sys_config(variable,value,set_time,set_by) values('test_tt','123',now(),'Stone')";
+            var rs = conn.ExecuteNonQuery(sql);
+            tr.Commit();
+            Assert.Equal(1, rs);
+        }
+        // 验证
+        {
+            var sql = "select count(*) from sys.sys_config where variable='test_tt'";
+            using var cmd = new MySqlCommand(conn, sql);
+            var rs = cmd.ExecuteScalar();
+            Assert.Equal(1, rs.ToInt());
+        }
+
+        {
+            var sql = "delete from sys.sys_config where variable='test_tt'";
+            var rs = conn.ExecuteNonQuery(sql);
+            Assert.Equal(1, rs);
+        }
     }
 
     [Fact]

@@ -73,7 +73,7 @@ public class MySqlCommandTests
             var sql = "insert into sys.sys_config(variable,value,set_time,set_by) values('test','123',now(),'Stone')";
             using var cmd = new MySqlCommand(conn, sql);
             var rs = cmd.ExecuteNonQuery();
-            Assert.True(rs >= 0);
+            Assert.Equal(1, rs);
         }
         {
             var sql = "select value v from sys.sys_config where set_by='Stone'";
@@ -85,7 +85,7 @@ public class MySqlCommandTests
             var sql = "update sys.sys_config set value=456 where set_by='Stone'";
             using var cmd = new MySqlCommand(conn, sql);
             var rs = cmd.ExecuteNonQuery();
-            Assert.True(rs >= 0);
+            Assert.Equal(1, rs);
         }
         {
             var sql = "select value v from sys.sys_config where set_by='Stone'";
@@ -97,7 +97,7 @@ public class MySqlCommandTests
             var sql = "delete from sys.sys_config where variable='test'";
             using var cmd = new MySqlCommand(conn, sql);
             var rs = cmd.ExecuteNonQuery();
-            Assert.True(rs >= 0);
+            Assert.Equal(1, rs);
         }
     }
 }
