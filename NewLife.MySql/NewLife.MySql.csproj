@@ -47,7 +47,7 @@
     <Compile Remove="Common\BufferedReader.cs" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="NewLife.Core" Version="11.4.2025.313-beta0330" />
+    <PackageReference Include="NewLife.Core" Version="11.4.2025.313-beta0928" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="NewLife" />

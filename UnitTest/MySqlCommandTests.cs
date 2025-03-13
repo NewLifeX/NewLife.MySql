@@ -76,19 +76,19 @@ public class MySqlCommandTests
             Assert.Equal(1, rs);
         }
         {
-            var sql = "select value v from sys.sys_config where set_by='Stone'";
+            var sql = "select value v from sys.sys_config where variable='test'";
             using var cmd = new MySqlCommand(conn, sql);
             var rs = cmd.ExecuteScalar();
             Assert.Equal("123", rs);
         }
         {
-            var sql = "update sys.sys_config set value=456 where set_by='Stone'";
+            var sql = "update sys.sys_config set value=456 where variable='test'";
             using var cmd = new MySqlCommand(conn, sql);
             var rs = cmd.ExecuteNonQuery();
             Assert.Equal(1, rs);
         }
         {
-            var sql = "select value v from sys.sys_config where set_by='Stone'";
+            var sql = "select value v from sys.sys_config where variable='test'";
             using var cmd = new MySqlCommand(conn, sql);
             var rs = cmd.ExecuteScalar();
             Assert.Equal("456", rs);
