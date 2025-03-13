@@ -158,8 +158,8 @@ public class SqlClient : DisposeBase
 
         // 3字节长度 + 1字节序列号
         var buf = Pool.Shared.Rent(4);
-        var count = ms.Read(buf, 0, 4);
-        if (count < 4) throw new InvalidDataException("读取数据包头部失败");
+        var count = ms.ReadExactly(buf, 0, 4);
+        if (count < 4) throw new InvalidDataException($"读取数据包头部失败，可用{count}字节");
 
         var rs = new Response(ms)
         {
@@ -173,7 +173,19 @@ public class SqlClient : DisposeBase
         // 读取数据。长度必须刚好，因为可能有多帧数据包
         var len = rs.Length;
         var pk = new OwnerPacket(len);
-        count = ms.Read(pk.Buffer, pk.Offset, len);
+        ms.ReadExactly(pk.Buffer, pk.Offset, len);
+        count = len;
+
+        //// 多次读取，直到满足需求
+        //count = 0;
+        //while (count < len)
+        //{
+        //    var n = _stream.Read(pk.Buffer, pk.Offset + count, len - count);
+        //    if (n <= 0) break;
+
+        //    count += n;
+        //}
+
         pk.Resize(count);
         rs.Set(pk);
 
