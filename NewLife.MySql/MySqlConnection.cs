@@ -91,8 +91,6 @@ public sealed partial class MySqlConnection : DbConnection
 
                 if (client.Welcome == null)
                     client.Open();
-                else
-                    client.Reset();
 
                 var welcome = client.Welcome;
                 if (welcome != null)

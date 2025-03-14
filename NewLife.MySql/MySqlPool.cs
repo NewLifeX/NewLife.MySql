@@ -35,12 +35,26 @@ public class MySqlPool : ObjectPool<SqlClient>
         var connStr = set.ConnectionString;
         if (connStr.IsNullOrEmpty()) throw new ArgumentNullException(nameof(Setting));
 
-        var client = new SqlClient(set)
-        {
-            //Log = ClientLog
-        };
+        var client = new SqlClient(set);
 
         return client;
+    }
+
+    /// <summary>获取连接。剔除无效连接</summary>
+    public override SqlClient Get()
+    {
+        while (true)
+        {
+            var client = base.Get();
+
+            // 重置网络数据流，清理上次未处理完的数据。如果网络已经断开，这里会重新从池里获取一个新的连接
+            try
+            {
+                client.Reset();
+                return client;
+            }
+            catch { }
+        }
     }
 }
 
