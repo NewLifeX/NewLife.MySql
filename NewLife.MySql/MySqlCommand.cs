@@ -106,7 +106,18 @@ public class MySqlCommand : DbCommand, IDisposable
     }
 
     /// <summary>预编译语句</summary>
-    public override void Prepare() => throw new NotImplementedException();
+    public override void Prepare()
+    {
+        var sql = CommandText;
+        if (sql.IsNullOrEmpty()) throw new ArgumentNullException(nameof(CommandText));
+
+        var conn = _DbConnection;
+        var client = conn.Client!;
+
+        client.PrepareStatement(sql);
+
+        throw new NotImplementedException();
+    }
 
     /// <summary>取消</summary>
     public override void Cancel() { }
@@ -119,24 +130,23 @@ public class MySqlCommand : DbCommand, IDisposable
         var ms = Pool.MemoryStream.Get();
         ms.Seek(4, SeekOrigin.Current);
 
-        BindParameter(ms);
+        var client = _DbConnection.Client!;
+        BindParameter(client, ms);
 
         ms.Position = 4;
         var pk = new ArrayPacket(ms);
 
-        var client = _DbConnection.Client!;
         client.Reset();
         client.SendQuery(pk);
 
         Pool.MemoryStream.Return(ms);
     }
 
-    private void BindParameter(Stream ms)
+    private void BindParameter(SqlClient client, Stream ms)
     {
         // 一个字节的查询类型
         ms.WriteByte(0x00);
 
-        var client = _DbConnection.Client!;
         if (client.Capability.Has(ClientFlags.CLIENT_QUERY_ATTRIBUTES))
         {
             // 查询特性

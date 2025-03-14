@@ -1,5 +1,6 @@
 ﻿using System.IO;
 using System.Net.Sockets;
+using System.Runtime.InteropServices.ComTypes;
 using System.Text;
 using NewLife.Buffers;
 using NewLife.Collections;
@@ -410,7 +411,24 @@ public class SqlClient : DisposeBase
             }
             ReadPacket();
         }
-        return new Tuple<Int32, MySqlColumn[]>(statementId, columns);
+        return new Tuple<Int32, MySqlColumn[]>(statementId, columns!);
+    }
+
+    /// <summary>关闭预编译语句</summary>
+    public void CloseStatement(Int32 statementId)
+    {
+        SendPacket([(Byte)DbCmd.CLOSE_STMT]);
+
+        var buf = Pool.Shared.Rent(1 + 4);
+        var writer = new SpanWriter(buf);
+        writer.Write((Byte)DbCmd.CLOSE_STMT);
+        writer.Write(statementId);
+
+        SendPacket(buf);
+
+        Pool.Shared.Return(buf);
+
+        ReadPacket();
     }
     #endregion
 }
