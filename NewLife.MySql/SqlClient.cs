@@ -1,4 +1,6 @@
-﻿using System.Net.Sockets;
+﻿using System.IO;
+using System.Net.Sockets;
+using System.Text;
 using NewLife.Buffers;
 using NewLife.Collections;
 using NewLife.Data;
@@ -29,6 +31,9 @@ public class SqlClient : DisposeBase
 
     /// <summary>欢迎信息</summary>
     public WelcomeMessage? Welcome { get; set; }
+
+    /// <summary>编码</summary>
+    public Encoding Encoding { get; set; } = Encoding.UTF8;
 
     private TcpClient? _client;
     private Byte _seq = 1;
@@ -251,7 +256,7 @@ public class SqlClient : DisposeBase
     }
     #endregion
 
-    #region 查询命令
+    #region 逻辑命令
     /// <summary>发送查询请求</summary>
     /// <param name="pk"></param>
     public void SendQuery(IPacket pk)
@@ -317,8 +322,6 @@ public class SqlClient : DisposeBase
                 Scale = reader.ReadByte()
             };
 
-            //var ms = rs.Stream;
-            //if (ms.Position + 2 < ms.Length) reader.ReadInt16();
             if (reader.FreeCapacity >= 2) reader.ReadInt16();
 
             list.Add(dc);
@@ -371,6 +374,43 @@ public class SqlClient : DisposeBase
         }
 
         return true;
+    }
+
+    /// <summary>准备语句</summary>
+    public Tuple<Int32, MySqlColumn[]> PrepareStatement(String sql)
+    {
+        var len = 1 + Encoding.GetByteCount(sql);
+        var pk = new OwnerPacket(len);
+        pk[0] = (Byte)DbCmd.PREPARE;
+        var count = Encoding.GetBytes(sql, 0, sql.Length, pk.Buffer, 1);
+
+        // 每一次查询请求，序列号都要重置为0
+        _seq = 0;
+
+        SendPacket(pk);
+
+        var rs = ReadPacket();
+        var reader = rs.CreateReader(0);
+
+        var statementId = reader.ReadInt32();
+        var numCols = reader.ReadInt16();
+        var num = reader.ReadInt16();
+        reader.Advance(3);
+
+        MySqlColumn[]? columns = null;
+        if (num > 0)
+        {
+            columns = GetColumns(num);
+        }
+        if (numCols > 0)
+        {
+            while (numCols-- > 0)
+            {
+                ReadPacket();
+            }
+            ReadPacket();
+        }
+        return new Tuple<Int32, MySqlColumn[]>(statementId, columns);
     }
     #endregion
 }
