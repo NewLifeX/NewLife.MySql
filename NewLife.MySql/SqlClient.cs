@@ -1,12 +1,11 @@
-﻿using System.IO;
-using System.Net.Sockets;
-using System.Runtime.InteropServices.ComTypes;
+﻿using System.Net.Sockets;
 using System.Text;
 using NewLife.Buffers;
 using NewLife.Collections;
 using NewLife.Data;
 using NewLife.MySql.Common;
 using NewLife.MySql.Messages;
+using NewLife.Threading;
 
 namespace NewLife.MySql;
 
@@ -16,6 +15,9 @@ public class SqlClient : DisposeBase
     #region 属性
     /// <summary>设置</summary>
     public MySqlConnectionStringBuilder Setting { get; }
+
+    /// <summary>是否活动</summary>
+    public Boolean Active { get; private set; }
 
     /// <summary>最大包大小</summary>
     public Int64 MaxPacketSize { get; private set; }
@@ -38,6 +40,7 @@ public class SqlClient : DisposeBase
 
     private TcpClient? _client;
     private Byte _seq = 1;
+    private TimerX? _timer;
     #endregion
 
     #region 构造
@@ -59,6 +62,8 @@ public class SqlClient : DisposeBase
     /// <summary>打开</summary>
     public void Open()
     {
+        if (Active) return;
+
         var set = Setting;
         var server = set.Server;
         var port = set.Port;
@@ -83,6 +88,8 @@ public class SqlClient : DisposeBase
         Welcome = welcome;
         Capability = welcome.Capability;
 
+        Active = true;
+
         // 验证方法
         var method = welcome.AuthMethod;
         if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password", "caching_sha2_password"))
@@ -91,6 +98,8 @@ public class SqlClient : DisposeBase
         // 验证
         var auth = new Authentication(this);
         auth.Authenticate(welcome, false);
+
+        _timer = new TimerX(s => Ping(), null, 10_000, 30_000) { Async = true };
     }
 
     /// <summary>关闭</summary>
@@ -99,12 +108,21 @@ public class SqlClient : DisposeBase
         if (_stream != null)
         {
             _seq = 0;
-            SendPacket([(Byte)DbCmd.QUIT]);
+
+            try
+            {
+                SendCommand(DbCmd.QUIT);
+            }
+            catch { }
         }
 
         _client.TryDispose();
         _client = null;
         _stream = null;
+        _timer.TryDispose();
+        _timer = null;
+
+        Active = false;
     }
 
     /// <summary>配置</summary>
@@ -216,6 +234,8 @@ public class SqlClient : DisposeBase
     /// <param name="pk"></param>
     public void SendPacket(IPacket pk)
     {
+        Open();
+
         var ms = _stream ?? throw new InvalidOperationException("未打开连接");
 
         var len = pk.Total;
@@ -234,6 +254,19 @@ public class SqlClient : DisposeBase
     /// <summary>发送数据包</summary>
     /// <param name="buf"></param>
     public void SendPacket(Byte[] buf) => SendPacket((ArrayPacket)buf);
+
+    /// <summary>发送命令请求</summary>
+    /// <param name="command"></param>
+    public void SendCommand(DbCmd command)
+    {
+        var buf = Pool.Shared.Rent(1);
+        buf[0] = (Byte)command;
+
+        // 每一次查询请求，序列号都要重置为0
+        _seq = 0;
+
+        SendPacket(new ArrayPacket(buf, 0, 1));
+    }
 
     /// <summary>重置。干掉历史残留数据</summary>
     public void Reset()
@@ -414,11 +447,42 @@ public class SqlClient : DisposeBase
         return new Tuple<Int32, MySqlColumn[]>(statementId, columns!);
     }
 
+    /// <summary>心跳</summary>
+    public Boolean Ping()
+    {
+        try
+        {
+            SendCommand(DbCmd.PING);
+            ReadPacket();
+
+            return true;
+        }
+        catch { }
+
+        // 心跳失败，关闭连接
+        Close();
+
+        return false;
+    }
+
+    /// <summary>执行预编译语句</summary>
+    public void ExecuteStatement(Int32 statementId)
+    {
+        var buf = Pool.Shared.Rent(1 + 4);
+        var writer = new SpanWriter(buf);
+        writer.Write((Byte)DbCmd.EXECUTE);
+        writer.Write(statementId);
+
+        SendPacket(buf);
+
+        Pool.Shared.Return(buf);
+
+        ReadPacket();
+    }
+
     /// <summary>关闭预编译语句</summary>
     public void CloseStatement(Int32 statementId)
     {
-        SendPacket([(Byte)DbCmd.CLOSE_STMT]);
-
         var buf = Pool.Shared.Rent(1 + 4);
         var writer = new SpanWriter(buf);
         writer.Write((Byte)DbCmd.CLOSE_STMT);
