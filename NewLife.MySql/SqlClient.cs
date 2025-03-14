@@ -266,6 +266,8 @@ public class SqlClient : DisposeBase
         _seq = 0;
 
         SendPacket(new ArrayPacket(buf, 0, 1));
+
+        Pool.Shared.Return(buf);
     }
 
     /// <summary>重置。干掉历史残留数据</summary>
