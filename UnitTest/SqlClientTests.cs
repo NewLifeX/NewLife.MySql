@@ -28,7 +28,7 @@ public class SqlClientTests
         writer.Write(buf);
 
         ms.Position = 0;
-        var client = new SqlClient(null!) { BaseStream = ms };
+        var client = new SqlClient { BaseStream = ms };
         var rs = client.ReadPacket();
         var pk = rs.Data;
 
@@ -56,7 +56,7 @@ public class SqlClientTests
         writer.Write(buf);
 
         ms.Position = 0;
-        var client = new SqlClient(null!) { BaseStream = ms };
+        var client = new SqlClient { BaseStream = ms };
         var rs = client.ReadPacket();
         var reader = rs.CreateReader(0);
 
@@ -83,7 +83,7 @@ public class SqlClientTests
         writer.Write(buf);
 
         ms.Position = 0;
-        var client = new SqlClient(null!) { BaseStream = ms };
+        var client = new SqlClient { BaseStream = ms };
         var rs = client.ReadPacket();
         var reader = rs.CreateReader(0);
 
@@ -119,7 +119,7 @@ public class SqlClientTests
         writer.Write((Byte)0);
 
         ms.Position = 0;
-        var client = new SqlClient(null!) { BaseStream = ms };
+        var client = new SqlClient { BaseStream = ms };
 
         var ex = Assert.Throws<MySqlException>(() => client.ReadPacket());
 
@@ -153,7 +153,7 @@ public class SqlClientTests
         writer.Write(status);
 
         ms.Position = 0;
-        var client = new SqlClient(null!) { BaseStream = ms };
+        var client = new SqlClient { BaseStream = ms };
         var rs = client.ReadPacket();
         //var pk = (ArrayPacket)rs.Stream.ReadBytes(-1);
 
@@ -178,7 +178,7 @@ public class SqlClientTests
         writer.Write(buf);
 
         var ms = new MemoryStream();
-        var client = new SqlClient(null!) { BaseStream = ms };
+        var client = new SqlClient { BaseStream = ms };
 
         client.SetValue("_seq", seq);
         client.SendPacket(pk.Slice(4, -1));
@@ -200,7 +200,7 @@ public class SqlClientTests
         var seq = (Byte)Rand.Next(1, 256);
 
         var ms = new MemoryStream();
-        var client = new SqlClient(null!) { BaseStream = ms };
+        var client = new SqlClient { BaseStream = ms };
 
         client.SetValue("_seq", seq);
         client.SendPacket(buf);
@@ -218,7 +218,7 @@ public class SqlClientTests
     {
         // 通过Mod基础数据流BaseStream来测试数据包写入
         var ms = new MemoryStream();
-        var client = new SqlClient(null!) { BaseStream = ms };
+        var client = new SqlClient { BaseStream = ms };
 
         var seq = (Byte)Rand.Next(1, 256);
         client.SetValue("_seq", seq);
@@ -244,7 +244,7 @@ public class SqlClientTests
         writer.Write(sql, -1);
 
         var ms = new MemoryStream();
-        var client = new SqlClient(null!) { BaseStream = ms };
+        var client = new SqlClient { BaseStream = ms };
         client.SendQuery(pk.Slice(4, -1));
 
         var buf = ms.ToArray();

@@ -14,7 +14,7 @@ public class SqlClient : DisposeBase
 {
     #region 属性
     /// <summary>设置</summary>
-    public MySqlConnectionStringBuilder Setting { get; }
+    public MySqlConnectionStringBuilder Setting { get; } = new();
 
     /// <summary>是否活动</summary>
     public Boolean Active { get; private set; }
@@ -45,6 +45,9 @@ public class SqlClient : DisposeBase
 
     #region 构造
     /// <summary>实例化客户端</summary>
+    public SqlClient() { }
+
+    /// <summary>实例化客户端</summary>
     /// <param name="setting"></param>
     public SqlClient(MySqlConnectionStringBuilder setting) => Setting = setting;
 
@@ -63,13 +66,14 @@ public class SqlClient : DisposeBase
     public void Open()
     {
         if (Active) return;
+        if (_stream != null) return;
 
         var set = Setting;
         var server = set.Server;
         var port = set.Port;
         if (port == 0) port = 3306;
 
-        var msTimeout = Setting.ConnectionTimeout * 1000;
+        var msTimeout = set.ConnectionTimeout * 1000;
         if (msTimeout <= 0) msTimeout = 15000;
 
         // 连接网络
