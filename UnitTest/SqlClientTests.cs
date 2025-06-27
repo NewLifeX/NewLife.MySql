@@ -267,6 +267,8 @@ public class SqlClientTests
             Database = "sys",
             ConnectionTimeout = 15
         };
+        var set = new MySqlConnectionStringBuilder(DALTests.GetConnStr());
+        setting.Password = set.Password;
 
         var client = new SqlClient(setting);
         client.Open();
@@ -298,6 +300,8 @@ public class SqlClientTests
             Database = "sys",
             ConnectionTimeout = 15
         };
+        var set = new MySqlConnectionStringBuilder(DALTests.GetConnStr());
+        setting.Password = set.Password;
 
         using var client = new SqlClient(setting);
         client.Open();

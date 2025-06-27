@@ -6,7 +6,7 @@ namespace UnitTest;
 
 public class MySqlConnectionTests
 {
-    private String _ConnStr = "Server=localhost;Database=sys;User Id=root;Password=root;";
+    private static String _ConnStr = DALTests.GetConnStr();
 
     [Fact]
     public void TestOpenConnection()
@@ -54,7 +54,7 @@ public class MySqlConnectionTests
     [Fact]
     public void TestChangeDatabase()
     {
-        var connStr = "Server=localhost;Database=myDataBase;User Id=root;Password=root;";
+        var connStr = DALTests.GetConnStr().Replace("Database=sys;", "Database=myDataBase;");
         var connection = new MySqlConnection(connStr);
 
         Assert.Equal("myDataBase", connection.Database);

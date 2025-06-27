@@ -9,9 +9,16 @@ public class DALTests
 
     static DALTests()
     {
-        //DbFactory.Create(DatabaseType.MySql);
+        var f = "Config\\mysql.config".GetFullPath();
+        if (File.Exists(f))
+            _ConnStr = File.ReadAllText(f);
+        else
+            File.WriteAllText(f, _ConnStr);
+
         DAL.AddConnStr("mysql", _ConnStr, null, "MySql");
     }
+
+    public static String GetConnStr() => _ConnStr;
 
     [Fact]
     public void TestInit()

@@ -6,11 +6,11 @@ namespace UnitTest;
 
 public class MembershipTests
 {
-    private static String _ConnStr = "Server=localhost;Database=membership;User Id=root;Password=root;";
+    private static String _ConnStr = DALTests.GetConnStr();
 
     static MembershipTests()
     {
-        DAL.AddConnStr("membership", _ConnStr, null, "MySql");
+        DAL.AddConnStr("membership", _ConnStr.Replace("Database=sys;", "Database=membership;"), null, "MySql");
     }
 
     [Fact]

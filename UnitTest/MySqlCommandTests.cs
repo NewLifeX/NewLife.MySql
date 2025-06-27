@@ -6,7 +6,7 @@ namespace UnitTest;
 
 public class MySqlCommandTests
 {
-    private String _ConnStr = "Server=localhost;Database=sys;User Id=root;Password=root;";
+    private static String _ConnStr = DALTests.GetConnStr();
 
     [Fact]
     public void TestQuery()
@@ -95,6 +95,52 @@ public class MySqlCommandTests
         }
         {
             var sql = "delete from sys.sys_config where variable='test'";
+            using var cmd = new MySqlCommand(conn, sql);
+            var rs = cmd.ExecuteNonQuery();
+            Assert.Equal(1, rs);
+        }
+    }
+
+    [Fact]
+    public void InsertAndGetIdentity()
+    {
+        var name = "test2";
+        using var conn = new MySqlConnection(_ConnStr);
+        conn.Open();
+
+        {
+            var sql = $"delete from sys.sys_config where variable='{name}'";
+            using var cmd = new MySqlCommand(conn, sql);
+            var rs = cmd.ExecuteNonQuery();
+            Assert.True(rs >= 0);
+        }
+
+        {
+            var sql = $"insert into sys.sys_config(variable,value,set_time,set_by) values('{name}','123',now(),'Stone');Select LAST_INSERT_ID()";
+            using var cmd = new MySqlCommand(conn, sql);
+            var rs = cmd.ExecuteScalar();
+            Assert.Equal(1, rs);
+        }
+        {
+            var sql = $"select value v from sys.sys_config where variable='{name}'";
+            using var cmd = new MySqlCommand(conn, sql);
+            var rs = cmd.ExecuteScalar();
+            Assert.Equal("123", rs);
+        }
+        {
+            var sql = $"update sys.sys_config set value=456 where variable='{name}'";
+            using var cmd = new MySqlCommand(conn, sql);
+            var rs = cmd.ExecuteNonQuery();
+            Assert.Equal(1, rs);
+        }
+        {
+            var sql = $"select value v from sys.sys_config where variable='{name}'";
+            using var cmd = new MySqlCommand(conn, sql);
+            var rs = cmd.ExecuteScalar();
+            Assert.Equal("456", rs);
+        }
+        {
+            var sql = $"delete from sys.sys_config where variable='{name}'";
             using var cmd = new MySqlCommand(conn, sql);
             var rs = cmd.ExecuteNonQuery();
             Assert.Equal(1, rs);
