@@ -4,7 +4,7 @@
     <AssemblyTitle>轻量级MySql驱动</AssemblyTitle>
     <Description>轻量级高性能MySql驱动</Description>
     <Company>新生命开发团队</Company>
-    <Copyright>©2002-2025 NewLife</Copyright>
+    <Copyright>©2002-2026 NewLife</Copyright>
     <VersionPrefix>1.0</VersionPrefix>
     <VersionSuffix>$([System.DateTime]::Now.ToString(`yyyy.MMdd`))</VersionSuffix>
     <Version>$(VersionPrefix).$(VersionSuffix)</Version>
@@ -47,7 +47,7 @@
     <Compile Remove="Common\BufferedReader.cs" />
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="NewLife.Core" Version="11.6.2025.801" />
+    <PackageReference Include="NewLife.Core" Version="11.11.2026.201" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="NewLife" />
