@@ -72,18 +72,26 @@ public class SqlClient : DisposeBase
 
         var set = Setting;
         var server = set.Server;
+        if (server.IsNullOrEmpty()) throw new InvalidOperationException("未指定服务器地址");
+
         var port = set.Port;
         if (port == 0) port = 3306;
 
         var msTimeout = set.ConnectionTimeout * 1000;
         if (msTimeout <= 0) msTimeout = 15000;
 
-        // 连接网络
+        // 连接网络，使用异步连接以支持超时控制
         var client = new TcpClient
         {
-            ReceiveTimeout = msTimeout
+            ReceiveTimeout = msTimeout,
+            SendTimeout = msTimeout,
         };
-        client.Connect(server, port);
+
+        if (!client.ConnectAsync(server, port).Wait(msTimeout))
+        {
+            client.Close();
+            throw new TimeoutException($"连接 {server}:{port} 超时({set.ConnectionTimeout}s)");
+        }
 
         _client = client;
         _stream = client.GetStream();
@@ -302,18 +310,24 @@ public class SqlClient : DisposeBase
     public void SendPacket(Byte[] buf) => SendPacket((ArrayPacket)buf);
 
     /// <summary>发送命令请求</summary>
-    /// <param name="command"></param>
+    /// <param name="command">命令类型</param>
     public void SendCommand(DbCmd command)
     {
-        var buf = Pool.Shared.Rent(1);
-        buf[0] = (Byte)command;
+        var buf = Pool.Shared.Rent(4 + 1);
+        try
+        {
+            buf[4] = (Byte)command;
 
-        // 每一次查询请求，序列号都要重置为0
-        _seq = 0;
+            // 每一次查询请求，序列号都要重置为0
+            _seq = 0;
 
-        SendPacket(new ArrayPacket(buf, 0, 1));
-
-        Pool.Shared.Return(buf);
+            // 偏移4字节为帧头预留空间，避免 ExpandHeader 额外分配
+            SendPacket(new ArrayPacket(buf, 4, 1));
+        }
+        finally
+        {
+            Pool.Shared.Return(buf);
+        }
     }
 
     /// <summary>重置。干掉历史残留数据</summary>
@@ -329,14 +343,18 @@ public class SqlClient : DisposeBase
             if (ns is NetworkStream { DataAvailable: true } nss)
             {
                 var buf = Pool.Shared.Rent(1024);
-
-                Int32 count;
-                do
+                try
                 {
-                    count = ns.Read(buf, 0, buf.Length);
-                } while (count > 0 && nss.DataAvailable);
-
-                Pool.Shared.Return(buf);
+                    Int32 count;
+                    do
+                    {
+                        count = ns.Read(buf, 0, buf.Length);
+                    } while (count > 0 && nss.DataAvailable);
+                }
+                finally
+                {
+                    Pool.Shared.Return(buf);
+                }
             }
 
             return true;
@@ -476,12 +494,13 @@ public class SqlClient : DisposeBase
     }
 
     /// <summary>准备语句</summary>
+    /// <param name="sql">SQL语句</param>
     public Tuple<Int32, MySqlColumn[]> PrepareStatement(String sql)
     {
         var len = 1 + Encoding.GetByteCount(sql);
         var pk = new OwnerPacket(len);
         pk[0] = (Byte)DbCmd.PREPARE;
-        var count = Encoding.GetBytes(sql, 0, sql.Length, pk.Buffer, 1);
+        Encoding.GetBytes(sql, 0, sql.Length, pk.Buffer, pk.Offset + 1);
 
         // 每一次查询请求，序列号都要重置为0
         _seq = 0;
@@ -526,38 +545,54 @@ public class SqlClient : DisposeBase
         }
         catch
         {
-            // 心跳失败，标记为不可用
+            // 心跳失败，标记为不可用，停止定时器
             Active = false;
+
+            _timer.TryDispose();
+            _timer = null;
+
             return false;
         }
     }
 
     /// <summary>执行预编译语句</summary>
+    /// <param name="statementId">语句ID</param>
     public void ExecuteStatement(Int32 statementId)
     {
         var buf = Pool.Shared.Rent(1 + 4);
-        var writer = new SpanWriter(buf);
-        writer.Write((Byte)DbCmd.EXECUTE);
-        writer.Write(statementId);
+        try
+        {
+            var writer = new SpanWriter(buf);
+            writer.Write((Byte)DbCmd.EXECUTE);
+            writer.Write(statementId);
 
-        SendPacket(buf);
-
-        Pool.Shared.Return(buf);
+            SendPacket(new ArrayPacket(buf, 0, 5));
+        }
+        finally
+        {
+            Pool.Shared.Return(buf);
+        }
 
         ReadPacket();
     }
 
     /// <summary>关闭预编译语句</summary>
+    /// <param name="statementId">语句ID</param>
     public void CloseStatement(Int32 statementId)
     {
         var buf = Pool.Shared.Rent(1 + 4);
-        var writer = new SpanWriter(buf);
-        writer.Write((Byte)DbCmd.CLOSE_STMT);
-        writer.Write(statementId);
+        try
+        {
+            var writer = new SpanWriter(buf);
+            writer.Write((Byte)DbCmd.CLOSE_STMT);
+            writer.Write(statementId);
 
-        SendPacket(buf);
-
-        Pool.Shared.Return(buf);
+            SendPacket(new ArrayPacket(buf, 0, 5));
+        }
+        finally
+        {
+            Pool.Shared.Return(buf);
+        }
 
         ReadPacket();
     }
