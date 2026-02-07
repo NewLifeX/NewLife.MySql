@@ -11,7 +11,12 @@ namespace NewLife.MySql;
 
 class Authentication(SqlClient client)
 {
-    public void Authenticate(WelcomeMessage welcome, Boolean reset)
+    /// <summary>异步验证</summary>
+    /// <param name="welcome">欢迎消息</param>
+    /// <param name="reset">是否重置</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    public async Task AuthenticateAsync(WelcomeMessage welcome, Boolean reset, CancellationToken cancellationToken)
     {
         var set = client.Setting;
 
@@ -53,20 +58,19 @@ class Authentication(SqlClient client)
         var pk2 = pk.Slice(4, writer.Position - 4);
 
         // 发送验证
-        client.SendPacket(pk2);
+        await client.SendPacketAsync(pk2, cancellationToken).ConfigureAwait(false);
 
         // 读取响应
-        var rs = client.ReadPacket();
+        var rs = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
 
         // 如果返回0xFE，表示需要继续验证。例如 caching_sha2_password 验证降级为 mysql_native_password 验证
         if (rs.IsEOF)
-            ToNativePassword(rs, set.Password!);
+            await ToNativePasswordAsync(rs, set.Password!, cancellationToken).ConfigureAwait(false);
         else if (rs.Data[0] == 0x01 && rs.Data[1] == 0x04)
-            // perform_full_authentication
-            PerformFullAuthentication(set.Password!, seed);
+            await PerformFullAuthenticationAsync(set.Password!, seed, cancellationToken).ConfigureAwait(false);
     }
 
-    private void ToNativePassword(Response rs, String password)
+    private async Task ToNativePasswordAsync(Response rs, String password, CancellationToken cancellationToken)
     {
         var reader = new SpanReader(rs.Data.Slice(1));
         var authMethod = reader.ReadZeroString();
@@ -74,9 +78,9 @@ class Authentication(SqlClient client)
         if (authMethod == "mysql_native_password")
         {
             var pass = Get411Password(password, authData.ToArray());
-            client.SendPacket(pass);
+            await client.SendPacketAsync((ArrayPacket)pass, cancellationToken).ConfigureAwait(false);
 
-            var rs2 = client.ReadPacket();
+            var rs2 = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
             if (!rs2.IsOK)
                 throw new InvalidOperationException("验证失败");
         }
@@ -84,14 +88,14 @@ class Authentication(SqlClient client)
             throw new NotSupportedException(authMethod);
     }
 
-    private void PerformFullAuthentication(String password, Byte[] seedBytes)
+    private async Task PerformFullAuthenticationAsync(String password, Byte[] seedBytes, CancellationToken cancellationToken)
     {
         // request_public_key
         var buf = new Byte[] { 0x02 };
-        client.SendPacket(buf);
+        await client.SendPacketAsync((ArrayPacket)buf, cancellationToken).ConfigureAwait(false);
 
         // 读取响应
-        var rs = client.ReadPacket();
+        var rs = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         var reader = new SpanReader(rs.Data);
         if (reader.ReadByte() != 0x01) return;
 
@@ -104,10 +108,10 @@ class Authentication(SqlClient client)
         var encryptedPassword = RSAHelper.Encrypt(obfuscated, key);
 
         // 发送加密后的密码
-        client.SendPacket(encryptedPassword);
+        await client.SendPacketAsync((ArrayPacket)encryptedPassword, cancellationToken).ConfigureAwait(false);
 
         // 读取响应
-        var rs2 = client.ReadPacket();
+        var rs2 = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         if (!rs2.IsOK)
             throw new InvalidOperationException("验证失败");
     }

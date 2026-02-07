@@ -52,44 +52,18 @@ public class MySqlDataReader : DbDataReader
     #region 核心方法
     /// <summary>下一结果集</summary>
     /// <returns></returns>
-    public override Boolean NextResult()
-    {
-        var client = (Command.Connection as MySqlConnection)!.Client!;
-
-        var affectedRow = 0;
-        var insertedId = 0L;
-        var fieldCount = client.GetResult(ref affectedRow, ref insertedId);
-
-        _RecordsAffected = affectedRow;
-
-        _FieldCount = fieldCount;
-        if (fieldCount <= 0) return false;
-
-        _Columns = client.GetColumns(fieldCount);
-
-        return true;
-    }
+    public override Boolean NextResult() => NextResultAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
 
     /// <summary>读取一行</summary>
     /// <returns></returns>
-    public override Boolean Read()
-    {
-        var client = (Command.Connection as MySqlConnection)!.Client!;
-
-        var values = new Object[_FieldCount];
-        if (!client.NextRow(values, _Columns!)) return false;
-
-        _Values = values;
-
-        return true;
-    }
+    public override Boolean Read() => ReadAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
 
     /// <summary>关闭。消费未读完的结果集行，避免后续命令数据错位</summary>
     public override void Close()
     {
         if (_IsClosed) return;
 
-        //// 消费未读完的行数据
+        //// 消费未读完的行数据，确保协议流同步，避免SSL连接下数据错位
         //try
         //{
         //    if (_FieldCount > 0)
@@ -98,7 +72,6 @@ public class MySqlDataReader : DbDataReader
         //        var client = conn?.Client;
         //        if (client != null)
         //        {
-        //            // 消费剩余行数据，直到 EOF
         //            var values = new Object[_FieldCount];
         //            while (client.NextRow(values, _Columns!)) { }
         //        }
@@ -343,28 +316,63 @@ public class MySqlDataReader : DbDataReader
     /// <summary>异步读取一行</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
-    public override Task<Boolean> ReadAsync(CancellationToken cancellationToken)
+    public override async Task<Boolean> ReadAsync(CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(Read());
+        var client = (Command.Connection as MySqlConnection)!.Client!;
+
+        var values = new Object[_FieldCount];
+        if (!await client.NextRowAsync(values, _Columns!, cancellationToken).ConfigureAwait(false)) return false;
+
+        _Values = values;
+
+        return true;
     }
 
     /// <summary>异步下一结果集</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
-    public override Task<Boolean> NextResultAsync(CancellationToken cancellationToken)
+    public override async Task<Boolean> NextResultAsync(CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(NextResult());
+        var client = (Command.Connection as MySqlConnection)!.Client!;
+
+        var affectedRow = 0;
+        var insertedId = 0L;
+        var response = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        var fieldCount = client.GetResult(response, ref affectedRow, ref insertedId);
+
+        _RecordsAffected = affectedRow;
+
+        _FieldCount = fieldCount;
+        if (fieldCount <= 0) return false;
+
+        _Columns = await client.GetColumnsAsync(fieldCount, cancellationToken).ConfigureAwait(false);
+
+        return true;
     }
 
     /// <summary>异步关闭</summary>
     /// <returns></returns>
 #if NETSTANDARD2_1_OR_GREATER
-    public override Task CloseAsync()
+    public override async Task CloseAsync()
     {
-        Close();
-        return Task.CompletedTask;
+        if (_IsClosed) return;
+
+        //try
+        //{
+        //    if (_FieldCount > 0)
+        //    {
+        //        var conn = Command?.Connection as MySqlConnection;
+        //        var client = conn?.Client;
+        //        if (client != null)
+        //        {
+        //            var values = new Object[_FieldCount];
+        //            while (await client.NextRowAsync(values, _Columns!, default).ConfigureAwait(false)) { }
+        //        }
+        //    }
+        //}
+        //catch { }
+
+        _IsClosed = true;
     }
 #endif
     #endregion

@@ -13,7 +13,7 @@ namespace UnitTest;
 public class SqlClientTests
 {
     [Fact]
-    public void ReadPacket()
+    public async Task ReadPacket()
     {
         // 通过Mod基础数据流BaseStream来测试数据包读取
         var len = Rand.Next(10, 1024);
@@ -30,7 +30,7 @@ public class SqlClientTests
 
         ms.Position = 0;
         var client = new SqlClient { BaseStream = ms };
-        var rs = client.ReadPacket();
+        var rs = await client.ReadPacketAsync();
         var pk = rs.Data;
 
         Assert.Equal(len, rs.Length);
@@ -41,7 +41,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void ReadPacket_256()
+    public async Task ReadPacket_256()
     {
         // 通过Mod基础数据流BaseStream来测试数据包读取
         var len = Rand.Next(1 << 8, 1 << 16);
@@ -58,7 +58,7 @@ public class SqlClientTests
 
         ms.Position = 0;
         var client = new SqlClient { BaseStream = ms };
-        var rs = client.ReadPacket();
+        var rs = await client.ReadPacketAsync();
         var reader = rs.CreateReader(0);
 
         Assert.Equal(len, rs.Length);
@@ -68,7 +68,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void ReadPacket_65536()
+    public async Task ReadPacket_65536()
     {
         // 通过Mod基础数据流BaseStream来测试数据包读取
         var len = Rand.Next(1 << 16, 1 << 24);
@@ -85,7 +85,7 @@ public class SqlClientTests
 
         ms.Position = 0;
         var client = new SqlClient { BaseStream = ms };
-        var rs = client.ReadPacket();
+        var rs = await client.ReadPacketAsync();
         var reader = rs.CreateReader(0);
 
         Assert.Equal(len, rs.Length);
@@ -95,7 +95,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void ReadPacket_Error()
+    public async Task ReadPacket_Error()
     {
         // 通过Mod基础数据流BaseStream来测试数据包读取
         var code = (UInt16)Rand.Next(1, 1 << 16);
@@ -122,7 +122,7 @@ public class SqlClientTests
         ms.Position = 0;
         var client = new SqlClient { BaseStream = ms };
 
-        var ex = Assert.Throws<MySqlException>(() => client.ReadPacket());
+        var ex = await Assert.ThrowsAsync<MySqlException>(() => client.ReadPacketAsync());
 
         Assert.Equal(code, ex.ErrorCode);
         Assert.Equal(msg, ex.Message);
@@ -130,7 +130,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void ReadPacket_FE()
+    public async Task ReadPacket_FE()
     {
         // 通过Mod基础数据流BaseStream来测试数据包读取
         //var len = Rand.Next(10, 1 << 24);
@@ -155,8 +155,7 @@ public class SqlClientTests
 
         ms.Position = 0;
         var client = new SqlClient { BaseStream = ms };
-        var rs = client.ReadPacket();
-        //var pk = (ArrayPacket)rs.Stream.ReadBytes(-1);
+        var rs = await client.ReadPacketAsync();
 
         Assert.True(rs.IsEOF);
         //Assert.Null(pk);
@@ -165,7 +164,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void SendPacket()
+    public async Task SendPacket()
     {
         // 通过Mod基础数据流BaseStream来测试数据包写入
         var len = Rand.Next(10, 1 << 24);
@@ -182,7 +181,7 @@ public class SqlClientTests
         var client = new SqlClient { BaseStream = ms };
 
         client.SetValue("_seq", seq);
-        client.SendPacket(pk.Slice(4, -1));
+        await client.SendPacketAsync(pk.Slice(4, -1));
 
         var rs = ms.ToArray();
         Assert.Equal(pk.Length, rs.Length);
@@ -193,7 +192,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void SendPacket_NoExpand()
+    public async Task SendPacket_NoExpand()
     {
         // 通过Mod基础数据流BaseStream来测试数据包写入
         var len = Rand.Next(10, 1 << 24);
@@ -204,7 +203,7 @@ public class SqlClientTests
         var client = new SqlClient { BaseStream = ms };
 
         client.SetValue("_seq", seq);
-        client.SendPacket(buf);
+        await client.SendPacketAsync((ArrayPacket)buf);
 
         var rs = ms.ToArray();
         Assert.Equal(4 + buf.Length, rs.Length);
@@ -232,7 +231,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void SendQuery()
+    public async Task SendQuery()
     {
         // 通过Mod基础数据流BaseStream来测试数据包写入
         var sql = "select * from role";
@@ -246,7 +245,7 @@ public class SqlClientTests
 
         var ms = new MemoryStream();
         var client = new SqlClient { BaseStream = ms };
-        client.SendQuery(pk.Slice(4, -1));
+        await client.SendQueryAsync(pk.Slice(4, -1));
 
         var buf = ms.ToArray();
         Assert.Equal(pk.Length, buf.Length);
@@ -257,7 +256,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void TestOpen()
+    public async Task TestOpen()
     {
         var setting = new MySqlConnectionStringBuilder
         {
@@ -272,7 +271,7 @@ public class SqlClientTests
         setting.Password = set.Password;
 
         var client = new SqlClient(setting);
-        client.Open();
+        await client.OpenAsync();
 
         Assert.NotNull(client);
         Assert.NotNull(client.Setting);
@@ -290,7 +289,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void TestConfigure()
+    public async Task TestConfigure()
     {
         var setting = new MySqlConnectionStringBuilder
         {
@@ -305,7 +304,7 @@ public class SqlClientTests
         setting.Password = set.Password;
 
         using var client = new SqlClient(setting);
-        client.Open();
+        await client.OpenAsync();
 
         Assert.NotNull(client);
         Assert.NotNull(client.Setting);
@@ -313,7 +312,7 @@ public class SqlClientTests
 
         //var conn = new MySqlConnection(setting.ConnectionString);
         //conn.Client = client;
-        client.Configure();
+        await client.ConfigureAsync();
         Assert.True(client.MaxPacketSize >= 1024);
 
         Assert.NotNull(client.Variables);
@@ -321,7 +320,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void SendCommand_Ping()
+    public async Task SendCommand_Ping()
     {
         // 验证SendCommand发送正确的命令字节，序列号重置为0
         var ms = new MemoryStream();
@@ -329,7 +328,7 @@ public class SqlClientTests
 
         var seq = (Byte)Rand.Next(10, 256);
         client.SetValue("_seq", seq);
-        client.SendCommand(DbCmd.PING);
+        await client.SendCommandAsync(DbCmd.PING);
 
         var rs = ms.ToArray();
 
@@ -342,13 +341,13 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void SendCommand_QUIT()
+    public async Task SendCommand_QUIT()
     {
         // 验证QUIT命令
         var ms = new MemoryStream();
         var client = new SqlClient { BaseStream = ms };
 
-        client.SendCommand(DbCmd.QUIT);
+        await client.SendCommandAsync(DbCmd.QUIT);
 
         var rs = ms.ToArray();
         Assert.Equal(5, rs.Length);
@@ -394,24 +393,24 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void Ping_WhenInactive()
+    public async Task Ping_WhenInactive()
     {
         // 未激活时 Ping 返回 false
         var client = new SqlClient();
 
-        var result = client.Ping();
+        var result = await client.PingAsync();
 
         Assert.False(result);
     }
 
     [Fact]
-    public void Ping_WhenStreamNull()
+    public async Task Ping_WhenStreamNull()
     {
         // BaseStream 为 null 时 Ping 直接返回 false，不改变 Active 状态
         var client = new SqlClient();
         client.SetValue("Active", true);
 
-        var result = client.Ping();
+        var result = await client.PingAsync();
 
         Assert.False(result);
         // Active 不变，因为只是流不可用的早期返回
@@ -419,7 +418,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void ReadPacket_Error_StateCode()
+    public async Task ReadPacket_Error_StateCode()
     {
         // 验证带状态码的错误包解析：msg[0]=='#' 时分离6字符状态码
         var code = (UInt16)Rand.Next(1, 1 << 16);
@@ -445,7 +444,7 @@ public class SqlClientTests
         ms.Position = 0;
         var client = new SqlClient { BaseStream = ms };
 
-        var ex = Assert.Throws<MySqlException>(() => client.ReadPacket());
+        var ex = await Assert.ThrowsAsync<MySqlException>(() => client.ReadPacketAsync());
 
         Assert.Equal(code, ex.ErrorCode);
         Assert.Equal(stateCode, ex.State);
@@ -453,7 +452,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void GetResult_OK()
+    public async Task GetResult_OK()
     {
         // 验证 OK 包解析：获取影响行数和最后插入ID
         var affectedRows = Rand.Next(1, 200);
@@ -478,7 +477,8 @@ public class SqlClientTests
 
         var affected = 0;
         var inserted = 0L;
-        var columns = client.GetResult(ref affected, ref inserted);
+        var response = await client.ReadPacketAsync();
+        var columns = client.GetResult(response, ref affected, ref inserted);
 
         Assert.Equal(0, columns);
         Assert.Equal(affectedRows, affected);
@@ -486,7 +486,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void GetResult_OK_Accumulated()
+    public async Task GetResult_OK_Accumulated()
     {
         // 验证 affectedRow 累加行为
         var affectedRows = Rand.Next(1, 100);
@@ -509,14 +509,15 @@ public class SqlClientTests
 
         var affected = 10; // 初始值非零
         var inserted = 0L;
-        var columns = client.GetResult(ref affected, ref inserted);
+        var response = await client.ReadPacketAsync();
+        var columns = client.GetResult(response, ref affected, ref inserted);
 
         Assert.Equal(0, columns);
         Assert.Equal(10 + affectedRows, affected); // 累加
     }
 
     [Fact]
-    public void GetResult_ColumnCount()
+    public async Task GetResult_ColumnCount()
     {
         // 验证结果集列数返回：非 OK 包时读取 length-encoded 列数
         var columnCount = Rand.Next(1, 50);
@@ -536,7 +537,8 @@ public class SqlClientTests
 
         var affected = 0;
         var inserted = 0L;
-        var result = client.GetResult(ref affected, ref inserted);
+        var response = await client.ReadPacketAsync();
+        var result = client.GetResult(response, ref affected, ref inserted);
 
         Assert.Equal(columnCount, result);
         Assert.Equal(0, affected);
@@ -544,7 +546,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void GetColumns_SingleColumn()
+    public async Task GetColumns_SingleColumn()
     {
         // 验证单列信息解析
         var seq = (Byte)1;
@@ -561,7 +563,7 @@ public class SqlClientTests
         ms.Position = 0;
         var client = new SqlClient { BaseStream = ms };
 
-        var columns = client.GetColumns(1);
+        var columns = await client.GetColumnsAsync(1);
 
         Assert.Single(columns);
         var col = columns[0];
@@ -578,7 +580,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void GetColumns_MultipleColumns()
+    public async Task GetColumns_MultipleColumns()
     {
         // 验证多列信息解析
         var seq = (Byte)1;
@@ -597,7 +599,7 @@ public class SqlClientTests
         ms.Position = 0;
         var client = new SqlClient { BaseStream = ms };
 
-        var columns = client.GetColumns(3);
+        var columns = await client.GetColumnsAsync(3);
 
         Assert.Equal(3, columns.Length);
         Assert.Equal("id", columns[0].Name);
@@ -609,7 +611,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void NextRow_IntAndVarChar()
+    public async Task NextRow_IntAndVarChar()
     {
         // 验证行数据读取：Int32 和 VarChar 类型
         var seq = (Byte)1;
@@ -631,7 +633,7 @@ public class SqlClientTests
         };
         var values = new Object[2];
 
-        var result = client.NextRow(values, columns);
+        var result = await client.NextRowAsync(values, columns);
 
         Assert.True(result);
         Assert.Equal(42L, values[0]);
@@ -639,7 +641,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void NextRow_NullValue()
+    public async Task NextRow_NullValue()
     {
         // 验证 NULL 值处理：length-encoded 0xFB 表示 NULL
         var seq = (Byte)1;
@@ -660,7 +662,7 @@ public class SqlClientTests
         };
         var values = new Object[2];
 
-        var result = client.NextRow(values, columns);
+        var result = await client.NextRowAsync(values, columns);
 
         Assert.True(result);
         Assert.Equal(100L, values[0]);
@@ -668,7 +670,7 @@ public class SqlClientTests
     }
 
     [Fact]
-    public void NextRow_EOF()
+    public async Task NextRow_EOF()
     {
         // 验证收到 EOF 包时返回 false
         var seq = (Byte)1;
@@ -682,13 +684,13 @@ public class SqlClientTests
         var columns = new MySqlColumn[] { new() { Name = "id", Type = MySqlDbType.Int32 } };
         var values = new Object[1];
 
-        var result = client.NextRow(values, columns);
+        var result = await client.NextRowAsync(values, columns);
 
         Assert.False(result);
     }
 
     [Fact]
-    public void NextRow_MultipleTypes()
+    public async Task NextRow_MultipleTypes()
     {
         // 验证多种数据类型解析：Decimal, Double, Blob, Bit, Json
         var seq = (Byte)1;
@@ -715,7 +717,7 @@ public class SqlClientTests
         };
         var values = new Object[5];
 
-        var result = client.NextRow(values, columns);
+        var result = await client.NextRowAsync(values, columns);
 
         Assert.True(result);
         Assert.Equal(123.45m, values[0]);

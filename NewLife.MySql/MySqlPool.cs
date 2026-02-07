@@ -68,7 +68,7 @@ public class MySqlPool : ObjectPool<SqlClient>
 /// <summary>连接池管理。根据连接字符串，换取对应连接池</summary>
 public class MySqlPoolManager
 {
-    private ConcurrentDictionary<String, MySqlPool> _pools = new();
+    private readonly ConcurrentDictionary<String, MySqlPool> _pools = new();
     /// <summary>获取连接池。连接字符串相同时共用连接池</summary>
     /// <param name="setting"></param>
     /// <returns></returns>

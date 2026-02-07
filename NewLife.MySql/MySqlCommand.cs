@@ -8,7 +8,7 @@ using NewLife.MySql.Messages;
 namespace NewLife.MySql;
 
 /// <summary>命令</summary>
-public class MySqlCommand : DbCommand, IDisposable
+public class MySqlCommand : DbCommand
 {
     #region 属性
     private MySqlConnection _DbConnection = null!;
@@ -31,7 +31,7 @@ public class MySqlCommand : DbCommand, IDisposable
     /// <summary>参数集合</summary>
     public new MySqlParameterCollection Parameters => _parameters;
 
-    /// <summary>命令语句</summary>
+    /// <summary>命令超时。单位秒</summary>
     public override Int32 CommandTimeout { get; set; }
 
     /// <summary>设计时可见</summary>
@@ -75,16 +75,22 @@ public class MySqlCommand : DbCommand, IDisposable
 
         // 设置行为参数
         if (behavior.HasFlag(CommandBehavior.SchemaOnly))
-            new MySqlCommand(conn, "SET SQL_SELECT_LIMIT=0").ExecuteNonQuery();
+        {
+            using var limitCmd = new MySqlCommand(conn, "SET SQL_SELECT_LIMIT=0");
+            limitCmd.ExecuteNonQuery();
+        }
         else if (behavior.HasFlag(CommandBehavior.SingleRow))
-            new MySqlCommand(conn, "SET SQL_SELECT_LIMIT=1").ExecuteNonQuery();
+        {
+            using var limitCmd = new MySqlCommand(conn, "SET SQL_SELECT_LIMIT=1");
+            limitCmd.ExecuteNonQuery();
+        }
 
         // 执行读取器
         var reader = new MySqlDataReader
         {
             Command = this
         };
-        Execute();
+        ExecuteAsync(default).GetAwaiter().GetResult();
         reader.NextResult();
 
         return reader;
@@ -119,7 +125,7 @@ public class MySqlCommand : DbCommand, IDisposable
         var conn = _DbConnection;
         var client = conn.Client!;
 
-        client.PrepareStatement(sql);
+        client.PrepareStatementAsync(sql).ConfigureAwait(false).GetAwaiter().GetResult();
 
         throw new NotImplementedException();
     }
@@ -131,51 +137,86 @@ public class MySqlCommand : DbCommand, IDisposable
     /// <param name="behavior">命令行为</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
-    protected override Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken)
+    protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(ExecuteDbDataReader(behavior));
+        var sql = CommandText;
+        if (sql.IsNullOrEmpty()) throw new ArgumentNullException(nameof(CommandText));
+
+        var conn = _DbConnection;
+
+        if (CommandType == CommandType.TableDirect) sql = "Select * From " + sql;
+
+        if (behavior.HasFlag(CommandBehavior.SchemaOnly))
+        {
+            using var limitCmd = new MySqlCommand(conn, "SET SQL_SELECT_LIMIT=0");
+            await limitCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        else if (behavior.HasFlag(CommandBehavior.SingleRow))
+        {
+            using var limitCmd = new MySqlCommand(conn, "SET SQL_SELECT_LIMIT=1");
+            await limitCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        var reader = new MySqlDataReader
+        {
+            Command = this
+        };
+        await ExecuteAsync(cancellationToken).ConfigureAwait(false);
+        await reader.NextResultAsync(cancellationToken).ConfigureAwait(false);
+
+        return reader;
     }
 
     /// <summary>异步执行并返回影响行数</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
-    public override Task<Int32> ExecuteNonQueryAsync(CancellationToken cancellationToken)
+    public override async Task<Int32> ExecuteNonQueryAsync(CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(ExecuteNonQuery());
+        using var reader = await ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        reader.Close();
+
+        return reader.RecordsAffected;
     }
 
     /// <summary>异步执行并返回第一行</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
-    public override Task<Object?> ExecuteScalarAsync(CancellationToken cancellationToken)
+    public override async Task<Object?> ExecuteScalarAsync(CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(ExecuteScalar());
+        using var reader = await ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return reader.GetValue(0);
+
+        return null;
     }
     #endregion
 
     #region 执行
-    /// <summary>执行命令，绑定参数后发送请求</summary>
-    private void Execute()
+    /// <summary>异步执行命令，绑定参数后发送请求</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    private async Task ExecuteAsync(CancellationToken cancellationToken)
     {
         var ms = Pool.MemoryStream.Get();
-        ms.Seek(4, SeekOrigin.Current);
+        try
+        {
+            ms.Seek(4, SeekOrigin.Current);
 
-        var client = _DbConnection.Client ?? throw new InvalidOperationException("连接未打开");
-        BindParameter(client, ms);
+            var client = _DbConnection.Client ?? throw new InvalidOperationException("连接未打开");
+            BindParameter(client, ms);
 
-        ms.Position = 4;
-        var pk = new ArrayPacket(ms);
+            ms.Position = 4;
+            var pk = new ArrayPacket(ms);
 
-        // 重置网络流，清理残留数据。如果连接已断开则抛出异常
-        if (!client.Reset())
-            throw new InvalidOperationException("数据库连接已断开");
+            // 重置网络流，清理残留数据。如果连接已断开则抛出异常
+            if (!client.Reset())
+                throw new InvalidOperationException("数据库连接已断开");
 
-        client.SendQuery(pk);
-
-        Pool.MemoryStream.Return(ms);
+            await client.SendQueryAsync(pk, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Pool.MemoryStream.Return(ms);
+        }
     }
 
     private void BindParameter(SqlClient client, Stream ms)
@@ -318,7 +359,7 @@ public class MySqlCommand : DbCommand, IDisposable
                 case '\r': sb.Append("\\r"); break;
                 case '\\': sb.Append("\\\\"); break;
                 case '\'': sb.Append("\\'"); break;
-                case '"': sb.Append("\\\"" ); break;
+                case '"': sb.Append("\\\""); break;
                 case '\x1a': sb.Append("\\Z"); break;
                 default: sb.Append(ch); break;
             }

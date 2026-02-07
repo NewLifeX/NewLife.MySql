@@ -72,50 +72,7 @@ public sealed partial class MySqlConnection : DbConnection
 
     #region 打开关闭
     /// <summary>打开</summary>
-    public override void Open()
-    {
-        if (State == ConnectionState.Open) return;
-
-        SetState(ConnectionState.Connecting);
-
-        // 打开网络连接
-        try
-        {
-            var client = Client;
-            if (client == null)
-            {
-                // 根据连接字符串创建连接池，然后从连接池获取连接
-                _pool = Factory?.PoolManager?.GetPool(Setting);
-
-                client = _pool?.Get() ?? new SqlClient(Setting);
-
-                if (client.Welcome == null)
-                    client.Open();
-
-                var welcome = client.Welcome;
-                if (welcome != null)
-                {
-                    _Version = welcome.ServerVersion!;
-                }
-
-                Client = client;
-
-                // 配置参数，优先从连接池获取缓存的变量
-                var vs = _pool?.Variables;
-                if (vs != null) client.Variables = vs;
-
-                client.Configure();
-                _pool?.Variables = client.Variables;
-            }
-        }
-        catch (Exception)
-        {
-            SetState(ConnectionState.Closed);
-            throw;
-        }
-
-        SetState(ConnectionState.Open);
-    }
+    public override void Open() => OpenAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
 
     /// <summary>关闭</summary>
     public override void Close()
@@ -152,15 +109,48 @@ public sealed partial class MySqlConnection : DbConnection
     /// <summary>异步打开连接</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
-    public override Task OpenAsync(CancellationToken cancellationToken)
+    public override async Task OpenAsync(CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        Open();
-#if NET45
-        return Task.FromResult(0);
-#else
-        return Task.CompletedTask;
-#endif
+        if (State == ConnectionState.Open) return;
+
+        SetState(ConnectionState.Connecting);
+
+        try
+        {
+            var client = Client;
+            if (client == null)
+            {
+                // 根据连接字符串创建连接池，然后从连接池获取连接
+                _pool = Factory?.PoolManager?.GetPool(Setting);
+
+                client = _pool?.Get() ?? new SqlClient(Setting);
+
+                if (client.Welcome == null)
+                    await client.OpenAsync(cancellationToken).ConfigureAwait(false);
+
+                var welcome = client.Welcome;
+                if (welcome != null)
+                {
+                    _Version = welcome.ServerVersion!;
+                }
+
+                Client = client;
+
+                // 配置参数，优先从连接池获取缓存的变量
+                var vs = _pool?.Variables;
+                if (vs != null) client.Variables = vs;
+
+                await client.ConfigureAsync(cancellationToken).ConfigureAwait(false);
+                _pool?.Variables = client.Variables;
+            }
+        }
+        catch (Exception)
+        {
+            SetState(ConnectionState.Closed);
+            throw;
+        }
+
+        SetState(ConnectionState.Open);
     }
 
 #if NETSTANDARD2_1_OR_GREATER

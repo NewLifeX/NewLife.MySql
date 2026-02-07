@@ -64,8 +64,10 @@ public class SqlClient : DisposeBase
     #endregion
 
     #region 打开关闭
-    /// <summary>打开</summary>
-    public void Open()
+    /// <summary>异步打开连接</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    public async Task OpenAsync(CancellationToken cancellationToken = default)
     {
         if (Active) return;
         if (_stream != null) return;
@@ -80,24 +82,36 @@ public class SqlClient : DisposeBase
         var msTimeout = set.ConnectionTimeout * 1000;
         if (msTimeout <= 0) msTimeout = 15000;
 
-        // 连接网络，使用异步连接以支持超时控制
+        // 异步连接网络
         var client = new TcpClient
         {
             ReceiveTimeout = msTimeout,
             SendTimeout = msTimeout,
         };
 
-        if (!client.ConnectAsync(server, port).Wait(msTimeout))
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(msTimeout);
+
+        try
+        {
+            await client.ConnectAsync(server, port).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             client.Close();
             throw new TimeoutException($"连接 {server}:{port} 超时({set.ConnectionTimeout}s)");
+        }
+        catch
+        {
+            client.Close();
+            throw;
         }
 
         _client = client;
         _stream = client.GetStream();
 
-        // 从欢迎信息读取服务器特性
-        var welcome = GetWelcome();
+        // 异步读取欢迎信息
+        var welcome = await GetWelcomeAsync(cancellationToken).ConfigureAwait(false);
         Welcome = welcome;
         Capability = welcome.Capability;
 
@@ -108,7 +122,7 @@ public class SqlClient : DisposeBase
         if (!sslMode.IsNullOrEmpty() && !sslMode.EqualIgnoreCase("None", "Disabled"))
         {
             if (Capability.Has(ClientFlags.SSL))
-                StartSsl(server!);
+                await StartSslAsync(server!, cancellationToken).ConfigureAwait(false);
             else if (sslMode.EqualIgnoreCase("Required"))
                 throw new NotSupportedException("服务器不支持 SSL 连接");
         }
@@ -118,16 +132,18 @@ public class SqlClient : DisposeBase
         if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password", "caching_sha2_password"))
             throw new NotSupportedException("不支持验证方式 " + method);
 
-        // 验证
+        // 异步验证
         var auth = new Authentication(this);
-        auth.Authenticate(welcome, false);
+        await auth.AuthenticateAsync(welcome, false, cancellationToken).ConfigureAwait(false);
 
-        _timer = new TimerX(s => Ping(), null, 10_000, 30_000) { Async = true };
+        _timer = new TimerX(s => { _ = PingAsync(); }, null, 10_000, 30_000) { Async = true };
     }
 
-    /// <summary>发送SSL请求并升级为TLS连接</summary>
+    /// <summary>异步发送SSL请求并升级为TLS连接</summary>
     /// <param name="server">服务器地址</param>
-    private void StartSsl(String server)
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    private async Task StartSslAsync(String server, CancellationToken cancellationToken)
     {
         // 发送 SSL 请求包
         var flags = Capability | ClientFlags.SSL;
@@ -139,18 +155,18 @@ public class SqlClient : DisposeBase
         writer.Write(new Byte[23]);
 
         _seq = 1;
-        SendPacket((ArrayPacket)buf);
+        await SendPacketAsync((ArrayPacket)buf, cancellationToken).ConfigureAwait(false);
 
         // 升级为 SslStream
         var sslStream = new SslStream(_stream!, false, (sender, certificate, chain, errors) => true);
 #if NET5_0_OR_GREATER
-        sslStream.AuthenticateAsClient(new SslClientAuthenticationOptions
+        await sslStream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
         {
             TargetHost = server,
             EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-        });
+        }, cancellationToken).ConfigureAwait(false);
 #else
-        sslStream.AuthenticateAsClient(server, null, SslProtocols.Tls12, false);
+        await sslStream.AuthenticateAsClientAsync(server, null, SslProtocols.Tls12, false).ConfigureAwait(false);
 #endif
         _stream = sslStream;
     }
@@ -167,7 +183,7 @@ public class SqlClient : DisposeBase
 
             try
             {
-                SendCommand(DbCmd.QUIT);
+                SendCommandAsync(DbCmd.QUIT).ConfigureAwait(false).GetAwaiter().GetResult();
             }
             catch { }
         }
@@ -179,10 +195,12 @@ public class SqlClient : DisposeBase
         Active = false;
     }
 
-    /// <summary>配置</summary>
-    public virtual void Configure()
+    /// <summary>异步配置</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    public virtual async Task ConfigureAsync(CancellationToken cancellationToken = default)
     {
-        var vs = Variables ??= LoadVariables();
+        var vs = Variables ??= await LoadVariablesAsync(cancellationToken).ConfigureAwait(false);
 
         if (vs.TryGetValue("max_allowed_packet", out var str)) MaxPacketSize = str.ToLong();
         vs.TryGetValue("character_set_client", out var clientCharSet);
@@ -191,13 +209,12 @@ public class SqlClient : DisposeBase
     #endregion
 
     #region 方法
-    /// <summary>握手欢迎消息。从中得知服务器验证方式等一系列参数信息</summary>
+    /// <summary>异步握手欢迎消息。从中得知服务器验证方式等一系列参数信息</summary>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
-    /// <exception cref="NotSupportedException"></exception>
-    private WelcomeMessage GetWelcome()
+    private async Task<WelcomeMessage> GetWelcomeAsync(CancellationToken cancellationToken)
     {
-        // 读取数据包
-        var rs = ReadPacket();
+        var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
 
         var msg = new WelcomeMessage();
         msg.Read(rs.Data.GetSpan());
@@ -205,18 +222,19 @@ public class SqlClient : DisposeBase
         return msg;
     }
 
-    /// <summary>加载服务器变量</summary>
+    /// <summary>异步加载服务器变量</summary>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
-    private IDictionary<String, String> LoadVariables()
+    private async Task<IDictionary<String, String>> LoadVariablesAsync(CancellationToken cancellationToken)
     {
         var dic = new Dictionary<String, String>();
         var conn = new MySqlConnection { Client = this };
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SHOW VARIABLES";
 
-        using var reader = cmd.ExecuteReader();
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
-        while (reader.Read())
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
             var key = reader.GetString(0);
             var value = reader.GetString(1);
@@ -228,108 +246,6 @@ public class SqlClient : DisposeBase
     #endregion
 
     #region 网络操作
-    /// <summary>读取数据包</summary>
-    /// <returns></returns>
-    public Response ReadPacket()
-    {
-        var ms = _stream ?? throw new InvalidOperationException("未打开连接");
-
-        // 3字节长度 + 1字节序列号
-        var buf = Pool.Shared.Rent(4);
-        var count = ms.ReadExactly(buf, 0, 4);
-        if (count < 4) throw new InvalidDataException($"读取数据包头部失败，可用{count}字节");
-
-        var rs = new Response(ms)
-        {
-            Length = buf[0] + (buf[1] << 8) + (buf[2] << 16),
-            Sequence = buf[3],
-            //Kind = buf[4],
-        };
-        _seq = (Byte)(rs.Sequence + 1);
-        Pool.Shared.Return(buf);
-
-        // 读取数据。长度必须刚好，因为可能有多帧数据包
-        var len = rs.Length;
-        var pk = new OwnerPacket(len);
-        ms.ReadExactly(pk.Buffer, pk.Offset, len);
-        count = len;
-
-        //// 多次读取，直到满足需求
-        //count = 0;
-        //while (count < len)
-        //{
-        //    var n = _stream.Read(pk.Buffer, pk.Offset + count, len - count);
-        //    if (n <= 0) break;
-
-        //    count += n;
-        //}
-
-        pk.Resize(count);
-        rs.Set(pk);
-
-        // 错误包
-        if (rs.IsError)
-        {
-            var reader = new SpanReader(pk.Slice(1, -1));
-            var code = reader.ReadUInt16();
-            var msg = reader.ReadZeroString();
-
-            // 前面有6字符错误码
-            if (!msg.IsNullOrEmpty() && msg[0] == '#')
-                throw new MySqlException(code, msg[..6], msg[6..]);
-            else
-                throw new MySqlException(code, msg);
-        }
-
-        return rs;
-    }
-
-    /// <summary>发送数据包。建议数据包头部预留4字节空间以填充帧头</summary>
-    /// <param name="pk"></param>
-    public void SendPacket(IPacket pk)
-    {
-        Open();
-
-        var ms = _stream ?? throw new InvalidOperationException("未打开连接");
-
-        var len = pk.Total;
-
-        var pk2 = pk.ExpandHeader(4);
-
-        pk2[0] = (Byte)(len & 0xFF);
-        pk2[1] = (Byte)((len >> 8) & 0xFF);
-        pk2[2] = (Byte)((len >> 16) & 0xFF);
-        pk2[3] = _seq++;
-
-        pk2.CopyTo(ms);
-        ms.Flush();
-    }
-
-    /// <summary>发送数据包</summary>
-    /// <param name="buf"></param>
-    public void SendPacket(Byte[] buf) => SendPacket((ArrayPacket)buf);
-
-    /// <summary>发送命令请求</summary>
-    /// <param name="command">命令类型</param>
-    public void SendCommand(DbCmd command)
-    {
-        var buf = Pool.Shared.Rent(4 + 1);
-        try
-        {
-            buf[4] = (Byte)command;
-
-            // 每一次查询请求，序列号都要重置为0
-            _seq = 0;
-
-            // 偏移4字节为帧头预留空间，避免 ExpandHeader 额外分配
-            SendPacket(new ArrayPacket(buf, 4, 1));
-        }
-        finally
-        {
-            Pool.Shared.Return(buf);
-        }
-    }
-
     /// <summary>重置。干掉历史残留数据</summary>
     /// <returns>连接是否仍然可用</returns>
     public Boolean Reset()
@@ -370,28 +286,138 @@ public class SqlClient : DisposeBase
             return false;
         }
     }
+
+    /// <summary>异步读取精确字节数</summary>
+    /// <param name="stream">数据流</param>
+    /// <param name="buffer">缓冲区</param>
+    /// <param name="offset">偏移</param>
+    /// <param name="count">字节数</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    private static async Task<Int32> ReadExactlyAsync(Stream stream, Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken)
+    {
+        var totalRead = 0;
+        while (totalRead < count)
+        {
+            var n = await stream.ReadAsync(buffer, offset + totalRead, count - totalRead, cancellationToken).ConfigureAwait(false);
+            if (n <= 0) break;
+            totalRead += n;
+        }
+        return totalRead;
+    }
+
+    /// <summary>异步读取数据包</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    public async Task<Response> ReadPacketAsync(CancellationToken cancellationToken = default)
+    {
+        var ms = _stream ?? throw new InvalidOperationException("未打开连接");
+
+        // 3字节长度 + 1字节序列号
+        var buf = Pool.Shared.Rent(4);
+        var count = await ReadExactlyAsync(ms, buf, 0, 4, cancellationToken).ConfigureAwait(false);
+        if (count < 4) throw new InvalidDataException($"读取数据包头部失败，可用{count}字节");
+
+        var rs = new Response(ms)
+        {
+            Length = buf[0] + (buf[1] << 8) + (buf[2] << 16),
+            Sequence = buf[3],
+        };
+        _seq = (Byte)(rs.Sequence + 1);
+        Pool.Shared.Return(buf);
+
+        // 读取数据。长度必须刚好，因为可能有多帧数据包
+        var len = rs.Length;
+        var pk = new OwnerPacket(len);
+        count = await ReadExactlyAsync(ms, pk.Buffer, pk.Offset, len, cancellationToken).ConfigureAwait(false);
+
+        pk.Resize(count);
+        rs.Set(pk);
+
+        // 错误包
+        if (rs.IsError)
+        {
+            var reader = new SpanReader(pk.Slice(1, -1));
+            var code = reader.ReadUInt16();
+            var msg = reader.ReadZeroString();
+
+            // 前面有6字符错误码
+            if (!msg.IsNullOrEmpty() && msg[0] == '#')
+                throw new MySqlException(code, msg[..6], msg[6..]);
+            else
+                throw new MySqlException(code, msg);
+        }
+
+        return rs;
+    }
+
+    /// <summary>异步发送数据包。建议数据包头部预留4字节空间以填充帧头</summary>
+    /// <param name="pk">数据包</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    public async Task SendPacketAsync(IPacket pk, CancellationToken cancellationToken = default)
+    {
+        var ms = _stream ?? throw new InvalidOperationException("未打开连接");
+
+        var len = pk.Total;
+        var pk2 = pk.ExpandHeader(4);
+
+        pk2[0] = (Byte)(len & 0xFF);
+        pk2[1] = (Byte)((len >> 8) & 0xFF);
+        pk2[2] = (Byte)((len >> 16) & 0xFF);
+        pk2[3] = _seq++;
+
+        //var data = pk2.ReadBytes();
+        //await ms.WriteAsync(data, 0, data.Length, cancellationToken).ConfigureAwait(false);
+        await pk2.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+        await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>异步发送命令请求</summary>
+    /// <param name="command">命令类型</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    public async Task SendCommandAsync(DbCmd command, CancellationToken cancellationToken = default)
+    {
+        var buf = Pool.Shared.Rent(4 + 1);
+        try
+        {
+            buf[4] = (Byte)command;
+
+            // 每一次查询请求，序列号都要重置为0
+            _seq = 0;
+
+            // 偏移4字节为帧头预留空间，避免 ExpandHeader 额外分配
+            await SendPacketAsync(new ArrayPacket(buf, 4, 1), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Pool.Shared.Return(buf);
+        }
+    }
     #endregion
 
     #region 逻辑命令
-    /// <summary>发送查询请求</summary>
-    /// <param name="pk"></param>
-    public void SendQuery(IPacket pk)
+    /// <summary>异步发送查询请求</summary>
+    /// <param name="pk">数据包</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    public async Task SendQueryAsync(IPacket pk, CancellationToken cancellationToken = default)
     {
         pk[0] = (Byte)DbCmd.QUERY;
 
         // 每一次查询请求，序列号都要重置为0
         _seq = 0;
 
-        SendPacket(pk);
+        await SendPacketAsync(pk, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>获取结果。解析OK包获取影响行数和最后插入ID，或返回结果集列数</summary>
     /// <param name="affectedRow">影响行数</param>
     /// <param name="insertedId">最后插入ID</param>
     /// <returns>结果集列数，0表示无结果集（如INSERT/UPDATE/DELETE）</returns>
-    public Int32 GetResult(ref Int32 affectedRow, ref Int64 insertedId)
+    public Int32 GetResult(Response rs, ref Int32 affectedRow, ref Int64 insertedId)
     {
-        var rs = ReadPacket();
         var reader = rs.CreateReader(0);
 
         if (rs.IsOK)
@@ -410,17 +436,18 @@ public class SqlClient : DisposeBase
         }
     }
 
-    /// <summary>读取列信息</summary>
-    /// <param name="count"></param>
-    public MySqlColumn[] GetColumns(Int32 count)
+    /// <summary>异步读取列信息</summary>
+    /// <param name="count">列数</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    public async Task<MySqlColumn[]> GetColumnsAsync(Int32 count, CancellationToken cancellationToken = default)
     {
         var list = new List<MySqlColumn>(count);
         for (var i = 0; i < count; i++)
         {
-            var rs = ReadPacket();
+            var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
             if (rs.IsEOF) break;
 
-            //var reader = rs.CreateReader(0);
             var reader = new SpanReader(rs.Data);
 
             var dc = new MySqlColumn
@@ -439,26 +466,27 @@ public class SqlClient : DisposeBase
                 Scale = reader.ReadByte()
             };
 
-            if (reader.FreeCapacity >= 2) reader.ReadInt16();
+            if (reader.Available >= 2) reader.ReadInt16();
 
             list.Add(dc);
         }
 
         {
-            var pk = ReadPacket();
+            var pk = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
             if (pk.IsEOF) { }
         }
 
         return list.ToArray();
     }
 
-    /// <summary>读取下一行</summary>
-    /// <param name="values"></param>
-    /// <param name="columns"></param>
+    /// <summary>异步读取下一行</summary>
+    /// <param name="values">行值数组</param>
+    /// <param name="columns">列信息</param>
+    /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
-    public Boolean NextRow(Object[] values, MySqlColumn[] columns)
+    public async Task<Boolean> NextRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken = default)
     {
-        var rs = ReadPacket();
+        var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         if (rs.IsEOF) return false;
 
         // 第一回读取长度
@@ -493,9 +521,11 @@ public class SqlClient : DisposeBase
         return true;
     }
 
-    /// <summary>准备语句</summary>
+    /// <summary>异步准备语句</summary>
     /// <param name="sql">SQL语句</param>
-    public Tuple<Int32, MySqlColumn[]> PrepareStatement(String sql)
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    public async Task<Tuple<Int32, MySqlColumn[]>> PrepareStatementAsync(String sql, CancellationToken cancellationToken = default)
     {
         var len = 1 + Encoding.GetByteCount(sql);
         var pk = new OwnerPacket(len);
@@ -505,9 +535,9 @@ public class SqlClient : DisposeBase
         // 每一次查询请求，序列号都要重置为0
         _seq = 0;
 
-        SendPacket(pk);
+        await SendPacketAsync(pk, cancellationToken).ConfigureAwait(false);
 
-        var rs = ReadPacket();
+        var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         var reader = rs.CreateReader(0);
 
         var statementId = reader.ReadInt32();
@@ -518,28 +548,30 @@ public class SqlClient : DisposeBase
         MySqlColumn[]? columns = null;
         if (num > 0)
         {
-            columns = GetColumns(num);
+            columns = await GetColumnsAsync(num, cancellationToken).ConfigureAwait(false);
         }
         if (numCols > 0)
         {
             while (numCols-- > 0)
             {
-                ReadPacket();
+                await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
             }
-            ReadPacket();
+            await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         }
         return new Tuple<Int32, MySqlColumn[]>(statementId, columns!);
     }
 
-    /// <summary>心跳</summary>
-    public Boolean Ping()
+    /// <summary>异步心跳</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    public async Task<Boolean> PingAsync(CancellationToken cancellationToken = default)
     {
         if (!Active || _stream == null) return false;
 
         try
         {
-            SendCommand(DbCmd.PING);
-            ReadPacket();
+            await SendCommandAsync(DbCmd.PING, cancellationToken).ConfigureAwait(false);
+            await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
 
             return true;
         }
@@ -555,9 +587,11 @@ public class SqlClient : DisposeBase
         }
     }
 
-    /// <summary>执行预编译语句</summary>
+    /// <summary>异步执行预编译语句</summary>
     /// <param name="statementId">语句ID</param>
-    public void ExecuteStatement(Int32 statementId)
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    public async Task ExecuteStatementAsync(Int32 statementId, CancellationToken cancellationToken = default)
     {
         var buf = Pool.Shared.Rent(1 + 4);
         try
@@ -566,19 +600,21 @@ public class SqlClient : DisposeBase
             writer.Write((Byte)DbCmd.EXECUTE);
             writer.Write(statementId);
 
-            SendPacket(new ArrayPacket(buf, 0, 5));
+            await SendPacketAsync(new ArrayPacket(buf, 0, 5), cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             Pool.Shared.Return(buf);
         }
 
-        ReadPacket();
+        await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>关闭预编译语句</summary>
+    /// <summary>异步关闭预编译语句</summary>
     /// <param name="statementId">语句ID</param>
-    public void CloseStatement(Int32 statementId)
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    public async Task CloseStatementAsync(Int32 statementId, CancellationToken cancellationToken = default)
     {
         var buf = Pool.Shared.Rent(1 + 4);
         try
@@ -587,14 +623,14 @@ public class SqlClient : DisposeBase
             writer.Write((Byte)DbCmd.CLOSE_STMT);
             writer.Write(statementId);
 
-            SendPacket(new ArrayPacket(buf, 0, 5));
+            await SendPacketAsync(new ArrayPacket(buf, 0, 5), cancellationToken).ConfigureAwait(false);
         }
         finally
         {
             Pool.Shared.Return(buf);
         }
 
-        ReadPacket();
+        await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
     }
     #endregion
 }
