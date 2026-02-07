@@ -1,4 +1,6 @@
-﻿using System.Net.Sockets;
+﻿using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Authentication;
 using System.Text;
 using NewLife.Buffers;
 using NewLife.Collections;
@@ -14,7 +16,7 @@ public class SqlClient : DisposeBase
 {
     #region 属性
     /// <summary>设置</summary>
-    public MySqlConnectionStringBuilder Setting { get; } = new();
+    public MySqlConnectionStringBuilder Setting { get; } = [];
 
     /// <summary>是否活动</summary>
     public Boolean Active { get; private set; }
@@ -83,7 +85,6 @@ public class SqlClient : DisposeBase
         };
         client.Connect(server, port);
 
-        // 获取网络流，将来可以在这里加上TLS支持
         _client = client;
         _stream = client.GetStream();
 
@@ -93,6 +94,16 @@ public class SqlClient : DisposeBase
         Capability = welcome.Capability;
 
         Active = true;
+
+        // SSL/TLS 握手
+        var sslMode = set.SslMode;
+        if (!sslMode.IsNullOrEmpty() && !sslMode.EqualIgnoreCase("None", "Disabled"))
+        {
+            if (Capability.Has(ClientFlags.SSL))
+                StartSsl(server!);
+            else if (sslMode.EqualIgnoreCase("Required"))
+                throw new NotSupportedException("服务器不支持 SSL 连接");
+        }
 
         // 验证方法
         var method = welcome.AuthMethod;
@@ -106,9 +117,42 @@ public class SqlClient : DisposeBase
         _timer = new TimerX(s => Ping(), null, 10_000, 30_000) { Async = true };
     }
 
+    /// <summary>发送SSL请求并升级为TLS连接</summary>
+    /// <param name="server">服务器地址</param>
+    private void StartSsl(String server)
+    {
+        // 发送 SSL 请求包
+        var flags = Capability | ClientFlags.SSL;
+        var buf = new Byte[32];
+        var writer = new SpanWriter(buf);
+        writer.Write((UInt32)flags);
+        writer.Write(0xFF_FFFF); // MaxPacket
+        writer.Write((Byte)33); // UTF-8
+        writer.Write(new Byte[23]);
+
+        _seq = 1;
+        SendPacket((ArrayPacket)buf);
+
+        // 升级为 SslStream
+        var sslStream = new SslStream(_stream!, false, (sender, certificate, chain, errors) => true);
+#if NET5_0_OR_GREATER
+        sslStream.AuthenticateAsClient(new SslClientAuthenticationOptions
+        {
+            TargetHost = server,
+            EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+        });
+#else
+        sslStream.AuthenticateAsClient(server, null, SslProtocols.Tls12, false);
+#endif
+        _stream = sslStream;
+    }
+
     /// <summary>关闭</summary>
     public void Close()
     {
+        _timer.TryDispose();
+        _timer = null;
+
         if (_stream != null)
         {
             _seq = 0;
@@ -123,8 +167,6 @@ public class SqlClient : DisposeBase
         _client.TryDispose();
         _client = null;
         _stream = null;
-        _timer.TryDispose();
-        _timer = null;
 
         Active = false;
     }
@@ -275,23 +317,39 @@ public class SqlClient : DisposeBase
     }
 
     /// <summary>重置。干掉历史残留数据</summary>
-    public void Reset()
+    /// <returns>连接是否仍然可用</returns>
+    public Boolean Reset()
     {
         var ns = _stream;
-        if (ns == null) return;
+        if (ns == null || !Active) return false;
 
-        // 干掉历史残留数据
-        if (ns is NetworkStream { DataAvailable: true } nss)
+        try
         {
-            var buf = Pool.Shared.Rent(1024);
-
-            Int32 count;
-            do
+            // 干掉历史残留数据
+            if (ns is NetworkStream { DataAvailable: true } nss)
             {
-                count = ns.Read(buf, 0, buf.Length);
-            } while (count > 0 && nss.DataAvailable);
+                var buf = Pool.Shared.Rent(1024);
 
-            Pool.Shared.Return(buf);
+                Int32 count;
+                do
+                {
+                    count = ns.Read(buf, 0, buf.Length);
+                } while (count > 0 && nss.DataAvailable);
+
+                Pool.Shared.Return(buf);
+            }
+
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            Active = false;
+            return false;
+        }
+        catch (IOException)
+        {
+            Active = false;
+            return false;
         }
     }
     #endregion
@@ -309,10 +367,10 @@ public class SqlClient : DisposeBase
         SendPacket(pk);
     }
 
-    /// <summary>获取结果</summary>
-    /// <param name="affectedRow"></param>
-    /// <param name="insertedId"></param>
-    /// <returns></returns>
+    /// <summary>获取结果。解析OK包获取影响行数和最后插入ID，或返回结果集列数</summary>
+    /// <param name="affectedRow">影响行数</param>
+    /// <param name="insertedId">最后插入ID</param>
+    /// <returns>结果集列数，0表示无结果集（如INSERT/UPDATE/DELETE）</returns>
     public Int32 GetResult(ref Int32 affectedRow, ref Int64 insertedId)
     {
         var rs = ReadPacket();
@@ -320,10 +378,11 @@ public class SqlClient : DisposeBase
 
         if (rs.IsOK)
         {
+            // OK_Packet: header(0x00) + affected_rows(length-encoded) + last_insert_id(length-encoded) + status(2) + warnings(2)
             reader.Advance(1);
-            affectedRow = reader.ReadUInt16();
-            var status = (ServerStatus)reader.ReadUInt16();
-            var warning = reader.ReadUInt16();
+            affectedRow += reader.ReadLength();
+            insertedId = reader.ReadLength();
+
             return 0;
         }
         else
@@ -403,8 +462,8 @@ public class SqlClient : DisposeBase
                 MySqlDbType.Float or MySqlDbType.Double => Double.Parse(buf.ToStr()),
                 MySqlDbType.DateTime or MySqlDbType.Timestamp or MySqlDbType.Date or MySqlDbType.Time => buf.ToStr().ToDateTime(),
                 MySqlDbType.VarChar or MySqlDbType.String or MySqlDbType.TinyText or MySqlDbType.MediumText or MySqlDbType.LongText or MySqlDbType.Text or MySqlDbType.VarString or MySqlDbType.Enum => buf.ToStr(),
-                MySqlDbType.Blob or MySqlDbType.TinyBlob or MySqlDbType.MediumBlob or MySqlDbType.LongBlob => buf.ToStr(),
-                MySqlDbType.Bit => buf[0],
+                MySqlDbType.Blob or MySqlDbType.TinyBlob or MySqlDbType.MediumBlob or MySqlDbType.LongBlob => buf.ToArray(),
+                MySqlDbType.Bit => buf[0] != 0,
                 MySqlDbType.Json => buf.ToStr(),
                 MySqlDbType.Guid => buf.ToStr(),
                 _ => buf.ToArray(),
@@ -456,6 +515,8 @@ public class SqlClient : DisposeBase
     /// <summary>心跳</summary>
     public Boolean Ping()
     {
+        if (!Active || _stream == null) return false;
+
         try
         {
             SendCommand(DbCmd.PING);
@@ -463,12 +524,12 @@ public class SqlClient : DisposeBase
 
             return true;
         }
-        catch { }
-
-        // 心跳失败，关闭连接
-        Close();
-
-        return false;
+        catch
+        {
+            // 心跳失败，标记为不可用
+            Active = false;
+            return false;
+        }
     }
 
     /// <summary>执行预编译语句</summary>

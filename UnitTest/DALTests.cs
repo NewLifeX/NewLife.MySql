@@ -5,11 +5,12 @@ namespace UnitTest;
 
 public class DALTests
 {
-    private static String _ConnStr = "Server=localhost;Database=sys;User Id=root;Password=root;";
+    private static String _ConnStr = "Server=localhost;Database=sys;User Id=root;Password=Pass@word;";
 
     static DALTests()
     {
         var f = "Config\\mysql.config".GetFullPath();
+        f.EnsureDirectory(true);
         if (File.Exists(f))
             _ConnStr = File.ReadAllText(f);
         else

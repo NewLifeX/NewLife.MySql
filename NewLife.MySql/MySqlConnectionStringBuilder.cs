@@ -26,6 +26,9 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
 
     /// <summary>命令超时</summary>
     public Int32 CommandTimeout { get => this[nameof(CommandTimeout)].ToInt(); set => this[nameof(CommandTimeout)] = value; }
+
+    /// <summary>SSL模式。None/Preferred/Required，默认None</summary>
+    public String? SslMode { get => this[nameof(SslMode)] as String; set => this[nameof(SslMode)] = value; }
     #endregion
 
     #region 构造
@@ -41,6 +44,7 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
             [nameof(Password)] = ["pass", "password", "pwd"],
             [nameof(ConnectionTimeout)] = ["connectiontimeout", "connectiontimeout", "connection timeout"],
             [nameof(CommandTimeout)] = ["defaultcommandtimeout", "command timeout", "default command timeout"],
+            [nameof(SslMode)] = ["sslmode", "ssl mode", "ssl-mode"],
         };
 
         _options = dic;
