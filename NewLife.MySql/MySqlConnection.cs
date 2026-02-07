@@ -105,7 +105,7 @@ public sealed partial class MySqlConnection : DbConnection
                 if (vs != null) client.Variables = vs;
 
                 client.Configure();
-                if (_pool != null) _pool.Variables = client.Variables;
+                _pool?.Variables = client.Variables;
             }
         }
         catch (Exception)
@@ -148,6 +148,30 @@ public sealed partial class MySqlConnection : DbConnection
 
         OnStateChange(new StateChangeEventArgs(oldState, newState));
     }
+
+    /// <summary>异步打开连接</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    public override Task OpenAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Open();
+#if NET45
+        return Task.FromResult(0);
+#else
+        return Task.CompletedTask;
+#endif
+    }
+
+#if NETSTANDARD2_1_OR_GREATER
+    /// <summary>异步关闭连接</summary>
+    /// <returns></returns>
+    public override Task CloseAsync()
+    {
+        Close();
+        return Task.CompletedTask;
+    }
+#endif
     #endregion
 
     #region 执行命令

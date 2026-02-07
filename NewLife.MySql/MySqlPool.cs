@@ -43,17 +43,24 @@ public class MySqlPool : ObjectPool<SqlClient>
     /// <summary>获取连接。剔除无效连接</summary>
     public override SqlClient Get()
     {
+        var retryCount = 0;
         while (true)
         {
             var client = base.Get();
 
-            // 重置网络数据流，清理上次未处理完的数据。如果网络已经断开，这里会重新从池里获取一个新的连接
-            try
+            // 新创建的连接尚未打开，直接返回由调用方打开
+            if (client.Welcome == null) return client;
+
+            // 已打开的连接需要检查是否仍然可用
+            if (!client.Active || !client.Reset())
             {
-                client.Reset();
-                return client;
+                // 连接已失效，丢弃后重试
+                client.TryDispose();
+                if (retryCount++ > 10) throw new InvalidOperationException("无法从连接池获取可用连接");
+                continue;
             }
-            catch { }
+
+            return client;
         }
     }
 }

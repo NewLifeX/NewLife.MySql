@@ -1,6 +1,5 @@
 ﻿using NewLife.Buffers;
 using NewLife.Data;
-using NewLife.MySql.Common;
 
 namespace NewLife.MySql.Messages;
 
@@ -44,6 +43,6 @@ public class Response(Stream stream)
     }
 
     /// <summary>获取缓存读取器，数据不足时自动从网络流读取</summary>
-    public SpanReader CreateReader(Int32 offset) => new(_stream, Data.Slice(offset, -1), 8192) { MaxCapacity = Length };
+    public SpanReader CreateReader(Int32 offset) => new(_stream, Data.Slice(offset, -1), 8192) { MaxCapacity = Length, IsLittleEndian = true };
     #endregion
 }

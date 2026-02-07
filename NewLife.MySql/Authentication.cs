@@ -11,11 +11,8 @@ namespace NewLife.MySql;
 
 class Authentication(SqlClient client)
 {
-    private SqlClient _client = client;
-
     public void Authenticate(WelcomeMessage welcome, Boolean reset)
     {
-        var client = _client;
         var set = client.Setting;
 
         // 从共享池申请内存，跳过4字节头部，便于SendPacket内部填充帧头
@@ -77,7 +74,7 @@ class Authentication(SqlClient client)
         if (authMethod == "mysql_native_password")
         {
             var pass = Get411Password(password, authData.ToArray());
-            _client.SendPacket(pass);
+            client.SendPacket(pass);
 
             var rs2 = client.ReadPacket();
             if (!rs2.IsOK)
@@ -91,10 +88,10 @@ class Authentication(SqlClient client)
     {
         // request_public_key
         var buf = new Byte[] { 0x02 };
-        _client.SendPacket(buf);
+        client.SendPacket(buf);
 
         // 读取响应
-        var rs = _client.ReadPacket();
+        var rs = client.ReadPacket();
         var reader = new SpanReader(rs.Data);
         if (reader.ReadByte() != 0x01) return;
 
@@ -107,10 +104,10 @@ class Authentication(SqlClient client)
         var encryptedPassword = RSAHelper.Encrypt(obfuscated, key);
 
         // 发送加密后的密码
-        _client.SendPacket(encryptedPassword);
+        client.SendPacket(encryptedPassword);
 
         // 读取响应
-        var rs2 = _client.ReadPacket();
+        var rs2 = client.ReadPacket();
         if (!rs2.IsOK)
             throw new InvalidOperationException("验证失败");
     }
@@ -207,8 +204,11 @@ class Authentication(SqlClient client)
         return flags;
     }
 
+    private String? _atts;
     internal String GetConnectAttrs()
     {
+        if (_atts != null) return _atts;
+
         var sb = new StringBuilder();
         var att = new ConnectAttributes();
         foreach (var pi in att.GetType().GetProperties())
@@ -223,7 +223,7 @@ class Authentication(SqlClient client)
             sb.AppendFormat("{0}{1}", (Char)Encoding.UTF8.GetByteCount(value), value);
         }
 
-        return sb.ToString();
+        return _atts = sb.ToString();
     }
     #endregion
 }
