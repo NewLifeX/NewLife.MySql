@@ -49,6 +49,6 @@ public class MySqlParameter : DbParameter
 
     #region 方法
     /// <summary>重置类型</summary>
-    public override void ResetDbType() => throw new NotImplementedException();
+    public override void ResetDbType() => DbType = default;
     #endregion
 }

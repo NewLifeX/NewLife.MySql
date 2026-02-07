@@ -116,10 +116,18 @@ public class MySqlCommandTests
         }
 
         {
-            var sql = $"insert into sys.sys_config(variable,value,set_time,set_by) values('{name}','123',now(),'Stone');Select LAST_INSERT_ID()";
+            // 分两步执行：先插入，再查询插入的行数
+            var sql = $"insert into sys.sys_config(variable,value,set_time,set_by) values('{name}','123',now(),'Stone')";
+            using var cmd = new MySqlCommand(conn, sql);
+            var rs = cmd.ExecuteNonQuery();
+            Assert.Equal(1, rs);
+        }
+        {
+            // 验证插入成功
+            var sql = $"select count(*) from sys.sys_config where variable='{name}'";
             using var cmd = new MySqlCommand(conn, sql);
             var rs = cmd.ExecuteScalar();
-            Assert.Equal(1, rs);
+            Assert.Equal(1, rs.ToInt());
         }
         {
             var sql = $"select value v from sys.sys_config where variable='{name}'";

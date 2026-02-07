@@ -106,7 +106,8 @@ public class MySqlParameterTests
     [Fact]
     public void TestResetDbType()
     {
-        var param = new MySqlParameter();
-        Assert.Throws<NotImplementedException>(() => param.ResetDbType());
+        var param = new MySqlParameter { DbType = DbType.Int32 };
+        param.ResetDbType();
+        Assert.Equal(default(DbType), param.DbType);
     }
 }

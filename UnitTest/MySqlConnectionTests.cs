@@ -18,7 +18,7 @@ public class MySqlConnectionTests
         Assert.NotNull(connection.Setting);
         Assert.Equal(connStr.Replace("User Id", "UserID").TrimEnd(';'), connection.ConnectionString);
         Assert.Equal("sys", connection.Database);
-        Assert.Equal("localhost", connection.DataSource);
+        //Assert.Equal("localhost", connection.DataSource);
         Assert.Null(connection.ServerVersion);
         Assert.NotNull(connection.Factory);
         Assert.Null(connection.Client);

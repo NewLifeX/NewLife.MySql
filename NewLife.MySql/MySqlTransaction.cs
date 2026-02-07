@@ -3,20 +3,20 @@ using System.Data.Common;
 
 namespace NewLife.MySql;
 
+/// <summary>MySql事务</summary>
 sealed class MySqlTransaction(MySqlConnection connection, IsolationLevel isolationLevel) : DbTransaction
 {
+    /// <summary>隔离级别</summary>
     public override IsolationLevel IsolationLevel { get; } = isolationLevel;
 
+    /// <summary>数据库连接</summary>
     protected override DbConnection DbConnection => connection;
 
     private Boolean _open = true;
     private Boolean _disposed;
 
-    ~MySqlTransaction()
-    {
-        Dispose(disposing: false);
-    }
-
+    /// <summary>销毁</summary>
+    /// <param name="disposing"></param>
     protected override void Dispose(Boolean disposing)
     {
         if (!_disposed)
@@ -24,12 +24,15 @@ sealed class MySqlTransaction(MySqlConnection connection, IsolationLevel isolati
             base.Dispose(disposing);
 
             if (disposing && _open && Connection != null && Connection.State == ConnectionState.Open)
-                Rollback();
+            {
+                try { Rollback(); } catch { }
+            }
 
             _disposed = true;
         }
     }
 
+    /// <summary>提交事务</summary>
     public override void Commit()
     {
         var conn = connection;
@@ -41,6 +44,7 @@ sealed class MySqlTransaction(MySqlConnection connection, IsolationLevel isolati
         _open = false;
     }
 
+    /// <summary>回滚事务</summary>
     public override void Rollback()
     {
         var conn = connection;

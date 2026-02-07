@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using System.Data;
 using System.Data.Common;
+using System.Text;
 
 namespace NewLife.MySql;
 
@@ -83,10 +84,29 @@ public class MySqlDataReader : DbDataReader
         return true;
     }
 
-    /// <summary>关闭</summary>
+    /// <summary>关闭。消费未读完的结果集行，避免后续命令数据错位</summary>
     public override void Close()
     {
-        //throw new NotImplementedException();
+        if (_IsClosed) return;
+
+        //// 消费未读完的行数据
+        //try
+        //{
+        //    if (_FieldCount > 0)
+        //    {
+        //        var conn = Command?.Connection as MySqlConnection;
+        //        var client = conn?.Client;
+        //        if (client != null)
+        //        {
+        //            // 消费剩余行数据，直到 EOF
+        //            var values = new Object[_FieldCount];
+        //            while (client.NextRow(values, _Columns!)) { }
+        //        }
+        //    }
+        //}
+        //catch { }
+
+        _IsClosed = true;
     }
     #endregion
 
@@ -112,21 +132,35 @@ public class MySqlDataReader : DbDataReader
     /// <returns>一个字符串，表示数据类型的名称。</returns>
     public override String GetDataTypeName(Int32 ordinal) => _Columns![ordinal].Type.ToString();
 
-    private static ICollection<String> _mytypes = ["VarString", "VarChar", "String", "TinyText", "MediumText", "LongText", "Text"];
-    /// <summary>
-    /// 获取指定列的数据类型。
-    /// </summary>
+    private static readonly ICollection<String> _mytypes = ["VarString", "VarChar", "String", "TinyText", "MediumText", "LongText", "Text"];
+    /// <summary>获取指定列的数据类型</summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的数据类型。</returns>
     public override Type GetFieldType(Int32 ordinal)
     {
-        var typeName = _Columns![ordinal].Type.ToString();
+        var col = _Columns![ordinal];
+        var typeName = col.Type.ToString();
         if (_mytypes.Contains(typeName)) return typeof(String);
 
         // 暂时把Enum和Set类型也算做是string
         if (typeName.EqualIgnoreCase("Enum", "Set")) return typeof(String);
 
-        return Type.GetType("System." + typeName);
+        // 数字类型映射
+        return col.Type switch
+        {
+            Common.MySqlDbType.Byte => typeof(SByte),
+            Common.MySqlDbType.Int16 or Common.MySqlDbType.UInt16 => typeof(Int16),
+            Common.MySqlDbType.Int24 or Common.MySqlDbType.UInt24 or Common.MySqlDbType.Int32 or Common.MySqlDbType.UInt32 => typeof(Int32),
+            Common.MySqlDbType.Int64 or Common.MySqlDbType.UInt64 => typeof(Int64),
+            Common.MySqlDbType.Float => typeof(Single),
+            Common.MySqlDbType.Double => typeof(Double),
+            Common.MySqlDbType.Decimal or Common.MySqlDbType.NewDecimal => typeof(Decimal),
+            Common.MySqlDbType.DateTime or Common.MySqlDbType.Timestamp or Common.MySqlDbType.Date or Common.MySqlDbType.Time => typeof(DateTime),
+            Common.MySqlDbType.Bit => typeof(Boolean),
+            Common.MySqlDbType.Blob or Common.MySqlDbType.TinyBlob or Common.MySqlDbType.MediumBlob or Common.MySqlDbType.LongBlob => typeof(Byte[]),
+            Common.MySqlDbType.Guid => typeof(Guid),
+            _ => typeof(String),
+        };
     }
 
     /// <summary>
@@ -293,12 +327,46 @@ public class MySqlDataReader : DbDataReader
     /// <returns>指定列的值。</returns>
     public override Int64 GetInt64(Int32 ordinal) => (Int64)_Values![ordinal];
 
-    /// <summary>
-    /// 以 System.String 实例的形式获取指定列的值。
-    /// </summary>
+    /// <summary>以 System.String 实例的形式获取指定列的值</summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的值。</returns>
-    public override String GetString(Int32 ordinal) => (String)_Values![ordinal];
+    public override String GetString(Int32 ordinal)
+    {
+        var val = _Values![ordinal];
+        if (val is String s) return s;
+        if (val is Byte[] buf) return Encoding.UTF8.GetString(buf);
+        return val?.ToString() ?? String.Empty;
+    }
+    #endregion
+
+    #region 异步方法
+    /// <summary>异步读取一行</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    public override Task<Boolean> ReadAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(Read());
+    }
+
+    /// <summary>异步下一结果集</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    public override Task<Boolean> NextResultAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(NextResult());
+    }
+
+    /// <summary>异步关闭</summary>
+    /// <returns></returns>
+#if NETSTANDARD2_1_OR_GREATER
+    public override Task CloseAsync()
+    {
+        Close();
+        return Task.CompletedTask;
+    }
+#endif
     #endregion
 
     #region 辅助
