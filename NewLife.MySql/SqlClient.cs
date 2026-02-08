@@ -15,29 +15,29 @@ namespace NewLife.MySql;
 public class SqlClient : DisposeBase
 {
     #region 属性
-    /// <summary>设置</summary>
+    /// <summary>连接字符串配置</summary>
     public MySqlConnectionStringBuilder Setting { get; } = [];
 
-    /// <summary>是否活动</summary>
+    /// <summary>连接是否活动</summary>
     public Boolean Active { get; private set; }
 
-    /// <summary>最大包大小</summary>
+    /// <summary>服务器支持的最大数据包大小</summary>
     public Int64 MaxPacketSize { get; private set; }
 
-    /// <summary>服务器特性</summary>
+    /// <summary>客户端支持的特性标志</summary>
     public ClientFlags Capability { get; set; }
 
-    /// <summary>服务器变量</summary>
+    /// <summary>服务器变量集合，键值对形式存储</summary>
     public IDictionary<String, String>? Variables { get; set; }
 
     private Stream? _stream;
-    /// <summary>基础数据流</summary>
+    /// <summary>底层网络数据流</summary>
     public Stream? BaseStream { get => _stream; set => _stream = value; }
 
-    /// <summary>欢迎信息</summary>
+    /// <summary>服务器握手欢迎消息</summary>
     public WelcomeMessage? Welcome { get; set; }
 
-    /// <summary>编码</summary>
+    /// <summary>字符编码，默认 UTF-8</summary>
     public Encoding Encoding { get; set; } = Encoding.UTF8;
 
     private TcpClient? _client;
@@ -53,20 +53,21 @@ public class SqlClient : DisposeBase
     /// <param name="setting"></param>
     public SqlClient(MySqlConnectionStringBuilder setting) => Setting = setting;
 
-    /// <summary>销毁</summary>
-    /// <param name="disposing"></param>
+    /// <summary>销毁并释放所有资源</summary>
+    /// <param name="disposing">是否正在释放托管资源</param>
     protected override void Dispose(Boolean disposing)
     {
         base.Dispose(disposing);
 
-        Close();
+        if (disposing)
+            Close();
     }
     #endregion
 
     #region 打开关闭
-    /// <summary>异步打开连接</summary>
+    /// <summary>异步打开到 MySQL 服务器的连接</summary>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns></returns>
+    /// <returns>异步任务</returns>
     public async Task OpenAsync(CancellationToken cancellationToken = default)
     {
         if (Active) return;
@@ -83,18 +84,26 @@ public class SqlClient : DisposeBase
         if (msTimeout <= 0) msTimeout = 15000;
 
         // 异步连接网络
-        var client = new TcpClient
-        {
-            ReceiveTimeout = msTimeout,
-            SendTimeout = msTimeout,
-        };
+        var client = new TcpClient();
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(msTimeout);
 
         try
         {
-            await client.ConnectAsync(server, port).ConfigureAwait(false);
+#if NET5_0_OR_GREATER
+            await client.ConnectAsync(server, port, cts.Token).ConfigureAwait(false);
+#else
+            // .NET Framework 4.5 不支持 ConnectAsync 的 CancellationToken 参数
+            var connectTask = client.ConnectAsync(server, port);
+            var completedTask = await Task.WhenAny(connectTask, Task.Delay(msTimeout, cts.Token)).ConfigureAwait(false);
+            if (completedTask != connectTask)
+            {
+                client.Close();
+                throw new TimeoutException($"连接 {server}:{port} 超时({set.ConnectionTimeout}s)");
+            }
+            await connectTask.ConfigureAwait(false);
+#endif
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -106,6 +115,10 @@ public class SqlClient : DisposeBase
             client.Close();
             throw;
         }
+
+        // 设置读写超时
+        client.ReceiveTimeout = msTimeout;
+        client.SendTimeout = msTimeout;
 
         _client = client;
         _stream = client.GetStream();
@@ -171,12 +184,14 @@ public class SqlClient : DisposeBase
         _stream = sslStream;
     }
 
-    /// <summary>关闭</summary>
+    /// <summary>关闭与服务器的连接并释放资源</summary>
     public void Close()
     {
+        // 停止定时器
         _timer.TryDispose();
         _timer = null;
 
+        // 尝试发送退出命令
         if (_stream != null)
         {
             _seq = 0;
@@ -185,9 +200,10 @@ public class SqlClient : DisposeBase
             {
                 SendCommandAsync(DbCmd.QUIT).ConfigureAwait(false).GetAwaiter().GetResult();
             }
-            catch { }
+            catch { /* 忽略关闭过程中的异常 */ }
         }
 
+        // 释放网络资源
         _client.TryDispose();
         _client = null;
         _stream = null;
@@ -195,9 +211,9 @@ public class SqlClient : DisposeBase
         Active = false;
     }
 
-    /// <summary>异步配置</summary>
+    /// <summary>异步加载并配置服务器变量和参数</summary>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns></returns>
+    /// <returns>异步任务</returns>
     public virtual async Task ConfigureAsync(CancellationToken cancellationToken = default)
     {
         var vs = Variables ??= await LoadVariablesAsync(cancellationToken).ConfigureAwait(false);
@@ -209,9 +225,9 @@ public class SqlClient : DisposeBase
     #endregion
 
     #region 方法
-    /// <summary>异步握手欢迎消息。从中得知服务器验证方式等一系列参数信息</summary>
+    /// <summary>异步读取服务器握手欢迎消息。从中得知服务器验证方式等一系列参数信息</summary>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns></returns>
+    /// <returns>欢迎消息对象</returns>
     private async Task<WelcomeMessage> GetWelcomeAsync(CancellationToken cancellationToken)
     {
         var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
@@ -224,7 +240,7 @@ public class SqlClient : DisposeBase
 
     /// <summary>异步加载服务器变量</summary>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns></returns>
+    /// <returns>服务器变量字典</returns>
     private async Task<IDictionary<String, String>> LoadVariablesAsync(CancellationToken cancellationToken)
     {
         var dic = new Dictionary<String, String>();
@@ -246,7 +262,7 @@ public class SqlClient : DisposeBase
     #endregion
 
     #region 网络操作
-    /// <summary>重置。干掉历史残留数据</summary>
+    /// <summary>重置连接状态，清除网络流中的残留数据</summary>
     /// <returns>连接是否仍然可用</returns>
     public Boolean Reset()
     {
@@ -255,17 +271,16 @@ public class SqlClient : DisposeBase
 
         try
         {
-            // 干掉历史残留数据
+            // 清除网络流中的残留数据
             if (ns is NetworkStream { DataAvailable: true } nss)
             {
                 var buf = Pool.Shared.Rent(1024);
                 try
                 {
-                    Int32 count;
-                    do
+                    while (nss.DataAvailable && ns.Read(buf, 0, buf.Length) > 0)
                     {
-                        count = ns.Read(buf, 0, buf.Length);
-                    } while (count > 0 && nss.DataAvailable);
+                        // 持续读取直到没有可用数据
+                    }
                 }
                 finally
                 {
@@ -287,13 +302,13 @@ public class SqlClient : DisposeBase
         }
     }
 
-    /// <summary>异步读取精确字节数</summary>
+    /// <summary>异步从流中读取精确字节数</summary>
     /// <param name="stream">数据流</param>
     /// <param name="buffer">缓冲区</param>
-    /// <param name="offset">偏移</param>
-    /// <param name="count">字节数</param>
+    /// <param name="offset">偏移量</param>
+    /// <param name="count">需要读取的字节数</param>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns></returns>
+    /// <returns>实际读取的字节数</returns>
     private static async Task<Int32> ReadExactlyAsync(Stream stream, Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken)
     {
         var totalRead = 0;
@@ -306,9 +321,9 @@ public class SqlClient : DisposeBase
         return totalRead;
     }
 
-    /// <summary>异步读取数据包</summary>
+    /// <summary>异步从网络流读取一个完整的 MySQL 协议数据包</summary>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns></returns>
+    /// <returns>响应数据包</returns>
     public async Task<Response> ReadPacketAsync(CancellationToken cancellationToken = default)
     {
         var ms = _stream ?? throw new InvalidOperationException("未打开连接");
@@ -351,10 +366,10 @@ public class SqlClient : DisposeBase
         return rs;
     }
 
-    /// <summary>异步发送数据包。建议数据包头部预留4字节空间以填充帧头</summary>
-    /// <param name="pk">数据包</param>
+    /// <summary>异步发送 MySQL 协议数据包。建议数据包头部预留4字节空间以填充帧头</summary>
+    /// <param name="pk">待发送的数据包</param>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns></returns>
+    /// <returns>异步任务</returns>
     public async Task SendPacketAsync(IPacket pk, CancellationToken cancellationToken = default)
     {
         var ms = _stream ?? throw new InvalidOperationException("未打开连接");
@@ -398,10 +413,10 @@ public class SqlClient : DisposeBase
     #endregion
 
     #region 逻辑命令
-    /// <summary>异步发送查询请求</summary>
-    /// <param name="pk">数据包</param>
+    /// <summary>异步发送 SQL 查询请求到服务器</summary>
+    /// <param name="pk">包含查询语句的数据包</param>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns></returns>
+    /// <returns>异步任务</returns>
     public async Task SendQueryAsync(IPacket pk, CancellationToken cancellationToken = default)
     {
         pk[0] = (Byte)DbCmd.QUERY;
@@ -412,9 +427,9 @@ public class SqlClient : DisposeBase
         await SendPacketAsync(pk, cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>获取结果。解析OK包获取影响行数和最后插入ID，或返回结果集列数</summary>
-    /// <param name="rs">响应包</param>
-    /// <returns>查询结果</returns>
+    /// <summary>解析服务器响应获取查询结果。解析 OK 包获取影响行数和最后插入ID，或返回结果集列数</summary>
+    /// <param name="rs">服务器响应数据包</param>
+    /// <returns>查询结果对象</returns>
     public QueryResult GetResult(Response rs)
     {
         var reader = rs.CreateReader(0);
@@ -444,10 +459,10 @@ public class SqlClient : DisposeBase
         }
     }
 
-    /// <summary>异步读取列信息</summary>
-    /// <param name="count">列数</param>
+    /// <summary>异步读取结果集的列定义信息</summary>
+    /// <param name="count">列数量</param>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns></returns>
+    /// <returns>列信息数组</returns>
     public async Task<MySqlColumn[]> GetColumnsAsync(Int32 count, CancellationToken cancellationToken = default)
     {
         var list = new List<MySqlColumn>(count);
@@ -479,19 +494,18 @@ public class SqlClient : DisposeBase
             list.Add(dc);
         }
 
-        {
-            var pk = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-            if (pk.IsEOF) { }
-        }
+        // 读取 EOF 包
+        var pk = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        if (pk.IsEOF) { }
 
-        return list.ToArray();
+        return [.. list];
     }
 
-    /// <summary>异步读取下一行</summary>
-    /// <param name="values">行值数组</param>
-    /// <param name="columns">列信息</param>
+    /// <summary>异步读取结果集的下一行数据</summary>
+    /// <param name="values">用于存储行数据的数组</param>
+    /// <param name="columns">列信息数组</param>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>行读取结果</returns>
+    /// <returns>行读取结果，包含是否成功及状态信息</returns>
     public async Task<RowResult> NextRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken = default)
     {
         var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
@@ -534,17 +548,15 @@ public class SqlClient : DisposeBase
                 MySqlDbType.Guid => buf.ToStr(),
                 _ => buf.ToArray(),
             };
-
-            len = -1;
         }
 
         return new RowResult(true, 0, 0);
     }
 
-    /// <summary>异步准备语句</summary>
-    /// <param name="sql">SQL语句</param>
+    /// <summary>异步准备预编译语句</summary>
+    /// <param name="sql">SQL 语句</param>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns></returns>
+    /// <returns>包含语句 ID 和参数列信息的元组</returns>
     public async Task<Tuple<Int32, MySqlColumn[]>> PrepareStatementAsync(String sql, CancellationToken cancellationToken = default)
     {
         var len = 1 + Encoding.GetByteCount(sql);
@@ -581,9 +593,9 @@ public class SqlClient : DisposeBase
         return new Tuple<Int32, MySqlColumn[]>(statementId, columns!);
     }
 
-    /// <summary>异步心跳</summary>
+    /// <summary>异步发送心跳检测连接可用性</summary>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns></returns>
+    /// <returns>连接是否正常</returns>
     public async Task<Boolean> PingAsync(CancellationToken cancellationToken = default)
     {
         if (!Active || _stream == null) return false;
@@ -607,10 +619,10 @@ public class SqlClient : DisposeBase
         }
     }
 
-    /// <summary>异步执行预编译语句</summary>
-    /// <param name="statementId">语句ID</param>
+    /// <summary>异步执行已准备的预编译语句</summary>
+    /// <param name="statementId">预编译语句 ID</param>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns></returns>
+    /// <returns>异步任务</returns>
     public async Task ExecuteStatementAsync(Int32 statementId, CancellationToken cancellationToken = default)
     {
         var buf = Pool.Shared.Rent(1 + 4);
@@ -630,10 +642,10 @@ public class SqlClient : DisposeBase
         await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>异步关闭预编译语句</summary>
-    /// <param name="statementId">语句ID</param>
+    /// <summary>异步关闭预编译语句并释放服务器资源</summary>
+    /// <param name="statementId">预编译语句 ID</param>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns></returns>
+    /// <returns>异步任务</returns>
     public async Task CloseStatementAsync(Int32 statementId, CancellationToken cancellationToken = default)
     {
         var buf = Pool.Shared.Rent(1 + 4);
