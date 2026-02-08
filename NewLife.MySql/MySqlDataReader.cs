@@ -54,6 +54,8 @@ public class MySqlDataReader : DbDataReader
     public Object[]? Values => _Values;
 
     private Boolean _allRowsConsumed = true;
+
+    private Boolean _hasReadResult;
     #endregion
 
     #region 核心方法
@@ -352,12 +354,10 @@ public class MySqlDataReader : DbDataReader
             }
         }
 
-        // 检查是否有更多结果集（上一次读取时记录的状态）
-        // 首次调用时 _hasMoreResults 为 false，需要读取第一个结果
-        // 非首次调用时，根据 _hasMoreResults 判断
-        if (_FieldCount > 0 && !_hasMoreResults)
+        // 已经读过结果且没有更多结果集，直接返回 false。
+        // 用 _hasReadResult 区分初始状态（从未读过）和已读过 OK 包（FieldCount=0）的状态
+        if (_hasReadResult && !_hasMoreResults)
         {
-            // 已经读过结果且没有更多结果集
             _FieldCount = 0;
             _Columns = null;
             _Values = null;
@@ -368,6 +368,7 @@ public class MySqlDataReader : DbDataReader
         var response = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         var qr = client.GetResult(response);
 
+        _hasReadResult = true;
         _RecordsAffected += qr.AffectedRows;
         _hasMoreResults = qr.HasMoreResults;
 
@@ -377,11 +378,12 @@ public class MySqlDataReader : DbDataReader
 
         if (qr.FieldCount <= 0)
         {
-            // OK 包（INSERT/UPDATE/DELETE），可能还有更多结果
+            // OK 包（INSERT/UPDATE/DELETE）
             _Columns = null;
-            // 如果有更多结果，递归读取下一个
-            if (_hasMoreResults) return await NextResultAsync(cancellationToken).ConfigureAwait(false);
-            return false;
+            // 根据 ADO.NET 标准，NextResult 每次只移动一个结果。
+            // 即使当前结果是 OK 包（FieldCount=0），我们也成功读取了一个结果，应返回 true。
+            // 下次调用时，通过 _hasMoreResults 判断是否继续。
+            return true;
         }
 
         _Columns = await client.GetColumnsAsync(qr.FieldCount, cancellationToken).ConfigureAwait(false);

@@ -135,28 +135,43 @@ public class MySqlCommand : DbCommand
     {
         using var reader = await ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
-        // 累加所有结果集的影响行数
-        var dr = reader as MySqlDataReader;
-        var total = reader.RecordsAffected;
-        while (dr != null && dr.HasMoreResults && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
+        // 消费所有结果集（RecordsAffected 会在 NextResultAsync 中自动累加）
+        while (await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
         {
-            total += reader.RecordsAffected;
+            // 仅消费结果集，RecordsAffected 已在 NextResultAsync 中累加
         }
 
-        return total;
+        // RecordsAffected 已经是所有结果的累加值
+        return reader.RecordsAffected;
     }
 
-    /// <summary>异步执行并返回第一个结果集的标量值</summary>
+    /// <summary>异步执行并返回第一个有数据的结果集的第一行第一列</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
     public override async Task<Object?> ExecuteScalarAsync(CancellationToken cancellationToken)
     {
         using var reader = await ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
-        if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
-            return reader.GetValue(0);
+        Object? result = null;
+        var found = false;
 
-        return null;
+        // 遍历所有结果集，确保网络流干净
+        do
+        {
+            // 如果当前结果集有列（非 OK 包）且尚未找到结果
+            if (!found && reader.FieldCount > 0)
+            {
+                // 尝试读取第一行第一列
+                if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    result = reader.GetValue(0);
+                    found = true;
+                }
+            }
+            // 继续消费剩余结果集，NextResultAsync 内部会消费当前结果集的剩余行
+        } while (await reader.NextResultAsync(cancellationToken).ConfigureAwait(false));
+
+        return result;
     }
     #endregion
 

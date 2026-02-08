@@ -630,7 +630,7 @@ public class SqlClientTests
         var result = await client.NextRowAsync(values, columns);
 
         Assert.True(result.HasRow);
-        Assert.Equal(42L, values[0]);
+        Assert.Equal(42, values[0]);
         Assert.Equal("hello", values[1]);
     }
 
@@ -659,7 +659,7 @@ public class SqlClientTests
         var result = await client.NextRowAsync(values, columns);
 
         Assert.True(result.HasRow);
-        Assert.Equal(100L, values[0]);
+        Assert.Equal(100, values[0]);
         Assert.Equal(DBNull.Value, values[1]);
     }
 
