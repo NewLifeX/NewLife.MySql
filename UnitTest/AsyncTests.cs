@@ -5,6 +5,7 @@ using NewLife.MySql;
 namespace UnitTest;
 
 /// <summary>异步方法测试</summary>
+[TestCaseOrderer("NewLife.UnitTest.DefaultOrderer", "NewLife.UnitTest")]
 public class AsyncTests
 {
     private static String _ConnStr = DALTests.GetConnStr();
@@ -17,7 +18,7 @@ public class AsyncTests
 
         Assert.Equal(ConnectionState.Closed, conn.State);
 
-        await conn.OpenAsync().ConfigureAwait(false);
+        await conn.OpenAsync();
 
         Assert.Equal(ConnectionState.Open, conn.State);
         Assert.NotNull(conn.Client);
@@ -33,14 +34,14 @@ public class AsyncTests
     public async Task WhenExecuteReaderAsyncThenReturnsData()
     {
         using var conn = new MySqlConnection(_ConnStr);
-        await conn.OpenAsync().ConfigureAwait(false);
+        await conn.OpenAsync();
 
         using var cmd = new MySqlCommand(conn, "select * from sys.user_summary");
-        using var reader = await cmd.ExecuteReaderAsync().ConfigureAwait(false);
+        using var reader = await cmd.ExecuteReaderAsync();
 
         Assert.True(reader.FieldCount > 0);
 
-        var hasRows = await reader.ReadAsync().ConfigureAwait(false);
+        var hasRows = await reader.ReadAsync();
         Assert.True(hasRows);
         Assert.Equal("root", reader.GetString(0));
     }
@@ -50,32 +51,32 @@ public class AsyncTests
     public async Task WhenExecuteNonQueryAsyncThenReturnsAffectedRows()
     {
         using var conn = new MySqlConnection(_ConnStr);
-        await conn.OpenAsync().ConfigureAwait(false);
+        await conn.OpenAsync();
 
         // 清理
         {
             using var cmd = new MySqlCommand(conn, "delete from sys.sys_config where variable='async_test'");
-            await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+            await cmd.ExecuteNonQueryAsync();
         }
 
         // 插入
         {
             using var cmd = new MySqlCommand(conn, "insert into sys.sys_config(variable,value,set_time,set_by) values('async_test','abc',now(),'test')");
-            var rs = await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+            var rs = await cmd.ExecuteNonQueryAsync();
             Assert.Equal(1, rs);
         }
 
         // 验证
         {
             using var cmd = new MySqlCommand(conn, "select value v from sys.sys_config where variable='async_test'");
-            var rs = await cmd.ExecuteScalarAsync().ConfigureAwait(false);
+            var rs = await cmd.ExecuteScalarAsync();
             Assert.Equal("abc", rs);
         }
 
         // 清理
         {
             using var cmd = new MySqlCommand(conn, "delete from sys.sys_config where variable='async_test'");
-            var rs = await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
+            var rs = await cmd.ExecuteNonQueryAsync();
             Assert.Equal(1, rs);
         }
     }
@@ -85,10 +86,10 @@ public class AsyncTests
     public async Task WhenExecuteScalarAsyncThenReturnsValue()
     {
         using var conn = new MySqlConnection(_ConnStr);
-        await conn.OpenAsync().ConfigureAwait(false);
+        await conn.OpenAsync();
 
         using var cmd = new MySqlCommand(conn, "select statements u from sys.user_summary where user='root'");
-        var rs = await cmd.ExecuteScalarAsync().ConfigureAwait(false);
+        var rs = await cmd.ExecuteScalarAsync();
 
         Assert.NotNull(rs);
     }
@@ -100,17 +101,17 @@ public class AsyncTests
         var tasks = Enumerable.Range(0, 5).Select(async _ =>
         {
             using var conn = new MySqlConnection(_ConnStr);
-            await conn.OpenAsync().ConfigureAwait(false);
+            await conn.OpenAsync();
             Assert.Equal(ConnectionState.Open, conn.State);
 
             using var cmd = new MySqlCommand(conn, "select 1");
-            var rs = await cmd.ExecuteScalarAsync().ConfigureAwait(false);
+            var rs = await cmd.ExecuteScalarAsync();
             Assert.NotNull(rs);
 
             conn.Close();
         });
 
-        await Task.WhenAll(tasks).ConfigureAwait(false);
+        await Task.WhenAll(tasks);
     }
 
     [Fact]
@@ -123,8 +124,8 @@ public class AsyncTests
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
         {
-            await conn.OpenAsync(cts.Token).ConfigureAwait(false);
-        }).ConfigureAwait(false);
+            await conn.OpenAsync(cts.Token);
+        });
     }
 
     [Fact]
@@ -132,13 +133,13 @@ public class AsyncTests
     public async Task WhenReadMultipleRowsAsyncThenAllRowsReturned()
     {
         using var conn = new MySqlConnection(_ConnStr);
-        await conn.OpenAsync().ConfigureAwait(false);
+        await conn.OpenAsync();
 
         using var cmd = new MySqlCommand(conn, "select * from sys.user_summary");
-        using var reader = await cmd.ExecuteReaderAsync().ConfigureAwait(false);
+        using var reader = await cmd.ExecuteReaderAsync();
 
         var rows = 0;
-        while (await reader.ReadAsync().ConfigureAwait(false))
+        while (await reader.ReadAsync())
         {
             rows++;
             Assert.True(reader.FieldCount > 0);

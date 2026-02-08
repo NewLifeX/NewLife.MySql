@@ -102,7 +102,8 @@ public class SqlClientExtendedTests
         var ms = new MemoryStream([0x01, 0x02]);
         var client = new SqlClient { BaseStream = ms };
 
-        await Assert.ThrowsAsync<InvalidDataException>(async () => await client.ReadPacketAsync());
+        // ReadExactlyAsync 在数据不足时抛出 EndOfStreamException
+        await Assert.ThrowsAsync<EndOfStreamException>(async () => await client.ReadPacketAsync());
     }
 
     [Fact(DisplayName = "测试SendPacketAsync自动填充帧头")]

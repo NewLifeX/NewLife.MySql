@@ -111,6 +111,8 @@ public sealed partial class MySqlConnection : DbConnection
     /// <returns></returns>
     public override async Task OpenAsync(CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        
         if (State == ConnectionState.Open) return;
 
         SetState(ConnectionState.Connecting);
@@ -120,10 +122,12 @@ public sealed partial class MySqlConnection : DbConnection
             var client = Client;
             if (client == null)
             {
-                // 根据连接字符串创建连接池，然后从连接池获取连接
+                // 根据连接字符串创建连接池,然后从连接池获取连接
                 _pool = Factory?.PoolManager?.GetPool(Setting);
 
                 client = _pool?.Get() ?? new SqlClient(Setting);
+                
+                cancellationToken.ThrowIfCancellationRequested();
 
                 if (client.Welcome == null)
                     await client.OpenAsync(cancellationToken).ConfigureAwait(false);

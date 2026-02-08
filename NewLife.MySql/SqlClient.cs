@@ -72,6 +72,7 @@ public class SqlClient : DisposeBase
     {
         if (Active) return;
         if (_stream != null) return;
+        cancellationToken.ThrowIfCancellationRequested();
 
         var set = Setting;
         var server = set.Server;
@@ -100,7 +101,7 @@ public class SqlClient : DisposeBase
             if (completedTask != connectTask)
             {
                 client.Close();
-                throw new TimeoutException($"连接 {server}:{port} 超时({set.ConnectionTimeout}s)");
+                throw new TimeoutException($"连接 {server}:{port} 超时({msTimeout}ms)");
             }
             await connectTask.ConfigureAwait(false);
 #endif
@@ -108,7 +109,7 @@ public class SqlClient : DisposeBase
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             client.Close();
-            throw new TimeoutException($"连接 {server}:{port} 超时({set.ConnectionTimeout}s)");
+            throw new TimeoutException($"连接 {server}:{port} 超时({msTimeout}ms)");
         }
         catch
         {
@@ -302,25 +303,6 @@ public class SqlClient : DisposeBase
         }
     }
 
-    /// <summary>异步从流中读取精确字节数</summary>
-    /// <param name="stream">数据流</param>
-    /// <param name="buffer">缓冲区</param>
-    /// <param name="offset">偏移量</param>
-    /// <param name="count">需要读取的字节数</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>实际读取的字节数</returns>
-    private static async Task<Int32> ReadExactlyAsync(Stream stream, Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken)
-    {
-        var totalRead = 0;
-        while (totalRead < count)
-        {
-            var n = await stream.ReadAsync(buffer, offset + totalRead, count - totalRead, cancellationToken).ConfigureAwait(false);
-            if (n <= 0) break;
-            totalRead += n;
-        }
-        return totalRead;
-    }
-
     /// <summary>异步从网络流读取一个完整的 MySQL 协议数据包</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>响应数据包</returns>
@@ -330,7 +312,7 @@ public class SqlClient : DisposeBase
 
         // 3字节长度 + 1字节序列号
         var buf = Pool.Shared.Rent(4);
-        var count = await ReadExactlyAsync(ms, buf, 0, 4, cancellationToken).ConfigureAwait(false);
+        var count = await ms.ReadExactlyAsync(buf, 0, 4, cancellationToken).ConfigureAwait(false);
         if (count < 4) throw new InvalidDataException($"读取数据包头部失败，可用{count}字节");
 
         var rs = new Response(ms)
@@ -344,7 +326,7 @@ public class SqlClient : DisposeBase
         // 读取数据。长度必须刚好，因为可能有多帧数据包
         var len = rs.Length;
         var pk = new OwnerPacket(len);
-        count = await ReadExactlyAsync(ms, pk.Buffer, pk.Offset, len, cancellationToken).ConfigureAwait(false);
+        count = await ms.ReadExactlyAsync(pk.Buffer, pk.Offset, len, cancellationToken).ConfigureAwait(false);
 
         pk.Resize(count);
         rs.Set(pk);
