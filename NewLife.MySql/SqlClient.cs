@@ -534,8 +534,12 @@ public class SqlClient : DisposeBase
             values[i] = columns[i].Type switch
             {
                 MySqlDbType.Decimal or MySqlDbType.NewDecimal => Decimal.Parse(buf.ToStr()),
-                MySqlDbType.Byte or MySqlDbType.Int16 or MySqlDbType.Int24 or MySqlDbType.Int32 or MySqlDbType.Int64 or MySqlDbType.UInt16 or MySqlDbType.UInt24 or MySqlDbType.UInt32 or MySqlDbType.UInt64 => Int64.Parse(buf.ToStr()),
-                MySqlDbType.Float or MySqlDbType.Double => Double.Parse(buf.ToStr()),
+                MySqlDbType.Byte => (SByte)Int64.Parse(buf.ToStr()),
+                MySqlDbType.Int16 or MySqlDbType.UInt16 => (Int16)Int64.Parse(buf.ToStr()),
+                MySqlDbType.Int24 or MySqlDbType.UInt24 or MySqlDbType.Int32 or MySqlDbType.UInt32 => (Int32)Int64.Parse(buf.ToStr()),
+                MySqlDbType.Int64 or MySqlDbType.UInt64 => Int64.Parse(buf.ToStr()),
+                MySqlDbType.Float => Single.Parse(buf.ToStr()),
+                MySqlDbType.Double => Double.Parse(buf.ToStr()),
                 MySqlDbType.DateTime or MySqlDbType.Timestamp or MySqlDbType.Date or MySqlDbType.Time => buf.ToStr().ToDateTime(),
                 MySqlDbType.VarChar or MySqlDbType.String or MySqlDbType.TinyText or MySqlDbType.MediumText or MySqlDbType.LongText or MySqlDbType.Text or MySqlDbType.VarString or MySqlDbType.Enum => buf.ToStr(),
                 MySqlDbType.Blob or MySqlDbType.TinyBlob or MySqlDbType.MediumBlob or MySqlDbType.LongBlob => buf.ToArray(),

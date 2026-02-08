@@ -65,23 +65,10 @@ public class MySqlDataReader : DbDataReader
     /// <returns></returns>
     public override Boolean Read() => ReadAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
 
-    /// <summary>关闭。消费所有未读完的结果集，避免后续命令数据错位</summary>
+    /// <summary>关闭。无需消费剩余结果集，连接从池中取出时 SqlClient.Reset 会清理网络流残余数据</summary>
     public override void Close()
     {
         if (_IsClosed) return;
-
-        //try
-        //{
-        //    // 消费所有剩余的结果集，确保协议流同步
-        //    while (!_allRowsConsumed || _hasMoreResults)
-        //    {
-        //        if (!NextResult())
-        //            break;
-        //        // 消费当前结果集的所有行
-        //        while (Read()) { }
-        //    }
-        //}
-        //catch { }
 
         _IsClosed = true;
     }
@@ -403,27 +390,16 @@ public class MySqlDataReader : DbDataReader
         return true;
     }
 
-    /// <summary>异步关闭。消费所有未读完的结果集</summary>
+    /// <summary>异步关闭。无需消费剩余结果集，连接从池中取出时 SqlClient.Reset 会清理网络流残余数据</summary>
     /// <returns></returns>
 #if NETSTANDARD2_1_OR_GREATER
-    public override async Task CloseAsync()
+    public override Task CloseAsync()
     {
-        if (_IsClosed) return;
-
-        //try
-        //{
-        //    // 消费所有剩余的结果集，确保协议流同步
-        //    while (!_allRowsConsumed || _hasMoreResults)
-        //    {
-        //        if (!await NextResultAsync(default).ConfigureAwait(false))
-        //            break;
-        //        // 消费当前结果集的所有行
-        //        while (await ReadAsync(default).ConfigureAwait(false)) { }
-        //    }
-        //}
-        //catch { }
+        if (_IsClosed) return Task.CompletedTask;
 
         _IsClosed = true;
+
+        return Task.CompletedTask;
     }
 #endif
     #endregion
@@ -440,11 +416,51 @@ public class MySqlDataReader : DbDataReader
         }
     }
 
-    /// <summary>获取架构表</summary>
+    /// <summary>获取架构表。返回列的元数据信息</summary>
     /// <returns></returns>
     public override DataTable GetSchemaTable()
     {
-        throw new NotImplementedException();
+        var columns = _Columns;
+        if (columns == null || columns.Length == 0) return new DataTable("SchemaTable");
+
+        var dt = new DataTable("SchemaTable");
+        dt.Columns.Add("ColumnName", typeof(String));
+        dt.Columns.Add("ColumnOrdinal", typeof(Int32));
+        dt.Columns.Add("ColumnSize", typeof(Int32));
+        dt.Columns.Add("NumericPrecision", typeof(Int32));
+        dt.Columns.Add("NumericScale", typeof(Int32));
+        dt.Columns.Add("DataType", typeof(Type));
+        dt.Columns.Add("IsLong", typeof(Boolean));
+        dt.Columns.Add("AllowDBNull", typeof(Boolean));
+        dt.Columns.Add("IsReadOnly", typeof(Boolean));
+        dt.Columns.Add("IsUnique", typeof(Boolean));
+        dt.Columns.Add("IsKey", typeof(Boolean));
+        dt.Columns.Add("BaseTableName", typeof(String));
+        dt.Columns.Add("BaseColumnName", typeof(String));
+        dt.Columns.Add("BaseCatalogName", typeof(String));
+
+        for (var i = 0; i < columns.Length; i++)
+        {
+            var col = columns[i];
+            var row = dt.NewRow();
+            row["ColumnName"] = col.Name;
+            row["ColumnOrdinal"] = i;
+            row["ColumnSize"] = col.Length;
+            row["NumericPrecision"] = col.Length;
+            row["NumericScale"] = (Int32)col.Scale;
+            row["DataType"] = GetFieldType(i);
+            row["IsLong"] = col.Length > 255;
+            row["AllowDBNull"] = true;
+            row["IsReadOnly"] = false;
+            row["IsUnique"] = false;
+            row["IsKey"] = false;
+            row["BaseTableName"] = col.RealTable;
+            row["BaseColumnName"] = col.OriginalName;
+            row["BaseCatalogName"] = col.Database;
+            dt.Rows.Add(row);
+        }
+
+        return dt;
     }
     #endregion
 }

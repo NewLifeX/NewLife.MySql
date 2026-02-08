@@ -1,6 +1,5 @@
 ﻿using NewLife;
 using NewLife.MySql;
-using NewLife.Reflection;
 
 namespace UnitTest;
 
@@ -9,15 +8,15 @@ public class ParameterizedQueryTests
     private static String _ConnStr = DALTests.GetConnStr();
 
     #region SubstituteParameters 单元测试
-    /// <summary>通过反射调用 internal 方法进行测试</summary>
+    /// <summary>直接调用 internal 方法进行测试（已设置 InternalsVisibleTo）</summary>
     private static String CallSubstitute(String sql, MySqlParameterCollection parameters)
-        => (String)typeof(MySqlCommand).Invoke("SubstituteParameters", sql, parameters)!;
+        => MySqlCommand.SubstituteParameters(sql, parameters);
 
     private static String CallEscape(String value)
-        => (String)typeof(MySqlCommand).Invoke("EscapeString", value)!;
+        => MySqlCommand.EscapeString(value);
 
     private static String CallSerialize(Object? value)
-        => (String)typeof(MySqlCommand).Invoke("SerializeValue", value)!;
+        => MySqlCommand.SerializeValue(value);
 
     [Fact]
     public void SubstituteNoParams()
@@ -254,6 +253,139 @@ public class ParameterizedQueryTests
         var rs = cmd.ExecuteScalar();
 
         Assert.Equal(0, rs.ToInt());
+    }
+    #endregion
+
+    #region SerializeValue 边界类型测试
+    [Fact]
+    public void SerializeEnumValue()
+    {
+        var result = CallSerialize(DayOfWeek.Monday);
+        Assert.Equal("1", result);
+    }
+
+    [Fact]
+    public void SerializeFloatValue()
+    {
+        var result = CallSerialize(3.14f);
+        Assert.Equal(3.14f.ToString("R"), result);
+    }
+
+    [Fact]
+    public void SerializeDoubleValue()
+    {
+        var result = CallSerialize(3.14159265358979);
+        Assert.Equal(3.14159265358979.ToString("R"), result);
+    }
+
+    [Fact]
+    public void SerializeDecimalValue()
+    {
+        var result = CallSerialize(123.456m);
+        Assert.Equal("123.456", result);
+    }
+
+    [Fact]
+    public void SerializeDateTimeOffsetValue()
+    {
+        var dto = new DateTimeOffset(2025, 7, 1, 12, 0, 0, TimeSpan.Zero);
+        var result = CallSerialize(dto);
+        Assert.Equal("'2025-07-01 12:00:00'", result);
+    }
+
+    [Fact]
+    public void SerializeBoolTrue()
+    {
+        Assert.Equal("1", CallSerialize(true));
+    }
+
+    [Fact]
+    public void SerializeBoolFalse()
+    {
+        Assert.Equal("0", CallSerialize(false));
+    }
+
+    [Fact]
+    public void SerializeDateTimeWithMicroseconds()
+    {
+        var dt = new DateTime(2025, 1, 15, 8, 30, 45, 123).AddTicks(4560);
+        var result = CallSerialize(dt);
+        // 应包含微秒并去除尾部零
+        Assert.StartsWith("'2025-01-15 08:30:45.", result);
+        Assert.EndsWith("'", result);
+    }
+    #endregion
+
+    #region SubstituteParameters 边界场景测试
+    [Fact]
+    public void SubstituteQuestionMarkParam()
+    {
+        // MySQL 兼容的 ? 参数标记
+        var sql = "select * from t where name=?name";
+        var parameters = new MySqlParameterCollection();
+        parameters.AddWithValue("name", "test");
+
+        var result = CallSubstitute(sql, parameters);
+        Assert.Equal("select * from t where name='test'", result);
+    }
+
+    [Fact]
+    public void SubstituteSkipDoubleQuotedString()
+    {
+        // 双引号字符串内的 @ 不应被替换
+        var sql = "select * from t where col=\"test@value\" and name=@name";
+        var parameters = new MySqlParameterCollection();
+        parameters.AddWithValue("name", "hello");
+
+        var result = CallSubstitute(sql, parameters);
+        Assert.Equal("select * from t where col=\"test@value\" and name='hello'", result);
+    }
+
+    [Fact]
+    public void SubstituteUnmatchedParamOutputAsIs()
+    {
+        // 未匹配到的参数原样输出
+        var sql = "select * from t where name=@unknown and id=@id";
+        var parameters = new MySqlParameterCollection();
+        parameters.AddWithValue("id", 1);
+
+        var result = CallSubstitute(sql, parameters);
+        Assert.Equal("select * from t where name=@unknown and id=1", result);
+    }
+
+    [Fact]
+    public void SubstituteBareAtSignNoParamName()
+    {
+        // 单独 @ 后面无字母数字，不应崩溃
+        var sql = "select @@version";
+        var parameters = new MySqlParameterCollection();
+
+        var result = CallSubstitute(sql, parameters);
+        Assert.Equal("select @@version", result);
+    }
+
+    [Fact]
+    public void SubstituteEscapedQuoteInString()
+    {
+        // 字符串中转义的引号不应结束字面量扫描
+        var sql = "select * from t where name='it\\'s @notparam' and id=@id";
+        var parameters = new MySqlParameterCollection();
+        parameters.AddWithValue("id", 42);
+
+        var result = CallSubstitute(sql, parameters);
+        Assert.Equal("select * from t where name='it\\'s @notparam' and id=42", result);
+    }
+
+    [Fact]
+    public void SubstituteDoubleQuoteEscapeInString()
+    {
+        // 双引号转义 '' 不应结束字面量扫描
+        var sql = "select * from t where name='it''s @notparam' and id=@id";
+        var parameters = new MySqlParameterCollection();
+        parameters.AddWithValue("id", 99);
+
+        var result = CallSubstitute(sql, parameters);
+        Assert.Equal("select * from t where name='it''s @notparam' and id=99", result);
     }
     #endregion
 }

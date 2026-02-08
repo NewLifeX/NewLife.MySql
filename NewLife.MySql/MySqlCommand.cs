@@ -58,7 +58,7 @@ public class MySqlCommand : DbCommand
     #region 方法
     /// <summary>创建参数</summary>
     /// <returns></returns>
-    protected override DbParameter CreateDbParameter() => _DbConnection.Factory.CreateParameter();
+    protected override DbParameter CreateDbParameter() => new MySqlParameter();
 
     /// <summary>执行读取器。多语句由服务端拆分，通过NextResult()遍历多结果集</summary>
     /// <param name="behavior">命令行为</param>
@@ -143,11 +143,6 @@ public class MySqlCommand : DbCommand
             total += reader.RecordsAffected;
         }
 
-#if NETSTANDARD2_1_OR_GREATER
-        await reader.CloseAsync().ConfigureAwait(false);
-#else
-        reader.Close();
-#endif
         return total;
     }
 
