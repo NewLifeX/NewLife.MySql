@@ -53,6 +53,12 @@ public class MySqlCommand : DbCommand
         Connection = conn;
         CommandText = commandText;
     }
+
+    public MySqlCommand(String commandText, DbConnection conn)
+    {
+        Connection = conn;
+        CommandText = commandText;
+    }
     #endregion
 
     #region 方法
