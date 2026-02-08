@@ -136,7 +136,7 @@ public class SqlClient : DisposeBase
         var auth = new Authentication(this);
         await auth.AuthenticateAsync(welcome, false, cancellationToken).ConfigureAwait(false);
 
-        _timer = new TimerX(s => { _ = PingAsync(); }, null, 10_000, 30_000) { Async = true };
+        //_timer = new TimerX(s => { _ = PingAsync(); }, null, 10_000, 30_000) { Async = true };
     }
 
     /// <summary>异步发送SSL请求并升级为TLS连接</summary>
@@ -413,10 +413,9 @@ public class SqlClient : DisposeBase
     }
 
     /// <summary>获取结果。解析OK包获取影响行数和最后插入ID，或返回结果集列数</summary>
-    /// <param name="affectedRow">影响行数</param>
-    /// <param name="insertedId">最后插入ID</param>
-    /// <returns>结果集列数，0表示无结果集（如INSERT/UPDATE/DELETE）</returns>
-    public Int32 GetResult(Response rs, ref Int32 affectedRow, ref Int64 insertedId)
+    /// <param name="rs">响应包</param>
+    /// <returns>查询结果</returns>
+    public QueryResult GetResult(Response rs)
     {
         var reader = rs.CreateReader(0);
 
@@ -424,15 +423,24 @@ public class SqlClient : DisposeBase
         {
             // OK_Packet: header(0x00) + affected_rows(length-encoded) + last_insert_id(length-encoded) + status(2) + warnings(2)
             reader.Advance(1);
-            affectedRow += reader.ReadLength();
-            insertedId = reader.ReadLength();
+            var affectedRows = reader.ReadLength();
+            var insertedId = reader.ReadLength();
 
-            return 0;
+            ServerStatusFlags statusFlags = 0;
+            UInt16 warnings = 0;
+            if (Capability.Has(ClientFlags.PROTOCOL_41) && reader.Available >= 4)
+            {
+                statusFlags = (ServerStatusFlags)reader.ReadUInt16();
+                warnings = reader.ReadUInt16();
+            }
+
+            return new QueryResult(0, (Int32)affectedRows, insertedId, statusFlags, warnings);
         }
         else
         {
             // 读取列信息
-            return reader.ReadLength();
+            var fieldCount = (Int32)reader.ReadLength();
+            return new QueryResult(fieldCount, 0, 0, 0, 0);
         }
     }
 
@@ -483,17 +491,29 @@ public class SqlClient : DisposeBase
     /// <param name="values">行值数组</param>
     /// <param name="columns">列信息</param>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns></returns>
-    public async Task<Boolean> NextRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken = default)
+    /// <returns>行读取结果</returns>
+    public async Task<RowResult> NextRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken = default)
     {
         var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-        if (rs.IsEOF) return false;
+        if (rs.IsEOF)
+        {
+            // EOF_Packet: header(0xFE) + warnings(2) + status_flags(2)
+            var eofReader = new Buffers.SpanReader(rs.Data.Slice(1));
+            ServerStatusFlags statusFlags = 0;
+            UInt16 warnings = 0;
+            if (Capability.Has(ClientFlags.PROTOCOL_41) && eofReader.Available >= 4)
+            {
+                warnings = eofReader.ReadUInt16();
+                statusFlags = (ServerStatusFlags)eofReader.ReadUInt16();
+            }
+            return new RowResult(false, statusFlags, warnings);
+        }
 
-        // 第一回读取长度
+        // 读取行数据
         var reader = rs.CreateReader(0);
         for (var i = 0; i < values.Length; i++)
         {
-            var len = reader.ReadLength();
+            var len = (Int32)reader.ReadLength();
             if (len == -1)
             {
                 values[i] = DBNull.Value;
@@ -518,7 +538,7 @@ public class SqlClient : DisposeBase
             len = -1;
         }
 
-        return true;
+        return new RowResult(true, 0, 0);
     }
 
     /// <summary>异步准备语句</summary>

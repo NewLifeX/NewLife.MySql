@@ -475,14 +475,12 @@ public class SqlClientTests
         ms.Position = 0;
         var client = new SqlClient { BaseStream = ms };
 
-        var affected = 0;
-        var inserted = 0L;
         var response = await client.ReadPacketAsync();
-        var columns = client.GetResult(response, ref affected, ref inserted);
+        var result = client.GetResult(response);
 
-        Assert.Equal(0, columns);
-        Assert.Equal(affectedRows, affected);
-        Assert.Equal(insertedId, inserted);
+        Assert.Equal(0, result.FieldCount);
+        Assert.Equal(affectedRows, result.AffectedRows);
+        Assert.Equal(insertedId, result.InsertedId);
     }
 
     [Fact]
@@ -507,13 +505,11 @@ public class SqlClientTests
         ms.Position = 0;
         var client = new SqlClient { BaseStream = ms };
 
-        var affected = 10; // 初始值非零
-        var inserted = 0L;
         var response = await client.ReadPacketAsync();
-        var columns = client.GetResult(response, ref affected, ref inserted);
+        var result = client.GetResult(response);
 
-        Assert.Equal(0, columns);
-        Assert.Equal(10 + affectedRows, affected); // 累加
+        Assert.Equal(0, result.FieldCount);
+        Assert.Equal(affectedRows, result.AffectedRows);
     }
 
     [Fact]
@@ -535,14 +531,12 @@ public class SqlClientTests
         ms.Position = 0;
         var client = new SqlClient { BaseStream = ms };
 
-        var affected = 0;
-        var inserted = 0L;
         var response = await client.ReadPacketAsync();
-        var result = client.GetResult(response, ref affected, ref inserted);
+        var result = client.GetResult(response);
 
-        Assert.Equal(columnCount, result);
-        Assert.Equal(0, affected);
-        Assert.Equal(0L, inserted);
+        Assert.Equal(columnCount, result.FieldCount);
+        Assert.Equal(0, result.AffectedRows);
+        Assert.Equal(0L, result.InsertedId);
     }
 
     [Fact]
@@ -635,7 +629,7 @@ public class SqlClientTests
 
         var result = await client.NextRowAsync(values, columns);
 
-        Assert.True(result);
+        Assert.True(result.HasRow);
         Assert.Equal(42L, values[0]);
         Assert.Equal("hello", values[1]);
     }
@@ -664,7 +658,7 @@ public class SqlClientTests
 
         var result = await client.NextRowAsync(values, columns);
 
-        Assert.True(result);
+        Assert.True(result.HasRow);
         Assert.Equal(100L, values[0]);
         Assert.Equal(DBNull.Value, values[1]);
     }
@@ -686,7 +680,7 @@ public class SqlClientTests
 
         var result = await client.NextRowAsync(values, columns);
 
-        Assert.False(result);
+        Assert.False(result.HasRow);
     }
 
     [Fact]
@@ -719,7 +713,7 @@ public class SqlClientTests
 
         var result = await client.NextRowAsync(values, columns);
 
-        Assert.True(result);
+        Assert.True(result.HasRow);
         Assert.Equal(123.45m, values[0]);
         Assert.Equal(3.14d, values[1]);
         Assert.Equal(new Byte[] { 0x01, 0x02, 0x03 }, values[2]);

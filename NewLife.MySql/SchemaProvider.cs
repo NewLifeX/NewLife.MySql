@@ -488,17 +488,15 @@ internal class SchemaProvider(MySqlConnection connection)
         {
             c.AddColumn(reader.GetName(i), reader.GetFieldType(i));
         }
-        using (reader)
+        while (reader.Read())
         {
-            while (reader.Read())
+            var mySqlSchemaRow = c.AddRow();
+            for (var j = 0; j < reader.FieldCount; j++)
             {
-                var mySqlSchemaRow = c.AddRow();
-                for (var j = 0; j < reader.FieldCount; j++)
-                {
-                    mySqlSchemaRow[j] = reader.GetValue(j);
-                }
+                mySqlSchemaRow[j] = reader.GetValue(j);
             }
         }
+
         return c;
     }
 }

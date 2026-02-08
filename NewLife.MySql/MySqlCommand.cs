@@ -60,61 +60,21 @@ public class MySqlCommand : DbCommand
     /// <returns></returns>
     protected override DbParameter CreateDbParameter() => _DbConnection.Factory.CreateParameter();
 
-    /// <summary>执行读取器</summary>
-    /// <param name="behavior"></param>
+    /// <summary>执行读取器。多语句由服务端拆分，通过NextResult()遍历多结果集</summary>
+    /// <param name="behavior">命令行为</param>
     /// <returns></returns>
     protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
-    {
-        var sql = CommandText;
-        if (sql.IsNullOrEmpty()) throw new ArgumentNullException(nameof(CommandText));
+        => ExecuteDbDataReaderAsync(behavior, CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
 
-        var conn = _DbConnection;
-        var client = conn.Client;
-
-        if (CommandType == CommandType.TableDirect) sql = "Select * From " + sql;
-
-        // 设置行为参数
-        if (behavior.HasFlag(CommandBehavior.SchemaOnly))
-        {
-            using var limitCmd = new MySqlCommand(conn, "SET SQL_SELECT_LIMIT=0");
-            limitCmd.ExecuteNonQuery();
-        }
-        else if (behavior.HasFlag(CommandBehavior.SingleRow))
-        {
-            using var limitCmd = new MySqlCommand(conn, "SET SQL_SELECT_LIMIT=1");
-            limitCmd.ExecuteNonQuery();
-        }
-
-        // 执行读取器
-        var reader = new MySqlDataReader
-        {
-            Command = this
-        };
-        ExecuteAsync(default).GetAwaiter().GetResult();
-        reader.NextResult();
-
-        return reader;
-    }
-
-    /// <summary>执行并返回影响行数</summary>
+    /// <summary>执行并返回影响行数。多语句累加所有语句的影响行数</summary>
     /// <returns></returns>
     public override Int32 ExecuteNonQuery()
-    {
-        using var reader = ExecuteReader();
-        reader.Close();
+        => ExecuteNonQueryAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
 
-        return reader.RecordsAffected;
-    }
-
-    /// <summary>执行并返回第一行</summary>
+    /// <summary>执行并返回第一个结果集的第一行第一列</summary>
     /// <returns></returns>
     public override Object? ExecuteScalar()
-    {
-        using var reader = ExecuteReader();
-        if (reader.Read()) return reader.GetValue(0);
-
-        return null;
-    }
+        => ExecuteScalarAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
 
     /// <summary>预编译语句</summary>
     public override void Prepare()
@@ -133,7 +93,7 @@ public class MySqlCommand : DbCommand
     /// <summary>取消</summary>
     public override void Cancel() { }
 
-    /// <summary>异步执行读取器</summary>
+    /// <summary>异步执行读取器。多语句由服务端拆分，通过NextResult()遍历多结果集</summary>
     /// <param name="behavior">命令行为</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
@@ -157,6 +117,7 @@ public class MySqlCommand : DbCommand
             await limitCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        // 执行读取器，多语句由服务端拆分，通过NextResult()遍历
         var reader = new MySqlDataReader
         {
             Command = this
@@ -167,24 +128,38 @@ public class MySqlCommand : DbCommand
         return reader;
     }
 
-    /// <summary>异步执行并返回影响行数</summary>
+    /// <summary>异步执行并返回影响行数。多语句累加所有语句的影响行数</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
     public override async Task<Int32> ExecuteNonQueryAsync(CancellationToken cancellationToken)
     {
         using var reader = await ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        reader.Close();
 
-        return reader.RecordsAffected;
+        // 累加所有结果集的影响行数
+        var dr = reader as MySqlDataReader;
+        var total = reader.RecordsAffected;
+        while (dr != null && dr.HasMoreResults && await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
+        {
+            total += reader.RecordsAffected;
+        }
+
+#if NETSTANDARD2_1_OR_GREATER
+        await reader.CloseAsync().ConfigureAwait(false);
+#else
+        reader.Close();
+#endif
+        return total;
     }
 
-    /// <summary>异步执行并返回第一行</summary>
+    /// <summary>异步执行并返回第一个结果集的标量值</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
     public override async Task<Object?> ExecuteScalarAsync(CancellationToken cancellationToken)
     {
         using var reader = await ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false)) return reader.GetValue(0);
+
+        if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+            return reader.GetValue(0);
 
         return null;
     }

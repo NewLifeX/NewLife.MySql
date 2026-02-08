@@ -2,6 +2,7 @@
 using System.Data;
 using System.Data.Common;
 using System.Text;
+using NewLife.MySql.Common;
 
 namespace NewLife.MySql;
 
@@ -40,6 +41,10 @@ public class MySqlDataReader : DbDataReader
     /// <summary>影响行数</summary>
     public override Int32 RecordsAffected => _RecordsAffected;
 
+    private Boolean _hasMoreResults;
+    /// <summary>是否有更多结果集</summary>
+    public Boolean HasMoreResults => _hasMoreResults;
+
     private MySqlColumn[]? _Columns;
     /// <summary>列集合</summary>
     public MySqlColumn[]? Columns => _Columns;
@@ -47,6 +52,8 @@ public class MySqlDataReader : DbDataReader
     private Object[]? _Values;
     /// <summary>当前行数值集合</summary>
     public Object[]? Values => _Values;
+
+    private Boolean _allRowsConsumed = true;
     #endregion
 
     #region 核心方法
@@ -58,23 +65,20 @@ public class MySqlDataReader : DbDataReader
     /// <returns></returns>
     public override Boolean Read() => ReadAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
 
-    /// <summary>关闭。消费未读完的结果集行，避免后续命令数据错位</summary>
+    /// <summary>关闭。消费所有未读完的结果集，避免后续命令数据错位</summary>
     public override void Close()
     {
         if (_IsClosed) return;
 
-        //// 消费未读完的行数据，确保协议流同步，避免SSL连接下数据错位
         //try
         //{
-        //    if (_FieldCount > 0)
+        //    // 消费所有剩余的结果集，确保协议流同步
+        //    while (!_allRowsConsumed || _hasMoreResults)
         //    {
-        //        var conn = Command?.Connection as MySqlConnection;
-        //        var client = conn?.Client;
-        //        if (client != null)
-        //        {
-        //            var values = new Object[_FieldCount];
-        //            while (client.NextRow(values, _Columns!)) { }
-        //        }
+        //        if (!NextResult())
+        //            break;
+        //        // 消费当前结果集的所有行
+        //        while (Read()) { }
         //    }
         //}
         //catch { }
@@ -121,17 +125,17 @@ public class MySqlDataReader : DbDataReader
         // 数字类型映射
         return col.Type switch
         {
-            Common.MySqlDbType.Byte => typeof(SByte),
-            Common.MySqlDbType.Int16 or Common.MySqlDbType.UInt16 => typeof(Int16),
-            Common.MySqlDbType.Int24 or Common.MySqlDbType.UInt24 or Common.MySqlDbType.Int32 or Common.MySqlDbType.UInt32 => typeof(Int32),
-            Common.MySqlDbType.Int64 or Common.MySqlDbType.UInt64 => typeof(Int64),
-            Common.MySqlDbType.Float => typeof(Single),
-            Common.MySqlDbType.Double => typeof(Double),
-            Common.MySqlDbType.Decimal or Common.MySqlDbType.NewDecimal => typeof(Decimal),
-            Common.MySqlDbType.DateTime or Common.MySqlDbType.Timestamp or Common.MySqlDbType.Date or Common.MySqlDbType.Time => typeof(DateTime),
-            Common.MySqlDbType.Bit => typeof(Boolean),
-            Common.MySqlDbType.Blob or Common.MySqlDbType.TinyBlob or Common.MySqlDbType.MediumBlob or Common.MySqlDbType.LongBlob => typeof(Byte[]),
-            Common.MySqlDbType.Guid => typeof(Guid),
+            MySqlDbType.Byte => typeof(SByte),
+            MySqlDbType.Int16 or MySqlDbType.UInt16 => typeof(Int16),
+            MySqlDbType.Int24 or MySqlDbType.UInt24 or MySqlDbType.Int32 or MySqlDbType.UInt32 => typeof(Int32),
+            MySqlDbType.Int64 or MySqlDbType.UInt64 => typeof(Int64),
+            MySqlDbType.Float => typeof(Single),
+            MySqlDbType.Double => typeof(Double),
+            MySqlDbType.Decimal or MySqlDbType.NewDecimal => typeof(Decimal),
+            MySqlDbType.DateTime or MySqlDbType.Timestamp or MySqlDbType.Date or MySqlDbType.Time => typeof(DateTime),
+            MySqlDbType.Bit => typeof(Boolean),
+            MySqlDbType.Blob or MySqlDbType.TinyBlob or MySqlDbType.MediumBlob or MySqlDbType.LongBlob => typeof(Byte[]),
+            MySqlDbType.Guid => typeof(Guid),
             _ => typeof(String),
         };
     }
@@ -318,39 +322,88 @@ public class MySqlDataReader : DbDataReader
     /// <returns></returns>
     public override async Task<Boolean> ReadAsync(CancellationToken cancellationToken)
     {
+        if (_FieldCount <= 0) return false;
+
         var client = (Command.Connection as MySqlConnection)!.Client!;
 
         var values = new Object[_FieldCount];
-        if (!await client.NextRowAsync(values, _Columns!, cancellationToken).ConfigureAwait(false)) return false;
+        var result = await client.NextRowAsync(values, _Columns!, cancellationToken).ConfigureAwait(false);
+
+        if (!result.HasRow)
+        {
+            // EOF 到达，记录是否有更多结果集
+            _hasMoreResults = result.HasMoreResults;
+            _allRowsConsumed = true;
+            return false;
+        }
 
         _Values = values;
-
+        _allRowsConsumed = false;
         return true;
     }
 
-    /// <summary>异步下一结果集</summary>
+    /// <summary>异步下一结果集。支持服务端多语句返回的多结果集</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
     public override async Task<Boolean> NextResultAsync(CancellationToken cancellationToken)
     {
         var client = (Command.Connection as MySqlConnection)!.Client!;
 
-        var affectedRow = 0;
-        var insertedId = 0L;
+        // 如果当前结果集的行未消费完，先消费掉
+        if (_FieldCount > 0 && !_allRowsConsumed)
+        {
+            var values = new Object[_FieldCount];
+            while (true)
+            {
+                var row = await client.NextRowAsync(values, _Columns!, cancellationToken).ConfigureAwait(false);
+                if (!row.HasRow)
+                {
+                    _hasMoreResults = row.HasMoreResults;
+                    _allRowsConsumed = true;
+                    break;
+                }
+            }
+        }
+
+        // 检查是否有更多结果集（上一次读取时记录的状态）
+        // 首次调用时 _hasMoreResults 为 false，需要读取第一个结果
+        // 非首次调用时，根据 _hasMoreResults 判断
+        if (_FieldCount > 0 && !_hasMoreResults)
+        {
+            // 已经读过结果且没有更多结果集
+            _FieldCount = 0;
+            _Columns = null;
+            _Values = null;
+            return false;
+        }
+
+        // 读取下一个结果（第一次或后续）
         var response = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-        var fieldCount = client.GetResult(response, ref affectedRow, ref insertedId);
+        var qr = client.GetResult(response);
 
-        _RecordsAffected = affectedRow;
+        _RecordsAffected += qr.AffectedRows;
+        _hasMoreResults = qr.HasMoreResults;
 
-        _FieldCount = fieldCount;
-        if (fieldCount <= 0) return false;
+        _FieldCount = qr.FieldCount;
+        _Values = null;
+        _allRowsConsumed = true;
 
-        _Columns = await client.GetColumnsAsync(fieldCount, cancellationToken).ConfigureAwait(false);
+        if (qr.FieldCount <= 0)
+        {
+            // OK 包（INSERT/UPDATE/DELETE），可能还有更多结果
+            _Columns = null;
+            // 如果有更多结果，递归读取下一个
+            if (_hasMoreResults) return await NextResultAsync(cancellationToken).ConfigureAwait(false);
+            return false;
+        }
+
+        _Columns = await client.GetColumnsAsync(qr.FieldCount, cancellationToken).ConfigureAwait(false);
+        _allRowsConsumed = false;
 
         return true;
     }
 
-    /// <summary>异步关闭</summary>
+    /// <summary>异步关闭。消费所有未读完的结果集</summary>
     /// <returns></returns>
 #if NETSTANDARD2_1_OR_GREATER
     public override async Task CloseAsync()
@@ -359,15 +412,13 @@ public class MySqlDataReader : DbDataReader
 
         //try
         //{
-        //    if (_FieldCount > 0)
+        //    // 消费所有剩余的结果集，确保协议流同步
+        //    while (!_allRowsConsumed || _hasMoreResults)
         //    {
-        //        var conn = Command?.Connection as MySqlConnection;
-        //        var client = conn?.Client;
-        //        if (client != null)
-        //        {
-        //            var values = new Object[_FieldCount];
-        //            while (await client.NextRowAsync(values, _Columns!, default).ConfigureAwait(false)) { }
-        //        }
+        //        if (!await NextResultAsync(default).ConfigureAwait(false))
+        //            break;
+        //        // 消费当前结果集的所有行
+        //        while (await ReadAsync(default).ConfigureAwait(false)) { }
         //    }
         //}
         //catch { }

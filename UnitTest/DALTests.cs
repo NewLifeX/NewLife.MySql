@@ -5,7 +5,7 @@ namespace UnitTest;
 
 public class DALTests
 {
-    private static String _ConnStr = "Server=localhost;Database=sys;User Id=root;Password=Pass@word;";
+    private static String _ConnStr = "Server=localhost;Database=sys;User Id=root;Password=root;";
 
     static DALTests()
     {

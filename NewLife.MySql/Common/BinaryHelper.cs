@@ -133,16 +133,16 @@ public static class BinaryHelper
     /// <summary>读取集合元素个数</summary>
     /// <param name="reader"></param>
     /// <returns></returns>
-    public static Int32 ReadLength(this ref SpanReader reader)
+    public static Int64 ReadLength(this ref SpanReader reader)
     {
         var c = reader.ReadByte();
 
         return c switch
         {
-            251 => -1,
-            252 => reader.ReadUInt16(),
-            253 => reader.ReadByte() << 16 | reader.ReadByte() << 8 | reader.ReadByte(),
-            254 => reader.ReadInt32(),
+            0xFB => -1,
+            0xFC => reader.ReadUInt16(),
+            0xFD => reader.ReadByte() << 16 | reader.ReadByte() << 8 | reader.ReadByte(),
+            0xFE => reader.ReadInt64(),
             _ => c,
         };
     }
@@ -152,24 +152,24 @@ public static class BinaryHelper
     /// <param name="length"></param>
     public static void WriteLength(this ref SpanWriter writer, Int64 length)
     {
-        if (length < 251)
+        if (length < 0xFB)
             writer.Write((Byte)length);
         else if (length < 0xFFFF)
         {
-            writer.Write((Byte)252);
+            writer.Write((Byte)0xFC);
             writer.Write((UInt16)length);
         }
         else if (length <= 0xFF_FFFF)
         {
-            writer.Write((Byte)253);
+            writer.Write((Byte)0xFD);
             writer.Write((Byte)(length & 0xFF));
             writer.Write((Byte)((length >> 8) & 0xFF));
             writer.Write((Byte)((length >> 16) & 0xFF));
         }
         else
         {
-            writer.Write((Byte)254);
-            writer.Write((UInt32)length);
+            writer.Write((Byte)0xFE);
+            writer.Write((UInt64)length);
         }
     }
 
