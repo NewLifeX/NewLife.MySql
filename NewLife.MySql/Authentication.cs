@@ -101,8 +101,8 @@ class Authentication(SqlClient client)
 
         var key = reader.ReadZeroString();
 
-        // 混淆密码
-        var obfuscated = GetXor(Encoding.Default.GetBytes(password), seedBytes);
+        // 混淆密码，使用 UTF-8 编码保持跨平台一致性
+        var obfuscated = GetXor(Encoding.UTF8.GetBytes(password), seedBytes);
 
         // 使用公钥加密密码
         var encryptedPassword = RSAHelper.Encrypt(obfuscated, key);
@@ -117,12 +117,16 @@ class Authentication(SqlClient client)
     }
 
     #region 辅助
-    protected Byte[] Get411Password(String password, Byte[] seed)
+    /// <summary>计算 MySQL 4.1+ 协议的密码哈希（SHA1 双重哈希异或）</summary>
+    /// <param name="password">明文密码</param>
+    /// <param name="seed">服务器握手随机数</param>
+    /// <returns>哈希后的密码字节数组</returns>
+    public Byte[] Get411Password(String password, Byte[] seed)
     {
         if (password.Length == 0) return new Byte[1];
 
         //return password.GetBytes().SHA1(seed);
-        var sha = SHA1.Create();
+        using var sha = SHA1.Create();
 
         var firstHash = sha.ComputeHash(password.GetBytes());
         var secondHash = sha.ComputeHash(firstHash);
@@ -139,14 +143,22 @@ class Authentication(SqlClient client)
         return buf;
     }
 
-    protected Byte[] GetSha256Password(String password, Byte[] seed)
+    /// <summary>计算 caching_sha2_password 协议的密码哈希</summary>
+    /// <param name="password">明文密码</param>
+    /// <param name="seed">服务器握手随机数</param>
+    /// <returns>哈希后的密码字节数组</returns>
+    public Byte[] GetSha256Password(String password, Byte[] seed)
     {
         if (password.IsNullOrEmpty()) return [1];
 
         return password.GetBytes().SHA256(seed);
     }
 
-    protected Byte[] GetXor(Byte[] src, Byte[] pattern)
+    /// <summary>将源数据追加0字节后与模式循环异或，用于密码混淆</summary>
+    /// <param name="src">源数据</param>
+    /// <param name="pattern">异或模式，循环使用</param>
+    /// <returns>异或后的字节数组，长度为 src.Length + 1</returns>
+    public Byte[] GetXor(Byte[] src, Byte[] pattern)
     {
         var src2 = new Byte[src.Length + 1];
         Array.Copy(src, 0, src2, 0, src.Length);
@@ -159,7 +171,10 @@ class Authentication(SqlClient client)
         return result;
     }
 
-    private ClientFlags GetFlags(ClientFlags caps)
+    /// <summary>根据服务器能力标志计算客户端连接标志</summary>
+    /// <param name="caps">服务器能力标志</param>
+    /// <returns>客户端连接标志</returns>
+    public ClientFlags GetFlags(ClientFlags caps)
     {
         ClientFlags flags = 0;
 
@@ -209,7 +224,7 @@ class Authentication(SqlClient client)
     }
 
     private String? _atts;
-    internal String GetConnectAttrs()
+    public String GetConnectAttrs()
     {
         if (_atts != null) return _atts;
 

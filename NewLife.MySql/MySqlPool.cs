@@ -12,19 +12,19 @@ public class MySqlPool : ObjectPool<SqlClient>
 
     private IDictionary<String, String>? _Variables;
     private DateTime _nextTime;
-    /// <summary>服务器变量</summary>
+    /// <summary>服务器变量。缓存10分钟后自动过期</summary>
     public IDictionary<String, String>? Variables
     {
         get
         {
-            if (_Variables == null || _nextTime < DateTime.Now) return null;
+            if (_Variables == null || _nextTime < DateTime.UtcNow) return null;
 
             return _Variables;
         }
         set
         {
             _Variables = value;
-            _nextTime = DateTime.Now.AddMinutes(10);
+            _nextTime = DateTime.UtcNow.AddMinutes(10);
         }
     }
 
@@ -33,11 +33,9 @@ public class MySqlPool : ObjectPool<SqlClient>
     {
         var set = Setting ?? throw new ArgumentNullException(nameof(Setting));
         var connStr = set.ConnectionString;
-        if (connStr.IsNullOrEmpty()) throw new ArgumentNullException(nameof(Setting));
+        if (connStr.IsNullOrEmpty()) throw new InvalidOperationException("连接字符串不能为空");
 
-        var client = new SqlClient(set);
-
-        return client;
+        return new SqlClient(set);
     }
 
     /// <summary>获取连接。剔除无效连接</summary>

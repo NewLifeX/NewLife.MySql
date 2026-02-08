@@ -124,31 +124,45 @@ public class SqlClient : DisposeBase
         _client = client;
         _stream = client.GetStream();
 
-        // 异步读取欢迎信息
-        var welcome = await GetWelcomeAsync(cancellationToken).ConfigureAwait(false);
-        Welcome = welcome;
-        Capability = welcome.Capability;
-
-        Active = true;
-
-        // SSL/TLS 握手
-        var sslMode = set.SslMode;
-        if (!sslMode.IsNullOrEmpty() && !sslMode.EqualIgnoreCase("None", "Disabled"))
+        try
         {
-            if (Capability.Has(ClientFlags.SSL))
-                await StartSslAsync(server!, cancellationToken).ConfigureAwait(false);
-            else if (sslMode.EqualIgnoreCase("Required"))
-                throw new NotSupportedException("服务器不支持 SSL 连接");
+            // 异步读取欢迎信息
+            var welcome = await GetWelcomeAsync(cancellationToken).ConfigureAwait(false);
+            Welcome = welcome;
+            Capability = welcome.Capability;
+
+            // SSL/TLS 握手
+            var sslMode = set.SslMode;
+            if (!sslMode.IsNullOrEmpty() && !sslMode.EqualIgnoreCase("None", "Disabled"))
+            {
+                if (Capability.Has(ClientFlags.SSL))
+                    await StartSslAsync(server!, cancellationToken).ConfigureAwait(false);
+                else if (sslMode.EqualIgnoreCase("Required"))
+                    throw new NotSupportedException("服务器不支持 SSL 连接");
+            }
+
+            // 验证方法
+            var method = welcome.AuthMethod;
+            if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password", "caching_sha2_password"))
+                throw new NotSupportedException("不支持验证方式 " + method);
+
+            // 异步验证
+            var auth = new Authentication(this);
+            await auth.AuthenticateAsync(welcome, false, cancellationToken).ConfigureAwait(false);
+
+            // 认证成功后才标记为活动状态
+            Active = true;
         }
-
-        // 验证方法
-        var method = welcome.AuthMethod;
-        if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password", "caching_sha2_password"))
-            throw new NotSupportedException("不支持验证方式 " + method);
-
-        // 异步验证
-        var auth = new Authentication(this);
-        await auth.AuthenticateAsync(welcome, false, cancellationToken).ConfigureAwait(false);
+        catch
+        {
+            // 认证/握手失败时清理资源，避免半初始化状态
+            _client.TryDispose();
+            _client = null;
+            _stream = null;
+            Welcome = null;
+            Active = false;
+            throw;
+        }
 
         //_timer = new TimerX(s => { _ = PingAsync(); }, null, 10_000, 30_000) { Async = true };
     }
