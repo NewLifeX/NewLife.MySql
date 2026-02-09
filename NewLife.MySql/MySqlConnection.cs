@@ -140,6 +140,10 @@ public sealed partial class MySqlConnection : DbConnection
 
                 Client = client;
 
+                // 设置读取超时
+                var cmdTimeout = Setting.CommandTimeout;
+                if (cmdTimeout > 0) client.Timeout = cmdTimeout;
+
                 // 配置参数，优先从连接池获取缓存的变量
                 var vs = _pool?.Variables;
                 if (vs != null) client.Variables = vs;

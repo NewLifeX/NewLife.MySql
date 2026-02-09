@@ -40,6 +40,9 @@ public class SqlClient : DisposeBase
     /// <summary>字符编码，默认 UTF-8</summary>
     public Encoding Encoding { get; set; } = Encoding.UTF8;
 
+    /// <summary>读取超时。单位秒，默认15秒，0表示不超时</summary>
+    public Int32 Timeout { get; set; } = 15;
+
     private TcpClient? _client;
     private Byte _seq = 1;
     private TimerX? _timer;
@@ -324,9 +327,19 @@ public class SqlClient : DisposeBase
     {
         var ms = _stream ?? throw new InvalidOperationException("未打开连接");
 
+        // 根据 Timeout 属性创建超时令牌，确保不会无限等待
+        var timeout = Timeout;
+        using var cts = timeout > 0
+            ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
+            : null;
+        cts?.CancelAfter(timeout * 1000);
+        var token = cts?.Token ?? cancellationToken;
+
+        try
+        {
         // 3字节长度 + 1字节序列号
         var buf = Pool.Shared.Rent(4);
-        var count = await ms.ReadExactlyAsync(buf, 0, 4, cancellationToken).ConfigureAwait(false);
+            var count = await ms.ReadExactlyAsync(buf, 0, 4, token).ConfigureAwait(false);
         if (count < 4) throw new InvalidDataException($"读取数据包头部失败，可用{count}字节");
 
         var rs = new Response(ms)
@@ -340,7 +353,7 @@ public class SqlClient : DisposeBase
         // 读取数据。长度必须刚好，因为可能有多帧数据包
         var len = rs.Length;
         var pk = new OwnerPacket(len);
-        count = await ms.ReadExactlyAsync(pk.Buffer, pk.Offset, len, cancellationToken).ConfigureAwait(false);
+            count = await ms.ReadExactlyAsync(pk.Buffer, pk.Offset, len, token).ConfigureAwait(false);
 
         pk.Resize(count);
         rs.Set(pk);
@@ -360,6 +373,13 @@ public class SqlClient : DisposeBase
         }
 
         return rs;
+    }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // 超时导致的取消，标记连接不可用
+            Active = false;
+            throw new TimeoutException($"读取数据包超时({timeout}s)");
+        }
     }
 
     /// <summary>异步发送 MySQL 协议数据包。建议数据包头部预留4字节空间以填充帧头</summary>
