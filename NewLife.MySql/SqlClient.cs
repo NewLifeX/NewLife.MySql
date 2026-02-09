@@ -153,6 +153,9 @@ public class SqlClient : DisposeBase
             var auth = new Authentication(this);
             await auth.AuthenticateAsync(welcome, false, cancellationToken).ConfigureAwait(false);
 
+            // 认证成功后，将 Capability 更新为实际协商的客户端标志
+            Capability = auth.GetFlags(welcome.Capability);
+
             // 认证成功后才标记为活动状态
             Active = true;
         }
@@ -573,6 +576,168 @@ public class SqlClient : DisposeBase
         return new RowResult(true, 0, 0);
     }
 
+    /// <summary>异步读取二进制协议结果行（COM_STMT_EXECUTE 返回的行数据）</summary>
+    /// <param name="values">用于存储行数据的数组</param>
+    /// <param name="columns">列信息数组</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>行读取结果，包含是否成功及状态信息</returns>
+    public async Task<RowResult> NextBinaryRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken = default)
+    {
+        var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        if (rs.IsEOF)
+        {
+            var eofReader = new Buffers.SpanReader(rs.Data.Slice(1));
+            ServerStatusFlags statusFlags = 0;
+            UInt16 warnings = 0;
+            if (Capability.Has(ClientFlags.PROTOCOL_41) && eofReader.Available >= 4)
+            {
+                warnings = eofReader.ReadUInt16();
+                statusFlags = (ServerStatusFlags)eofReader.ReadUInt16();
+            }
+            return new RowResult(false, statusFlags, warnings);
+        }
+
+        var numCols = columns.Length;
+        var reader = rs.CreateReader(0);
+
+        // 二进制行格式：header(0x00) + null_bitmap + values
+        reader.Advance(1); // 跳过 0x00 header
+
+        // null_bitmap: (num_columns + 7 + 2) / 8 字节，位偏移量为 2
+        var nullBitmapLen = (numCols + 7 + 2) / 8;
+        var nullBitmap = reader.ReadBytes(nullBitmapLen);
+
+        for (var i = 0; i < numCols; i++)
+        {
+            // 检查是否为 NULL（位偏移 +2）
+            var bitIndex = i + 2;
+            if ((nullBitmap[bitIndex / 8] & (1 << (bitIndex % 8))) != 0)
+            {
+                values[i] = DBNull.Value;
+                continue;
+            }
+
+            values[i] = ReadBinaryColumnValue(reader, columns[i]);
+        }
+
+        return new RowResult(true, 0, 0);
+    }
+
+    /// <summary>从二进制行中读取单列的值</summary>
+    /// <param name="reader">数据读取器</param>
+    /// <param name="column">列定义</param>
+    /// <returns>列值</returns>
+    private Object ReadBinaryColumnValue(Buffers.SpanReader reader, MySqlColumn column)
+    {
+        switch (column.Type)
+        {
+            case MySqlDbType.Byte:
+                return (SByte)reader.ReadByte();
+            case MySqlDbType.Int16:
+                return reader.ReadInt16();
+            case MySqlDbType.UInt16:
+                return (UInt16)reader.ReadInt16();
+            case MySqlDbType.Int24:
+            case MySqlDbType.Int32:
+                return reader.ReadInt32();
+            case MySqlDbType.UInt24:
+            case MySqlDbType.UInt32:
+                return (UInt32)reader.ReadInt32();
+            case MySqlDbType.Int64:
+                return reader.ReadInt64();
+            case MySqlDbType.UInt64:
+                return (UInt64)reader.ReadInt64();
+            case MySqlDbType.Float:
+                {
+                    var bytes = reader.ReadBytes(4);
+                    return BitConverter.ToSingle(bytes.ToArray(), 0);
+                }
+            case MySqlDbType.Double:
+                {
+                    var bytes = reader.ReadBytes(8);
+                    return BitConverter.ToDouble(bytes.ToArray(), 0);
+                }
+            case MySqlDbType.Decimal:
+            case MySqlDbType.NewDecimal:
+                {
+                    var buf = reader.ReadString();
+                    return Decimal.Parse(buf);
+                }
+            case MySqlDbType.DateTime:
+            case MySqlDbType.Timestamp:
+            case MySqlDbType.Date:
+                return ReadBinaryDateTimeValue(reader);
+            case MySqlDbType.Time:
+                return ReadBinaryTimeValue(reader);
+            case MySqlDbType.Bit:
+                {
+                    var len = (Int32)reader.ReadLength();
+                    var buf = reader.ReadBytes(len);
+                    return buf[0] != 0;
+                }
+            case MySqlDbType.Blob:
+            case MySqlDbType.TinyBlob:
+            case MySqlDbType.MediumBlob:
+            case MySqlDbType.LongBlob:
+                {
+                    var len = (Int32)reader.ReadLength();
+                    return reader.ReadBytes(len).ToArray();
+                }
+            default:
+                // 字符串类型：VarChar, String, Text, Json, Guid, Enum 等
+                return reader.ReadString();
+        }
+    }
+
+    /// <summary>读取二进制 DATETIME 值</summary>
+    private static Object ReadBinaryDateTimeValue(Buffers.SpanReader reader)
+    {
+        var len = reader.ReadByte();
+        if (len == 0) return DateTime.MinValue;
+
+        var year = (Int32)reader.ReadUInt16();
+        var month = reader.ReadByte();
+        var day = reader.ReadByte();
+
+        var hour = 0;
+        var minute = 0;
+        var second = 0;
+        var microsecond = 0;
+
+        if (len >= 7)
+        {
+            hour = reader.ReadByte();
+            minute = reader.ReadByte();
+            second = reader.ReadByte();
+        }
+        if (len >= 11)
+        {
+            microsecond = reader.ReadInt32();
+        }
+
+        return new DateTime(year, month, day, hour, minute, second, microsecond / 1000);
+    }
+
+    /// <summary>读取二进制 TIME 值</summary>
+    private static Object ReadBinaryTimeValue(Buffers.SpanReader reader)
+    {
+        var len = reader.ReadByte();
+        if (len == 0) return TimeSpan.Zero;
+
+        var isNeg = reader.ReadByte() != 0;
+        var days = reader.ReadInt32();
+        var hours = reader.ReadByte();
+        var minutes = reader.ReadByte();
+        var seconds = reader.ReadByte();
+
+        var microseconds = 0;
+        if (len >= 12)
+            microseconds = reader.ReadInt32();
+
+        var ts = new TimeSpan(days, hours, minutes, seconds, microseconds / 1000);
+        return isNeg ? ts.Negate() : ts;
+    }
+
     /// <summary>异步准备预编译语句</summary>
     /// <param name="sql">SQL 语句</param>
     /// <param name="cancellationToken">取消令牌</param>
@@ -651,6 +816,7 @@ public class SqlClient : DisposeBase
     public async Task ExecuteStatementAsync(Int32 statementId, MySqlParameterCollection? parameters, MySqlColumn[]? paramColumns, CancellationToken cancellationToken = default)
     {
         var numParams = parameters?.Count ?? 0;
+        var hasQueryAttrs = Capability.Has(ClientFlags.CLIENT_QUERY_ATTRIBUTES);
 
         // 构建 COM_STMT_EXECUTE 数据包
         var ms = Pool.MemoryStream.Get();
@@ -667,14 +833,26 @@ public class SqlClient : DisposeBase
             ms.WriteByte((Byte)((statementId >> 16) & 0xFF));
             ms.WriteByte((Byte)((statementId >> 24) & 0xFF));
 
-            // cursor_type: NO_CURSOR
-            ms.WriteByte(0x00);
+            // flags (cursor_type): CLIENT_QUERY_ATTRIBUTES 模式下为 2 字节，否则 1 字节
+            if (hasQueryAttrs)
+            {
+                ms.WriteByte(0x00);
+                ms.WriteByte(0x00);
+            }
+            else
+            {
+                ms.WriteByte(0x00);
+            }
 
             // iteration_count: 固定 1
             ms.WriteByte(0x01);
             ms.WriteByte(0x00);
             ms.WriteByte(0x00);
             ms.WriteByte(0x00);
+
+            // CLIENT_QUERY_ATTRIBUTES 模式下需要发送 parameter_count（含查询属性参数）
+            if (hasQueryAttrs)
+                WriteLengthEncodedInteger(ms, numParams);
 
             if (numParams > 0)
             {
@@ -693,12 +871,19 @@ public class SqlClient : DisposeBase
                 ms.WriteByte(0x01);
 
                 // param_type × N (每个2字节: type + unsigned_flag)
+                // CLIENT_QUERY_ATTRIBUTES 模式下，每个参数类型后还需附带参数名（length-encoded string）
                 for (var i = 0; i < numParams; i++)
                 {
                     var val = ((MySqlParameter)parameters![i]).Value;
                     var (typeId, unsigned) = GetMySqlTypeForValue(val);
                     ms.WriteByte(typeId);
                     ms.WriteByte(unsigned ? (Byte)0x80 : (Byte)0x00);
+
+                    if (hasQueryAttrs)
+                    {
+                        // 参数名为空字符串（预编译语句按位置绑定，不需要名称）
+                        WriteLengthEncodedInteger(ms, 0);
+                    }
                 }
 
                 // param_value × N（仅非 NULL 参数）
@@ -712,6 +897,15 @@ public class SqlClient : DisposeBase
 
             ms.Position = 4;
             var pk = new ArrayPacket(ms);
+
+            // 临时诊断：将数据包内容保存到文件
+            var payloadLen = (Int32)(ms.Length - 4);
+            var diagBuf = new Byte[payloadLen];
+            ms.Position = 4;
+            ms.Read(diagBuf, 0, payloadLen);
+            ms.Position = 4;
+            var hex = BitConverter.ToString(diagBuf).Replace("-", " ");
+            System.IO.File.WriteAllText("stmt_execute_dump.txt", $"hasQueryAttrs={hasQueryAttrs}, numParams={numParams}, payloadLen={payloadLen}, Cap=0x{(UInt32)Capability:X8}\n{hex}");
 
             _seq = 0;
             await SendPacketAsync(pk, cancellationToken).ConfigureAwait(false);

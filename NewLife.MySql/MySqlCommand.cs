@@ -42,6 +42,9 @@ public class MySqlCommand : DbCommand
     public Boolean IsPrepared => _statementId >= 0;
 
     private MySqlColumn[]? _paramColumns;
+
+    /// <summary>预编译参数顺序映射。索引为 SQL 中 ? 出现的位置，值为 _parameters 中的参数索引</summary>
+    private Int32[]? _paramOrder;
     #endregion
 
     #region 构造
@@ -117,12 +120,14 @@ public class MySqlCommand : DbCommand
 
         var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
 
-        // 将 @param 替换为 ? 占位符，用于服务端预编译
-        var prepSql = ConvertToPositionalParameters(sql, _parameters);
+        // 将 @param 替换为 ? 占位符，同时记录参数在 SQL 中的出现顺序
+        var paramOrder = new List<Int32>();
+        var prepSql = ConvertToPositionalParameters(sql, _parameters, paramOrder);
 
         var result = await client.PrepareStatementAsync(prepSql, cancellationToken).ConfigureAwait(false);
         _statementId = result.StatementId;
         _paramColumns = result.Columns;
+        _paramOrder = paramOrder.Count > 0 ? paramOrder.ToArray() : null;
     }
 
     /// <summary>释放预编译语句的服务端资源</summary>
@@ -144,6 +149,7 @@ public class MySqlCommand : DbCommand
 
         _statementId = -1;
         _paramColumns = null;
+        _paramOrder = null;
     }
 
     /// <summary>取消</summary>
@@ -178,7 +184,8 @@ public class MySqlCommand : DbCommand
         {
             Command = this
         };
-        await ExecuteAsync(cancellationToken).ConfigureAwait(false);
+        var isBinary = await ExecuteAsync(cancellationToken).ConfigureAwait(false);
+        reader.IsBinaryProtocol = isBinary;
         await reader.NextResultAsync(cancellationToken).ConfigureAwait(false);
 
         return reader;
@@ -280,22 +287,41 @@ public class MySqlCommand : DbCommand
 
         try
         {
-            // 构建多组参数集合
+            // 构建多组参数集合，按 SQL 中 ? 占位符的顺序排列
+            var order = _paramOrder;
             var sets = new List<MySqlParameterCollection>(parameterSets.Count);
             foreach (var dict in parameterSets)
             {
                 var ps = new MySqlParameterCollection();
-                // 按 _parameters 的顺序排列，确保与 Prepare 时的 ? 占位符对应
-                foreach (MySqlParameter p in _parameters)
+                if (order != null)
                 {
-                    var name = p.ParameterName ?? "";
-                    var cleanName = name.StartsWith("@") ? name[1..] : name;
+                    // 按 SQL 中参数出现顺序排列
+                    for (var j = 0; j < order.Length; j++)
+                    {
+                        var p = (MySqlParameter)_parameters[order[j]];
+                        var name = p.ParameterName ?? "";
+                        var cleanName = name.StartsWith("@") ? name[1..] : name;
 
-                    Object? val = null;
-                    if (!dict.TryGetValue(cleanName, out val))
-                        dict.TryGetValue("@" + cleanName, out val);
+                        Object? val = null;
+                        if (!dict.TryGetValue(cleanName, out val))
+                            dict.TryGetValue("@" + cleanName, out val);
 
-                    ps.AddWithValue(cleanName, val);
+                        ps.AddWithValue(cleanName, val);
+                    }
+                }
+                else
+                {
+                    foreach (MySqlParameter p in _parameters)
+                    {
+                        var name = p.ParameterName ?? "";
+                        var cleanName = name.StartsWith("@") ? name[1..] : name;
+
+                        Object? val = null;
+                        if (!dict.TryGetValue(cleanName, out val))
+                            dict.TryGetValue("@" + cleanName, out val);
+
+                        ps.AddWithValue(cleanName, val);
+                    }
                 }
                 sets.Add(ps);
             }
@@ -340,16 +366,30 @@ public class MySqlCommand : DbCommand
 
         try
         {
-            // 从参数的数组值中提取每组参数
+            // 从参数的数组值中提取每组参数，按 SQL 中 ? 占位符的顺序排列
+            var order = _paramOrder;
             var sets = new List<MySqlParameterCollection>(count);
             for (var i = 0; i < count; i++)
             {
                 var ps = new MySqlParameterCollection();
-                foreach (MySqlParameter p in _parameters)
+                if (order != null)
                 {
-                    var name = p.ParameterName ?? "";
-                    var val = ExtractArrayValue(p.Value, i);
-                    ps.AddWithValue(name, val);
+                    for (var j = 0; j < order.Length; j++)
+                    {
+                        var p = (MySqlParameter)_parameters[order[j]];
+                        var name = p.ParameterName ?? "";
+                        var val = ExtractArrayValue(p.Value, i);
+                        ps.AddWithValue(name, val);
+                    }
+                }
+                else
+                {
+                    foreach (MySqlParameter p in _parameters)
+                    {
+                        var name = p.ParameterName ?? "";
+                        var val = ExtractArrayValue(p.Value, i);
+                        ps.AddWithValue(name, val);
+                    }
                 }
                 sets.Add(ps);
             }
@@ -386,8 +426,8 @@ public class MySqlCommand : DbCommand
     #region 执行
     /// <summary>异步执行命令。根据是否预编译选择文本协议或二进制协议</summary>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns></returns>
-    private async Task ExecuteAsync(CancellationToken cancellationToken)
+    /// <returns>是否使用了二进制协议（COM_STMT_EXECUTE）</returns>
+    private async Task<Boolean> ExecuteAsync(CancellationToken cancellationToken)
     {
         var client = _DbConnection.Client ?? throw new InvalidOperationException("连接未打开");
 
@@ -398,8 +438,9 @@ public class MySqlCommand : DbCommand
         // 预编译路径：使用 COM_STMT_EXECUTE 二进制协议
         if (IsPrepared)
         {
-            await client.ExecuteStatementAsync(_statementId, _parameters, _paramColumns, cancellationToken).ConfigureAwait(false);
-            return;
+            var orderedParams = ReorderParameters(_parameters, _paramOrder);
+            await client.ExecuteStatementAsync(_statementId, orderedParams, _paramColumns, cancellationToken).ConfigureAwait(false);
+            return true;
         }
 
         // 连接字符串配置了服务端预编译且有参数时，自动走预编译路径
@@ -407,8 +448,9 @@ public class MySqlCommand : DbCommand
         if (setting.UseServerPrepare && _parameters.Count > 0 && CommandType != CommandType.StoredProcedure)
         {
             await PrepareAsync(cancellationToken).ConfigureAwait(false);
-            await client.ExecuteStatementAsync(_statementId, _parameters, _paramColumns, cancellationToken).ConfigureAwait(false);
-            return;
+            var orderedParams = ReorderParameters(_parameters, _paramOrder);
+            await client.ExecuteStatementAsync(_statementId, orderedParams, _paramColumns, cancellationToken).ConfigureAwait(false);
+            return true;
         }
 
         // 文本协议路径：客户端参数替换 + COM_QUERY
@@ -428,6 +470,8 @@ public class MySqlCommand : DbCommand
         {
             Pool.MemoryStream.Return(ms);
         }
+
+        return false;
     }
 
     private void BindParameter(SqlClient client, Stream ms)
@@ -564,7 +608,8 @@ public class MySqlCommand : DbCommand
     {
         if (parameters.Count <= 0) return sql;
 
-        var sb = new StringBuilder(sql.Length + parameters.Count * 16);
+        var sb = Pool.StringBuilder.Get();
+        sb.EnsureCapacity(sql.Length + parameters.Count * 16);
         var i = 0;
         while (i < sql.Length)
         {
@@ -573,31 +618,21 @@ public class MySqlCommand : DbCommand
             // 跳过字符串字面量，避免替换字符串内的 @
             if (ch == '\'' || ch == '"')
             {
-                var quote = ch;
-                sb.Append(ch);
-                i++;
-                while (i < sql.Length)
+                SkipStringLiteral(sql, ref i, sb);
+                continue;
+            }
+
+            // 跳过 @@ 系统变量（如 @@version），不做参数替换
+            if (ch == '@' && i + 1 < sql.Length && sql[i + 1] == '@')
+            {
+                sb.Append('@');
+                sb.Append('@');
+                i += 2;
+                // 读取系统变量名
+                while (i < sql.Length && (Char.IsLetterOrDigit(sql[i]) || sql[i] == '_'))
                 {
-                    ch = sql[i];
-                    sb.Append(ch);
+                    sb.Append(sql[i]);
                     i++;
-                    if (ch == '\\' && i < sql.Length)
-                    {
-                        // 转义字符，跳过下一个字符
-                        sb.Append(sql[i]);
-                        i++;
-                    }
-                    else if (ch == quote)
-                    {
-                        // 双引号转义 '' 或 ""
-                        if (i < sql.Length && sql[i] == quote)
-                        {
-                            sb.Append(sql[i]);
-                            i++;
-                        }
-                        else
-                            break;
-                    }
                 }
                 continue;
             }
@@ -636,7 +671,7 @@ public class MySqlCommand : DbCommand
             i++;
         }
 
-        return sb.ToString();
+        return sb.Return(true);
     }
 
     /// <summary>将参数值序列化为SQL字面量</summary>
@@ -650,6 +685,12 @@ public class MySqlCommand : DbCommand
         {
             String s => "'" + EscapeString(s) + "'",
             Boolean b => b ? "1" : "0",
+            Int32 n => n.ToString(),
+            Int64 n => n.ToString(),
+            Int16 n => n.ToString(),
+            Byte n => n.ToString(),
+            UInt32 n => n.ToString(),
+            UInt64 n => n.ToString(),
             DateTime dt => "'" + dt.ToString("yyyy-MM-dd HH:mm:ss.ffffff").TrimEnd('0').TrimEnd('.') + "'",
             DateTimeOffset dto => "'" + dto.ToString("yyyy-MM-dd HH:mm:ss.ffffff").TrimEnd('0').TrimEnd('.') + "'",
             Byte[] bytes => "X'" + bytes.ToHex() + "'",
@@ -667,7 +708,20 @@ public class MySqlCommand : DbCommand
     /// <returns></returns>
     internal static String EscapeString(String value)
     {
-        var sb = new StringBuilder(value.Length + 8);
+        // 快速路径：扫描是否需要转义，无特殊字符时直接返回原串
+        var needEscape = false;
+        foreach (var c in value)
+        {
+            if (c == '\0' || c == '\n' || c == '\r' || c == '\\' || c == '\'' || c == '"' || c == '\x1a')
+            {
+                needEscape = true;
+                break;
+            }
+        }
+        if (!needEscape) return value;
+
+        var sb = Pool.StringBuilder.Get();
+        sb.EnsureCapacity(value.Length + 8);
         foreach (var ch in value)
         {
             switch (ch)
@@ -682,18 +736,20 @@ public class MySqlCommand : DbCommand
                 default: sb.Append(ch); break;
             }
         }
-        return sb.ToString();
+        return sb.Return(true);
     }
 
     /// <summary>将 SQL 中的 @参数名 替换为 ? 占位符，用于服务端预编译</summary>
     /// <param name="sql">原始 SQL</param>
     /// <param name="parameters">参数集合，用于匹配参数名</param>
+    /// <param name="paramOrder">输出参数顺序映射。记录 ? 占位符对应的参数索引，按 SQL 中出现顺序排列</param>
     /// <returns>替换后的 SQL</returns>
-    internal static String ConvertToPositionalParameters(String sql, MySqlParameterCollection parameters)
+    internal static String ConvertToPositionalParameters(String sql, MySqlParameterCollection parameters, List<Int32>? paramOrder = null)
     {
         if (parameters.Count <= 0) return sql;
 
-        var sb = new StringBuilder(sql.Length);
+        var sb = Pool.StringBuilder.Get();
+        sb.EnsureCapacity(sql.Length);
         var i = 0;
         while (i < sql.Length)
         {
@@ -702,29 +758,20 @@ public class MySqlCommand : DbCommand
             // 跳过字符串字面量
             if (ch == '\'' || ch == '"')
             {
-                var quote = ch;
-                sb.Append(ch);
-                i++;
-                while (i < sql.Length)
+                SkipStringLiteral(sql, ref i, sb);
+                continue;
+            }
+
+            // 跳过 @@ 系统变量
+            if (ch == '@' && i + 1 < sql.Length && sql[i + 1] == '@')
+            {
+                sb.Append('@');
+                sb.Append('@');
+                i += 2;
+                while (i < sql.Length && (Char.IsLetterOrDigit(sql[i]) || sql[i] == '_'))
                 {
-                    ch = sql[i];
-                    sb.Append(ch);
+                    sb.Append(sql[i]);
                     i++;
-                    if (ch == '\\' && i < sql.Length)
-                    {
-                        sb.Append(sql[i]);
-                        i++;
-                    }
-                    else if (ch == quote)
-                    {
-                        if (i < sql.Length && sql[i] == quote)
-                        {
-                            sb.Append(sql[i]);
-                            i++;
-                        }
-                        else
-                            break;
-                    }
                 }
                 continue;
             }
@@ -746,6 +793,7 @@ public class MySqlCommand : DbCommand
                     if (idx >= 0)
                     {
                         sb.Append('?');
+                        paramOrder?.Add(idx);
                         continue;
                     }
                 }
@@ -758,7 +806,66 @@ public class MySqlCommand : DbCommand
             i++;
         }
 
-        return sb.ToString();
+        return sb.Return(true);
+    }
+
+    /// <summary>按预编译参数顺序重排参数集合。如果无需重排则返回原集合</summary>
+    /// <param name="parameters">原始参数集合</param>
+    /// <param name="paramOrder">参数顺序映射</param>
+    /// <returns>按 SQL 占位符顺序排列的参数集合</returns>
+    private static MySqlParameterCollection ReorderParameters(MySqlParameterCollection parameters, Int32[]? paramOrder)
+    {
+        if (paramOrder == null || paramOrder.Length == 0) return parameters;
+
+        // 检查是否已经按顺序排列，避免不必要的重排
+        var inOrder = true;
+        for (var i = 0; i < paramOrder.Length; i++)
+        {
+            if (paramOrder[i] != i) { inOrder = false; break; }
+        }
+        if (inOrder) return parameters;
+
+        var reordered = new MySqlParameterCollection();
+        for (var i = 0; i < paramOrder.Length; i++)
+        {
+            var p = (MySqlParameter)parameters[paramOrder[i]];
+            reordered.AddWithValue(p.ParameterName ?? "", p.Value);
+        }
+        return reordered;
+    }
+
+    /// <summary>跳过 SQL 中的字符串字面量（单引号或双引号），处理转义和引号重复</summary>
+    /// <param name="sql">SQL 字符串</param>
+    /// <param name="i">当前索引，方法结束后指向字面量之后</param>
+    /// <param name="sb">输出缓冲区</param>
+    private static void SkipStringLiteral(String sql, ref Int32 i, StringBuilder sb)
+    {
+        var quote = sql[i];
+        sb.Append(quote);
+        i++;
+        while (i < sql.Length)
+        {
+            var ch = sql[i];
+            sb.Append(ch);
+            i++;
+            if (ch == '\\' && i < sql.Length)
+            {
+                // 反斜杠转义，跳过下一个字符
+                sb.Append(sql[i]);
+                i++;
+            }
+            else if (ch == quote)
+            {
+                // 引号重复转义（'' 或 ""）
+                if (i < sql.Length && sql[i] == quote)
+                {
+                    sb.Append(sql[i]);
+                    i++;
+                }
+                else
+                    break;
+            }
+        }
     }
     #endregion
 }

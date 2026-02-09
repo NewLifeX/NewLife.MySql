@@ -56,6 +56,9 @@ public class MySqlDataReader : DbDataReader
     private Boolean _allRowsConsumed = true;
 
     private Boolean _hasReadResult;
+
+    /// <summary>是否使用二进制协议读取行数据（COM_STMT_EXECUTE 预编译语句结果集）</summary>
+    internal Boolean IsBinaryProtocol { get; set; }
     #endregion
 
     #region 核心方法
@@ -316,7 +319,9 @@ public class MySqlDataReader : DbDataReader
         var client = (Command.Connection as MySqlConnection)!.Client!;
 
         var values = new Object[_FieldCount];
-        var result = await client.NextRowAsync(values, _Columns!, cancellationToken).ConfigureAwait(false);
+        var result = IsBinaryProtocol
+            ? await client.NextBinaryRowAsync(values, _Columns!, cancellationToken).ConfigureAwait(false)
+            : await client.NextRowAsync(values, _Columns!, cancellationToken).ConfigureAwait(false);
 
         if (!result.HasRow)
         {
@@ -344,7 +349,9 @@ public class MySqlDataReader : DbDataReader
             var values = new Object[_FieldCount];
             while (true)
             {
-                var row = await client.NextRowAsync(values, _Columns!, cancellationToken).ConfigureAwait(false);
+                var row = IsBinaryProtocol
+                    ? await client.NextBinaryRowAsync(values, _Columns!, cancellationToken).ConfigureAwait(false)
+                    : await client.NextRowAsync(values, _Columns!, cancellationToken).ConfigureAwait(false);
                 if (!row.HasRow)
                 {
                     _hasMoreResults = row.HasMoreResults;
