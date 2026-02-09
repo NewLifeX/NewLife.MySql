@@ -8,9 +8,11 @@
 - 执行 SQL 查询并返回数据集（`ExecuteReader` / `ExecuteScalar`）
 - 执行增删改 SQL 并返回影响行数（`ExecuteNonQuery`）
 - 参数化查询（客户端参数替换，支持 `@参数名` 语法，自动转义防注入）
+- 预编译语句（`Prepare` / `COM_STMT_PREPARE`，服务端编译 + 二进制协议执行，可选 `UseServerPrepare` 开关）
+- 批量操作（`ExecuteBatch` 字典参数集 / `ExecuteArrayBatch` Oracle 风格数组绑定，基于预编译 Prepare + Execute × N）
+- DbBatch 支持（.NET 6+ 的 ADO.NET 标准批量 API）
 - 事务支持（`BeginTransaction` / `Commit` / `Rollback`，支持多种隔离级别）
 - 存储过程调用（`CommandType.StoredProcedure`，支持输入/输出参数）
-- 批量操作（`ExecuteBatch` / `ExecuteBatchAsync`，多语句一次发送）
 - SSL/TLS 加密连接（`SslMode=Preferred` 或 `Required`）
 - 连接池（默认开启，按连接字符串分池管理）
 - ADO.NET 异步方法（`OpenAsync` / `ExecuteReaderAsync` / `ReadAsync` 等）
@@ -48,6 +50,8 @@ Server=localhost;Port=3306;Database=mydb;User Id=root;Password=pass;
 | ConnectionTimeout | Connection Timeout | 15 | 连接超时（秒） |
 | CommandTimeout | Default Command Timeout | 30 | 命令超时（秒） |
 | SslMode | Ssl Mode | None | SSL 模式（None/Preferred/Required） |
+| UseServerPrepare | Use Server Prepare | false | 参数化查询是否走服务端预编译（COM_STMT_PREPARE/EXECUTE 二进制协议） |
+| Pipeline | Pipelining | false | 批量操作是否启用管道化执行（协议层快速循环） |
 
 ## 快速开始
 
@@ -198,20 +202,101 @@ cmd.ExecuteNonQuery();
 var result = outParam.Value; // 输出参数值
 ```
 
-## 批量操作
+## 预编译语句（Prepare）
 
-通过 `ExecuteBatch` / `ExecuteBatchAsync` 批量执行多条 SQL，利用多语句能力一次发送，减少网络往返：
+通过 `Prepare()` 在服务端预编译 SQL，后续执行走二进制协议，参数无需客户端替换：
 
 ```csharp
-var sqls = new[] {
-    "INSERT INTO users(name, age) VALUES('Alice', 25)",
-    "INSERT INTO users(name, age) VALUES('Bob', 30)",
-    "UPDATE users SET age = age + 1 WHERE name = 'Alice'"
-};
-var totalAffected = conn.ExecuteBatch(sqls);
+using var conn = new MySqlConnection(connStr);
+conn.Open();
 
-// 异步版本
-var totalAffected2 = await conn.ExecuteBatchAsync(sqls);
+using var cmd = new MySqlCommand(conn, "INSERT INTO users(name, age) VALUES(@name, @age)");
+cmd.Parameters.AddWithValue("name", "Tom");
+cmd.Parameters.AddWithValue("age", 25);
+
+// 预编译（服务端解析 SQL，返回 statementId）
+cmd.Prepare();
+
+// 第一次执行
+cmd.ExecuteNonQuery();
+
+// 修改参数后再次执行（无需重新编译）
+cmd.Parameters[0].Value = "Jerry";
+cmd.Parameters[1].Value = 30;
+cmd.ExecuteNonQuery();
+```
+
+也可以通过连接字符串全局启用服务端预编译，所有参数化查询自动走二进制协议：
+
+```
+Server=localhost;Database=mydb;User Id=root;Password=pass;UseServerPrepare=true;
+```
+
+## 批量操作
+
+### 方案 A：字典参数集（Prepare + Execute × N）
+
+同一 SQL 绑定多组参数执行，内部自动预编译：
+
+```csharp
+using var cmd = new MySqlCommand(conn, "INSERT INTO users(name, age) VALUES(@name, @age)");
+cmd.Parameters.AddWithValue("name", "");
+cmd.Parameters.AddWithValue("age", 0);
+
+var paramSets = new List<IDictionary<String, Object?>>
+{
+    new Dictionary<String, Object?> { ["name"] = "Alice", ["age"] = 25 },
+    new Dictionary<String, Object?> { ["name"] = "Bob", ["age"] = 30 },
+    new Dictionary<String, Object?> { ["name"] = "Charlie", ["age"] = 22 },
+};
+var totalAffected = cmd.ExecuteBatch(paramSets);
+// 或异步版本
+var totalAffected2 = await cmd.ExecuteBatchAsync(paramSets);
+```
+
+### 方案 B：Oracle 风格数组绑定
+
+参数值设为数组，指定执行次数，类似 Oracle 的 ArrayBindCount：
+
+```csharp
+using var cmd = new MySqlCommand(conn, "INSERT INTO users(name, age) VALUES(@name, @age)");
+cmd.Parameters.AddWithValue("name", new[] { "Alice", "Bob", "Charlie" });
+cmd.Parameters.AddWithValue("age", new[] { 25, 30, 22 });
+
+var totalAffected = cmd.ExecuteArrayBatch(3);
+// 或异步版本
+var totalAffected2 = await cmd.ExecuteArrayBatchAsync(3);
+```
+
+### 方案 C：管道化执行
+
+通过连接字符串开启 `Pipeline=true`，批量操作在协议层快速循环执行，减少命令层开销：
+
+```
+Server=localhost;Database=mydb;User Id=root;Password=pass;Pipeline=true;
+```
+
+### 方案 D：多行 INSERT VALUES
+
+XCode 已支持的多行 INSERT 语法，直接通过文本协议发送：
+
+```csharp
+var sql = "INSERT INTO users(name, age) VALUES('Alice', 25), ('Bob', 30), ('Charlie', 22)";
+conn.ExecuteNonQuery(sql);
+```
+
+### DbBatch API（.NET 6+）
+
+.NET 6 及以上版本支持 ADO.NET 标准的 `DbBatch` API：
+
+```csharp
+var batch = conn.CreateBatch();
+batch.BatchCommands.Add(new MySqlBatchCommand("INSERT INTO users(name, age) VALUES('X1', 10)"));
+batch.BatchCommands.Add(new MySqlBatchCommand("INSERT INTO users(name, age) VALUES('X2', 20)"));
+batch.BatchCommands.Add(new MySqlBatchCommand("UPDATE users SET age = age + 1 WHERE name = 'X1'"));
+
+using var reader = batch.ExecuteReader();
+// 遍历每个命令的结果...
 ```
 
 ## SSL/TLS 加密连接
@@ -288,7 +373,9 @@ var tables = dal.Tables;
 
 ## 多目标框架
 
-支持 `net45`、`net461`、`netstandard2.0`、`netstandard2.1`。
+支持 `net45`、`net461`、`netstandard2.0`、`netstandard2.1`、`net6.0`、`net8.0`。
+
+- `net6.0`/`net8.0`：额外支持 `DbBatch` API
 
 ## 注意事项
 

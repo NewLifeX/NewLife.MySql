@@ -131,9 +131,10 @@ public class TransactionTests
         using (var tr = conn.BeginTransaction())
         {
             using var cmd = new MySqlCommand(conn, "insert into sys.sys_config(variable,value,set_time,set_by) values(@var,@val,now(),@by)");
-            cmd.Parameters.AddWithValue("var", name);
-            cmd.Parameters.AddWithValue("val", "tx_value");
-            cmd.Parameters.AddWithValue("by", "Test");
+            var ps = cmd.Parameters as MySqlParameterCollection;
+            ps.AddWithValue("var", name);
+            ps.AddWithValue("val", "tx_value");
+            ps.AddWithValue("by", "Test");
             cmd.ExecuteNonQuery();
             tr.Commit();
         }
@@ -141,7 +142,7 @@ public class TransactionTests
         // 验证
         {
             using var cmd = new MySqlCommand(conn, "select value from sys.sys_config where variable=@name");
-            cmd.Parameters.AddWithValue("name", name);
+            (cmd.Parameters as MySqlParameterCollection).AddWithValue("name", name);
             Assert.Equal("tx_value", cmd.ExecuteScalar());
         }
 

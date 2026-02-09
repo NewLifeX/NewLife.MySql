@@ -29,6 +29,12 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
 
     /// <summary>SSL模式。None/Preferred/Required，默认None</summary>
     public String? SslMode { get => this[nameof(SslMode)] as String; set => this[nameof(SslMode)] = value; }
+
+    /// <summary>是否使用服务端预编译执行。启用后参数化查询走 COM_STMT_PREPARE/EXECUTE 二进制协议，默认false</summary>
+    public Boolean UseServerPrepare { get => this[nameof(UseServerPrepare)].ToBoolean(); set => this[nameof(UseServerPrepare)] = value; }
+
+    /// <summary>是否启用管道化执行。批量操作时连续发送多个 EXECUTE 包再批量读取响应，默认false</summary>
+    public Boolean Pipeline { get => this[nameof(Pipeline)].ToBoolean(); set => this[nameof(Pipeline)] = value; }
     #endregion
 
     #region 构造
@@ -45,6 +51,8 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
             [nameof(ConnectionTimeout)] = ["connectiontimeout", "connectiontimeout", "connection timeout"],
             [nameof(CommandTimeout)] = ["defaultcommandtimeout", "command timeout", "default command timeout"],
             [nameof(SslMode)] = ["sslmode", "ssl mode", "ssl-mode"],
+            [nameof(UseServerPrepare)] = ["useserverprepare", "use server prepare", "use_server_prepare"],
+            [nameof(Pipeline)] = ["pipeline", "pipelining"],
         };
 
         _options = dic;

@@ -179,16 +179,17 @@ public class ParameterizedQueryTests
         // 清理
         {
             using var cmd = new MySqlCommand(conn, "delete from sys.sys_config where variable=@name");
-            cmd.Parameters.AddWithValue("name", name);
+            (cmd.Parameters as MySqlParameterCollection).AddWithValue("name", name);
             cmd.ExecuteNonQuery();
         }
 
         // 参数化插入
         {
             using var cmd = new MySqlCommand(conn, "insert into sys.sys_config(variable,value,set_time,set_by) values(@var,@val,now(),@by)");
-            cmd.Parameters.AddWithValue("var", name);
-            cmd.Parameters.AddWithValue("val", "hello");
-            cmd.Parameters.AddWithValue("by", "UnitTest");
+            var ps = cmd.Parameters as MySqlParameterCollection;
+            ps.AddWithValue("var", name);
+            ps.AddWithValue("val", "hello");
+            ps.AddWithValue("by", "UnitTest");
             var rs = cmd.ExecuteNonQuery();
             Assert.Equal(1, rs);
         }
@@ -196,7 +197,7 @@ public class ParameterizedQueryTests
         // 参数化查询
         {
             using var cmd = new MySqlCommand(conn, "select value from sys.sys_config where variable=@name");
-            cmd.Parameters.AddWithValue("name", name);
+            (cmd.Parameters as MySqlParameterCollection).AddWithValue("name", name);
             var rs = cmd.ExecuteScalar();
             Assert.Equal("hello", rs);
         }
@@ -204,8 +205,9 @@ public class ParameterizedQueryTests
         // 参数化更新
         {
             using var cmd = new MySqlCommand(conn, "update sys.sys_config set value=@val where variable=@name");
-            cmd.Parameters.AddWithValue("val", "world");
-            cmd.Parameters.AddWithValue("name", name);
+            var ps = cmd.Parameters as MySqlParameterCollection;
+            ps.AddWithValue("val", "world");
+            ps.AddWithValue("name", name);
             var rs = cmd.ExecuteNonQuery();
             Assert.Equal(1, rs);
         }
@@ -213,7 +215,7 @@ public class ParameterizedQueryTests
         // 验证更新
         {
             using var cmd = new MySqlCommand(conn, "select value from sys.sys_config where variable=@name");
-            cmd.Parameters.AddWithValue("name", name);
+            (cmd.Parameters as MySqlParameterCollection).AddWithValue("name", name);
             var rs = cmd.ExecuteScalar();
             Assert.Equal("world", rs);
         }
@@ -221,7 +223,7 @@ public class ParameterizedQueryTests
         // 参数化删除
         {
             using var cmd = new MySqlCommand(conn, "delete from sys.sys_config where variable=@name");
-            cmd.Parameters.AddWithValue("name", name);
+            (cmd.Parameters as MySqlParameterCollection).AddWithValue("name", name);
             var rs = cmd.ExecuteNonQuery();
             Assert.Equal(1, rs);
         }
@@ -235,7 +237,7 @@ public class ParameterizedQueryTests
 
         // 尝试注入，参数化应该安全处理
         using var cmd = new MySqlCommand(conn, "select count(*) from sys.sys_config where variable=@name");
-        cmd.Parameters.AddWithValue("name", "'; DROP TABLE sys_config; --");
+        (cmd.Parameters as MySqlParameterCollection).AddWithValue("name", "'; DROP TABLE sys_config; --");
         var rs = cmd.ExecuteScalar();
 
         // 不会匹配到任何行，但不会报错
@@ -249,7 +251,7 @@ public class ParameterizedQueryTests
         conn.Open();
 
         using var cmd = new MySqlCommand(conn, "select count(*) from sys.sys_config where variable=@name");
-        cmd.Parameters.AddWithValue("name", DBNull.Value);
+        (cmd.Parameters as MySqlParameterCollection).AddWithValue("name", DBNull.Value);
         var rs = cmd.ExecuteScalar();
 
         Assert.Equal(0, rs.ToInt());

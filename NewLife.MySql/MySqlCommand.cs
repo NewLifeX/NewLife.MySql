@@ -239,6 +239,150 @@ public class MySqlCommand : DbCommand
     }
     #endregion
 
+    #region 批量执行
+    /// <summary>批量执行参数化语句。同一 SQL 绑定多组参数执行，返回总影响行数</summary>
+    /// <param name="parameterSets">多组参数值数组。每组是一个字典，键为参数名，值为参数值</param>
+    /// <returns>总影响行数</returns>
+    public Int32 ExecuteBatch(IList<IDictionary<String, Object?>> parameterSets)
+        => ExecuteBatchAsync(parameterSets, CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+
+    /// <summary>异步批量执行参数化语句。自动 Prepare + Execute × N，返回总影响行数</summary>
+    /// <param name="parameterSets">多组参数值数组。每组是一个字典，键为参数名，值为参数值</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>总影响行数</returns>
+    public async Task<Int32> ExecuteBatchAsync(IList<IDictionary<String, Object?>> parameterSets, CancellationToken cancellationToken = default)
+    {
+        if (parameterSets == null || parameterSets.Count == 0) return 0;
+
+        var sql = CommandText;
+        if (sql.IsNullOrEmpty()) throw new InvalidOperationException("CommandText 不能为空");
+
+        var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
+
+        // 重置网络流
+        if (!client.Reset()) throw new InvalidOperationException("数据库连接已断开");
+
+        // 从第一组参数推断参数定义
+        var firstSet = parameterSets[0];
+        if (_parameters.Count == 0)
+        {
+            foreach (var kv in firstSet)
+                _parameters.AddWithValue(kv.Key, kv.Value);
+        }
+
+        // 确保已预编译
+        var needClose = false;
+        if (!IsPrepared)
+        {
+            await PrepareAsync(cancellationToken).ConfigureAwait(false);
+            needClose = true;
+        }
+
+        try
+        {
+            // 构建多组参数集合
+            var sets = new List<MySqlParameterCollection>(parameterSets.Count);
+            foreach (var dict in parameterSets)
+            {
+                var ps = new MySqlParameterCollection();
+                // 按 _parameters 的顺序排列，确保与 Prepare 时的 ? 占位符对应
+                foreach (MySqlParameter p in _parameters)
+                {
+                    var name = p.ParameterName ?? "";
+                    var cleanName = name.StartsWith("@") ? name[1..] : name;
+
+                    Object? val = null;
+                    if (!dict.TryGetValue(cleanName, out val))
+                        dict.TryGetValue("@" + cleanName, out val);
+
+                    ps.AddWithValue(cleanName, val);
+                }
+                sets.Add(ps);
+            }
+
+            return await client.ExecuteStatementPipelineAsync(_statementId, sets, _paramColumns, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (needClose)
+                await UnprepareAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>使用数组参数批量执行。类似 Oracle 的 ArrayBindCount，每个参数传入数组值</summary>
+    /// <param name="count">执行次数（数组长度）</param>
+    /// <returns>总影响行数</returns>
+    public Int32 ExecuteArrayBatch(Int32 count)
+        => ExecuteArrayBatchAsync(count, CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+
+    /// <summary>异步使用数组参数批量执行。参数的 Value 设为数组，指定 count 为数组长度</summary>
+    /// <param name="count">执行次数（数组长度）</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>总影响行数</returns>
+    public async Task<Int32> ExecuteArrayBatchAsync(Int32 count, CancellationToken cancellationToken = default)
+    {
+        if (count <= 0) return 0;
+
+        var sql = CommandText;
+        if (sql.IsNullOrEmpty()) throw new InvalidOperationException("CommandText 不能为空");
+
+        var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
+
+        if (!client.Reset()) throw new InvalidOperationException("数据库连接已断开");
+
+        // 确保已预编译
+        var needClose = false;
+        if (!IsPrepared)
+        {
+            await PrepareAsync(cancellationToken).ConfigureAwait(false);
+            needClose = true;
+        }
+
+        try
+        {
+            // 从参数的数组值中提取每组参数
+            var sets = new List<MySqlParameterCollection>(count);
+            for (var i = 0; i < count; i++)
+            {
+                var ps = new MySqlParameterCollection();
+                foreach (MySqlParameter p in _parameters)
+                {
+                    var name = p.ParameterName ?? "";
+                    var val = ExtractArrayValue(p.Value, i);
+                    ps.AddWithValue(name, val);
+                }
+                sets.Add(ps);
+            }
+
+            return await client.ExecuteStatementPipelineAsync(_statementId, sets, _paramColumns, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (needClose)
+                await UnprepareAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>从数组类型的参数值中提取指定索引的元素</summary>
+    /// <param name="value">参数值（可能是数组）</param>
+    /// <param name="index">索引</param>
+    /// <returns></returns>
+    private static Object? ExtractArrayValue(Object? value, Int32 index)
+    {
+        if (value == null) return null;
+
+        // 支持各种数组类型
+        if (value is Array arr)
+            return index < arr.Length ? arr.GetValue(index) : null;
+
+        if (value is System.Collections.IList list)
+            return index < list.Count ? list[index] : null;
+
+        // 非数组值，每次都用同一个值
+        return value;
+    }
+    #endregion
+
     #region 执行
     /// <summary>异步执行命令。根据是否预编译选择文本协议或二进制协议</summary>
     /// <param name="cancellationToken">取消令牌</param>

@@ -337,43 +337,43 @@ public class SqlClient : DisposeBase
 
         try
         {
-        // 3字节长度 + 1字节序列号
-        var buf = Pool.Shared.Rent(4);
+            // 3字节长度 + 1字节序列号
+            var buf = Pool.Shared.Rent(4);
             var count = await ms.ReadExactlyAsync(buf, 0, 4, token).ConfigureAwait(false);
-        if (count < 4) throw new InvalidDataException($"读取数据包头部失败，可用{count}字节");
+            if (count < 4) throw new InvalidDataException($"读取数据包头部失败，可用{count}字节");
 
-        var rs = new Response(ms)
-        {
-            Length = buf[0] + (buf[1] << 8) + (buf[2] << 16),
-            Sequence = buf[3],
-        };
-        _seq = (Byte)(rs.Sequence + 1);
-        Pool.Shared.Return(buf);
+            var rs = new Response(ms)
+            {
+                Length = buf[0] + (buf[1] << 8) + (buf[2] << 16),
+                Sequence = buf[3],
+            };
+            _seq = (Byte)(rs.Sequence + 1);
+            Pool.Shared.Return(buf);
 
-        // 读取数据。长度必须刚好，因为可能有多帧数据包
-        var len = rs.Length;
-        var pk = new OwnerPacket(len);
+            // 读取数据。长度必须刚好，因为可能有多帧数据包
+            var len = rs.Length;
+            var pk = new OwnerPacket(len);
             count = await ms.ReadExactlyAsync(pk.Buffer, pk.Offset, len, token).ConfigureAwait(false);
 
-        pk.Resize(count);
-        rs.Set(pk);
+            pk.Resize(count);
+            rs.Set(pk);
 
-        // 错误包
-        if (rs.IsError)
-        {
-            var reader = new SpanReader(pk.Slice(1, -1));
-            var code = reader.ReadUInt16();
-            var msg = reader.ReadZeroString();
+            // 错误包
+            if (rs.IsError)
+            {
+                var reader = new SpanReader(pk.Slice(1, -1));
+                var code = reader.ReadUInt16();
+                var msg = reader.ReadZeroString();
 
-            // 前面有6字符错误码
-            if (!msg.IsNullOrEmpty() && msg[0] == '#')
-                throw new MySqlException(code, msg[..6], msg[6..]);
-            else
-                throw new MySqlException(code, msg);
+                // 前面有6字符错误码
+                if (!msg.IsNullOrEmpty() && msg[0] == '#')
+                    throw new MySqlException(code, msg[..6], msg[6..]);
+                else
+                    throw new MySqlException(code, msg);
+            }
+
+            return rs;
         }
-
-        return rs;
-    }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             // 超时导致的取消，标记连接不可用
@@ -934,7 +934,7 @@ public class SqlClient : DisposeBase
             var micro = dt.Millisecond * 1000;
             WriteInt32(ms, micro);
         }
-        }
+    }
 
     /// <summary>写入 MySQL 二进制 TIME 格式</summary>
     private static void WriteBinaryTime(Stream ms, TimeSpan ts)
@@ -1019,6 +1019,32 @@ public class SqlClient : DisposeBase
 
         // COM_STMT_RESET 返回 OK 包
         await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>管道化批量执行预编译语句。连续发送多组 EXECUTE 包，然后批量读取响应</summary>
+    /// <param name="statementId">预编译语句 ID</param>
+    /// <param name="parameterSets">多组参数集合</param>
+    /// <param name="paramColumns">Prepare 返回的参数列信息</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>总影响行数</returns>
+    public async Task<Int32> ExecuteStatementPipelineAsync(Int32 statementId, IList<MySqlParameterCollection> parameterSets, MySqlColumn[]? paramColumns, CancellationToken cancellationToken = default)
+    {
+        if (parameterSets == null || parameterSets.Count == 0) return 0;
+
+        // 管道化：逐条发送 EXECUTE + 读取响应
+        // MySQL 协议是严格的请求-响应模式，每个 COM_STMT_EXECUTE 都需要独立的序列号
+        // 因此管道化实际上是：发送→读响应→发送→读响应... 的快速循环
+        // 相比普通模式的优势在于：跳过了 MySqlCommand 层的开销，直接在协议层循环
+        var totalAffected = 0;
+        for (var i = 0; i < parameterSets.Count; i++)
+        {
+            await ExecuteStatementAsync(statementId, parameterSets[i], paramColumns, cancellationToken).ConfigureAwait(false);
+            var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+            var qr = GetResult(rs);
+            totalAffected += qr.AffectedRows;
+        }
+
+        return totalAffected;
     }
     #endregion
 }

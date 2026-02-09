@@ -53,8 +53,8 @@ public class BatchTests
         {
             var sql = $"INSERT INTO `{table}` (name, age) VALUES (?, ?)";
             var result = client.PrepareStatementAsync(sql).ConfigureAwait(false).GetAwaiter().GetResult();
-            var statementId = result.Item1;
-            var paramColumns = result.Item2;
+            var statementId = result.StatementId;
+            var paramColumns = result.Columns;
 
             // statementId 应大于 0
             Assert.True(statementId > 0, $"statementId={statementId} should be > 0");
@@ -97,8 +97,9 @@ public class BatchTests
         {
             // 预编译插入语句
             using var cmd = new MySqlCommand(conn, $"INSERT INTO `{table}` (name, age) VALUES (@name, @age)");
-            cmd.Parameters.AddWithValue("name", "Tom");
-            cmd.Parameters.AddWithValue("age", 25);
+            var ps = cmd.Parameters as MySqlParameterCollection;
+            ps.AddWithValue("name", "Tom");
+            ps.AddWithValue("age", 25);
             cmd.Prepare();
 
             Assert.True(cmd.IsPrepared);
@@ -138,8 +139,9 @@ public class BatchTests
         {
             // 有参数时应自动走预编译路径
             using var cmd = new MySqlCommand(conn, $"INSERT INTO `{table}` (name, age) VALUES (@name, @age)");
-            cmd.Parameters.AddWithValue("name", "Alice");
-            cmd.Parameters.AddWithValue("age", 28);
+            var ps = cmd.Parameters as MySqlParameterCollection;
+            ps.AddWithValue("name", "Alice");
+            ps.AddWithValue("age", 28);
 
             var affected = cmd.ExecuteNonQuery();
             Assert.Equal(1, affected);
@@ -167,9 +169,10 @@ public class BatchTests
         try
         {
             using var cmd = new MySqlCommand(conn, $"INSERT INTO `{table}` (name, age, score) VALUES (@name, @age, @score)");
-            cmd.Parameters.AddWithValue("name", "");
-            cmd.Parameters.AddWithValue("age", 0);
-            cmd.Parameters.AddWithValue("score", 0m);
+            var ps = cmd.Parameters as MySqlParameterCollection;
+            ps.AddWithValue("name", "");
+            ps.AddWithValue("age", 0);
+            ps.AddWithValue("score", 0m);
 
             var paramSets = new List<Dictionary<String, Object?>>
             {
@@ -211,8 +214,9 @@ public class BatchTests
 
             // 批量更新
             using var cmd = new MySqlCommand(conn, $"UPDATE `{table}` SET age=@age WHERE name=@name");
-            cmd.Parameters.AddWithValue("age", 0);
-            cmd.Parameters.AddWithValue("name", "");
+            var ps = cmd.Parameters as MySqlParameterCollection;
+            ps.AddWithValue("age", 0);
+            ps.AddWithValue("name", "");
 
             var paramSets = new List<IDictionary<String, Object?>>
             {
@@ -248,7 +252,8 @@ public class BatchTests
 
             // 批量删除
             using var cmd = new MySqlCommand(conn, $"DELETE FROM `{table}` WHERE name=@name");
-            cmd.Parameters.AddWithValue("name", "");
+            var ps = cmd.Parameters as MySqlParameterCollection;
+            ps.AddWithValue("name", "");
 
             var paramSets = new List<IDictionary<String, Object?>>
             {
@@ -282,8 +287,9 @@ public class BatchTests
         {
             using var cmd = new MySqlCommand(conn, $"INSERT INTO `{table}` (name, age) VALUES (@name, @age)");
             // Oracle 风格：参数值设为数组
-            cmd.Parameters.AddWithValue("name", new String[] { "A1", "A2", "A3", "A4", "A5" });
-            cmd.Parameters.AddWithValue("age", new Int32[] { 10, 20, 30, 40, 50 });
+            var ps = cmd.Parameters as MySqlParameterCollection;
+            ps.AddWithValue("name", new String[] { "A1", "A2", "A3", "A4", "A5" });
+            ps.AddWithValue("age", new Int32[] { 10, 20, 30, 40, 50 });
 
             var affected = cmd.ExecuteArrayBatch(5);
             Assert.Equal(5, affected);
@@ -315,8 +321,9 @@ public class BatchTests
 
             // 批量更新
             using var cmd = new MySqlCommand(conn, $"UPDATE `{table}` SET age=@age WHERE name=@name");
-            cmd.Parameters.AddWithValue("age", new Int32[] { 11, 22, 33 });
-            cmd.Parameters.AddWithValue("name", new String[] { "X1", "X2", "X3" });
+            var ps = cmd.Parameters as MySqlParameterCollection;
+            ps.AddWithValue("age", new Int32[] { 11, 22, 33 });
+            ps.AddWithValue("name", new String[] { "X1", "X2", "X3" });
 
             var affected = cmd.ExecuteArrayBatch(3);
             Assert.Equal(3, affected);
