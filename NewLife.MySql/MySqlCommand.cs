@@ -24,12 +24,9 @@ public class MySqlCommand : DbCommand
     /// <summary>事务</summary>
     protected override DbTransaction? DbTransaction { get; set; }
 
-    private readonly MySqlParameterCollection _parameters = new();
+    private readonly MySqlParameterCollection _parameters = [];
     /// <summary>参数集合</summary>
     protected override DbParameterCollection DbParameterCollection => _parameters;
-
-    /// <summary>参数集合</summary>
-    public new MySqlParameterCollection Parameters => _parameters;
 
     /// <summary>命令超时。单位秒</summary>
     public override Int32 CommandTimeout { get; set; }
@@ -39,6 +36,12 @@ public class MySqlCommand : DbCommand
 
     /// <summary>更新行方式</summary>
     public override UpdateRowSource UpdatedRowSource { get; set; }
+
+    private Int32 _statementId = -1;
+    /// <summary>是否已预编译</summary>
+    public Boolean IsPrepared => _statementId >= 0;
+
+    private MySqlColumn[]? _paramColumns;
     #endregion
 
     #region 构造
@@ -46,18 +49,31 @@ public class MySqlCommand : DbCommand
     public MySqlCommand() { }
 
     /// <summary>实例化</summary>
-    /// <param name="conn"></param>
-    /// <param name="commandText"></param>
+    /// <param name="conn">连接</param>
+    /// <param name="commandText">命令语句</param>
     public MySqlCommand(DbConnection conn, String commandText)
     {
         Connection = conn;
         CommandText = commandText;
     }
 
+    /// <summary>实例化</summary>
+    /// <param name="commandText">命令语句</param>
+    /// <param name="conn">连接</param>
     public MySqlCommand(String commandText, DbConnection conn)
     {
         Connection = conn;
         CommandText = commandText;
+    }
+
+    /// <summary>释放资源时关闭预编译语句</summary>
+    /// <param name="disposing">是否释放托管资源</param>
+    protected override void Dispose(Boolean disposing)
+    {
+        if (disposing)
+            UnprepareAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+
+        base.Dispose(disposing);
     }
     #endregion
 
@@ -82,18 +98,52 @@ public class MySqlCommand : DbCommand
     public override Object? ExecuteScalar()
         => ExecuteScalarAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
 
-    /// <summary>预编译语句</summary>
-    public override void Prepare()
+    /// <summary>预编译语句。通过 COM_STMT_PREPARE 在服务端编译，后续执行走二进制协议</summary>
+    public override void Prepare() => PrepareAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+
+    /// <summary>异步预编译语句</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
+    public override async Task PrepareAsync(CancellationToken cancellationToken = default)
+#else
+    public async Task PrepareAsync(CancellationToken cancellationToken = default)
+#endif
     {
+        if (IsPrepared) return;
+
         var sql = CommandText;
-        if (sql.IsNullOrEmpty()) throw new ArgumentNullException(nameof(CommandText));
+        if (sql.IsNullOrEmpty()) throw new InvalidOperationException("CommandText 不能为空");
 
-        var conn = _DbConnection;
-        var client = conn.Client!;
+        var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
 
-        client.PrepareStatementAsync(sql).ConfigureAwait(false).GetAwaiter().GetResult();
+        // 将 @param 替换为 ? 占位符，用于服务端预编译
+        var prepSql = ConvertToPositionalParameters(sql, _parameters);
 
-        throw new NotImplementedException();
+        var result = await client.PrepareStatementAsync(prepSql, cancellationToken).ConfigureAwait(false);
+        _statementId = result.StatementId;
+        _paramColumns = result.Columns;
+    }
+
+    /// <summary>释放预编译语句的服务端资源</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    public async Task UnprepareAsync(CancellationToken cancellationToken = default)
+    {
+        if (!IsPrepared) return;
+
+        var client = _DbConnection?.Client;
+        if (client != null && client.Active)
+        {
+            try
+            {
+                await client.CloseStatementAsync(_statementId, cancellationToken).ConfigureAwait(false);
+            }
+            catch { /* 忽略关闭过程中的异常 */ }
+        }
+
+        _statementId = -1;
+        _paramColumns = null;
     }
 
     /// <summary>取消</summary>
@@ -190,25 +240,43 @@ public class MySqlCommand : DbCommand
     #endregion
 
     #region 执行
-    /// <summary>异步执行命令，绑定参数后发送请求</summary>
+    /// <summary>异步执行命令。根据是否预编译选择文本协议或二进制协议</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
     private async Task ExecuteAsync(CancellationToken cancellationToken)
     {
+        var client = _DbConnection.Client ?? throw new InvalidOperationException("连接未打开");
+
+        // 重置网络流，清理残留数据。如果连接已断开则抛出异常
+        if (!client.Reset())
+            throw new InvalidOperationException("数据库连接已断开");
+
+        // 预编译路径：使用 COM_STMT_EXECUTE 二进制协议
+        if (IsPrepared)
+        {
+            await client.ExecuteStatementAsync(_statementId, _parameters, _paramColumns, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        // 连接字符串配置了服务端预编译且有参数时，自动走预编译路径
+        var setting = _DbConnection.Setting;
+        if (setting.UseServerPrepare && _parameters.Count > 0 && CommandType != CommandType.StoredProcedure)
+        {
+            await PrepareAsync(cancellationToken).ConfigureAwait(false);
+            await client.ExecuteStatementAsync(_statementId, _parameters, _paramColumns, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        // 文本协议路径：客户端参数替换 + COM_QUERY
         var ms = Pool.MemoryStream.Get();
         try
         {
             ms.Seek(4, SeekOrigin.Current);
 
-            var client = _DbConnection.Client ?? throw new InvalidOperationException("连接未打开");
             BindParameter(client, ms);
 
             ms.Position = 4;
             var pk = new ArrayPacket(ms);
-
-            // 重置网络流，清理残留数据。如果连接已断开则抛出异常
-            if (!client.Reset())
-                throw new InvalidOperationException("数据库连接已断开");
 
             await client.SendQueryAsync(pk, cancellationToken).ConfigureAwait(false);
         }
@@ -470,6 +538,82 @@ public class MySqlCommand : DbCommand
                 default: sb.Append(ch); break;
             }
         }
+        return sb.ToString();
+    }
+
+    /// <summary>将 SQL 中的 @参数名 替换为 ? 占位符，用于服务端预编译</summary>
+    /// <param name="sql">原始 SQL</param>
+    /// <param name="parameters">参数集合，用于匹配参数名</param>
+    /// <returns>替换后的 SQL</returns>
+    internal static String ConvertToPositionalParameters(String sql, MySqlParameterCollection parameters)
+    {
+        if (parameters.Count <= 0) return sql;
+
+        var sb = new StringBuilder(sql.Length);
+        var i = 0;
+        while (i < sql.Length)
+        {
+            var ch = sql[i];
+
+            // 跳过字符串字面量
+            if (ch == '\'' || ch == '"')
+            {
+                var quote = ch;
+                sb.Append(ch);
+                i++;
+                while (i < sql.Length)
+                {
+                    ch = sql[i];
+                    sb.Append(ch);
+                    i++;
+                    if (ch == '\\' && i < sql.Length)
+                    {
+                        sb.Append(sql[i]);
+                        i++;
+                    }
+                    else if (ch == quote)
+                    {
+                        if (i < sql.Length && sql[i] == quote)
+                        {
+                            sb.Append(sql[i]);
+                            i++;
+                        }
+                        else
+                            break;
+                    }
+                }
+                continue;
+            }
+
+            // 检测参数标记 @
+            if (ch == '@' || ch == '?')
+            {
+                var start = i;
+                i++;
+                while (i < sql.Length && (Char.IsLetterOrDigit(sql[i]) || sql[i] == '_'))
+                    i++;
+
+                if (i > start + 1)
+                {
+                    var name = sql[(start + 1)..i];
+                    var idx = parameters.IndexOf(name);
+                    if (idx < 0) idx = parameters.IndexOf(sql[start..i]);
+
+                    if (idx >= 0)
+                    {
+                        sb.Append('?');
+                        continue;
+                    }
+                }
+
+                sb.Append(sql[start..i]);
+                continue;
+            }
+
+            sb.Append(ch);
+            i++;
+        }
+
         return sb.ToString();
     }
     #endregion

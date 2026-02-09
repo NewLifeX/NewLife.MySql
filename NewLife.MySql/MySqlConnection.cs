@@ -112,7 +112,7 @@ public sealed partial class MySqlConnection : DbConnection
     public override async Task OpenAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        
+
         if (State == ConnectionState.Open) return;
 
         SetState(ConnectionState.Connecting);
@@ -126,7 +126,7 @@ public sealed partial class MySqlConnection : DbConnection
                 _pool = Factory?.PoolManager?.GetPool(Setting);
 
                 client = _pool?.Get() ?? new SqlClient(Setting);
-                
+
                 cancellationToken.ThrowIfCancellationRequested();
 
                 if (client.Welcome == null)
@@ -183,44 +183,7 @@ public sealed partial class MySqlConnection : DbConnection
         return cmd.ExecuteNonQuery();
     }
 
-    /// <summary>批量执行多条SQL语句。利用多语句能力一次发送，减少网络往返</summary>
-    /// <param name="sqls">SQL语句数组</param>
-    /// <returns>所有语句累加的影响行数</returns>
-    public Int32 ExecuteBatch(String[] sqls)
-    {
-        if (sqls == null || sqls.Length == 0) return 0;
-
-        // 拼接为分号分隔的多语句
-        var sql = String.Join(";", sqls);
-        return ExecuteNonQuery(sql);
-    }
-
-    /// <summary>批量执行多条SQL语句。利用多语句能力一次发送，减少网络往返</summary>
-    /// <param name="sqls">SQL语句集合</param>
-    /// <returns>所有语句累加的影响行数</returns>
-    public Int32 ExecuteBatch(IEnumerable<String> sqls)
-    {
-        if (sqls == null) return 0;
-
-        var sql = String.Join(";", sqls);
-        if (sql.IsNullOrEmpty()) return 0;
-
-        return ExecuteNonQuery(sql);
-    }
-
-    /// <summary>异步批量执行多条SQL语句</summary>
-    /// <param name="sqls">SQL语句数组</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>所有语句累加的影响行数</returns>
-    public async Task<Int32> ExecuteBatchAsync(String[] sqls, CancellationToken cancellationToken = default)
-    {
-        if (sqls == null || sqls.Length == 0) return 0;
-
-        var sql = String.Join(";", sqls);
-        using var cmd = CreateCommand();
-        cmd.CommandText = sql;
-        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-    }
+    // 批量操作请使用 MySqlCommand.ExecuteBatchAsync，支持预编译语句 + 数组参数绑定
     #endregion
 
     #region 接口方法
@@ -267,6 +230,12 @@ public sealed partial class MySqlConnection : DbConnection
         return cmd;
     }
 
+#if NET6_0_OR_GREATER
+    /// <summary>创建批量命令</summary>
+    /// <returns></returns>
+    protected override DbBatch CreateDbBatch() => new MySqlBatch(this);
+#endif
+
     /// <summary>获取架构信息</summary>
     public override DataTable GetSchema() => GetSchema(null, null);
 
@@ -274,7 +243,7 @@ public sealed partial class MySqlConnection : DbConnection
     public override DataTable GetSchema(String collectionName) => GetSchema(collectionName, null);
 
     /// <summary>获取架构信息</summary>
-    public override DataTable GetSchema(String? collectionName, String[]? restrictionValues)
+    public override DataTable GetSchema(String? collectionName, String?[]? restrictionValues)
     {
         var provider = _schemaProvider ??= new SchemaProvider(this);
         return provider.GetSchema(collectionName, restrictionValues).AsDataTable();
