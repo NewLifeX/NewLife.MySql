@@ -617,7 +617,8 @@ public class SqlClient : DisposeBase
                 continue;
             }
 
-            values[i] = ReadBinaryColumnValue(reader, columns[i]);
+            // SpanReader 是值类型，必须 ref 传递才能保留 Position 前进
+            values[i] = ReadBinaryColumnValue(ref reader, columns[i]);
         }
 
         return new RowResult(true, 0, 0);
@@ -627,7 +628,7 @@ public class SqlClient : DisposeBase
     /// <param name="reader">数据读取器</param>
     /// <param name="column">列定义</param>
     /// <returns>列值</returns>
-    private Object ReadBinaryColumnValue(Buffers.SpanReader reader, MySqlColumn column)
+    private Object ReadBinaryColumnValue(ref Buffers.SpanReader reader, MySqlColumn column)
     {
         switch (column.Type)
         {
@@ -666,9 +667,9 @@ public class SqlClient : DisposeBase
             case MySqlDbType.DateTime:
             case MySqlDbType.Timestamp:
             case MySqlDbType.Date:
-                return ReadBinaryDateTimeValue(reader);
+                return ReadBinaryDateTimeValue(ref reader);
             case MySqlDbType.Time:
-                return ReadBinaryTimeValue(reader);
+                return ReadBinaryTimeValue(ref reader);
             case MySqlDbType.Bit:
                 {
                     var len = (Int32)reader.ReadLength();
@@ -690,7 +691,7 @@ public class SqlClient : DisposeBase
     }
 
     /// <summary>读取二进制 DATETIME 值</summary>
-    private static Object ReadBinaryDateTimeValue(Buffers.SpanReader reader)
+    private static Object ReadBinaryDateTimeValue(ref Buffers.SpanReader reader)
     {
         var len = reader.ReadByte();
         if (len == 0) return DateTime.MinValue;
@@ -719,7 +720,7 @@ public class SqlClient : DisposeBase
     }
 
     /// <summary>读取二进制 TIME 值</summary>
-    private static Object ReadBinaryTimeValue(Buffers.SpanReader reader)
+    private static Object ReadBinaryTimeValue(ref Buffers.SpanReader reader)
     {
         var len = reader.ReadByte();
         if (len == 0) return TimeSpan.Zero;
@@ -833,16 +834,8 @@ public class SqlClient : DisposeBase
             ms.WriteByte((Byte)((statementId >> 16) & 0xFF));
             ms.WriteByte((Byte)((statementId >> 24) & 0xFF));
 
-            // flags (cursor_type): CLIENT_QUERY_ATTRIBUTES 模式下为 2 字节，否则 1 字节
-            if (hasQueryAttrs)
-            {
-                ms.WriteByte(0x00);
-                ms.WriteByte(0x00);
-            }
-            else
-            {
-                ms.WriteByte(0x00);
-            }
+            // flags (cursor_type): 1 字节，0x00 表示不使用游标
+            ms.WriteByte(0x00);
 
             // iteration_count: 固定 1
             ms.WriteByte(0x01);
@@ -897,15 +890,6 @@ public class SqlClient : DisposeBase
 
             ms.Position = 4;
             var pk = new ArrayPacket(ms);
-
-            // 临时诊断：将数据包内容保存到文件
-            var payloadLen = (Int32)(ms.Length - 4);
-            var diagBuf = new Byte[payloadLen];
-            ms.Position = 4;
-            ms.Read(diagBuf, 0, payloadLen);
-            ms.Position = 4;
-            var hex = BitConverter.ToString(diagBuf).Replace("-", " ");
-            System.IO.File.WriteAllText("stmt_execute_dump.txt", $"hasQueryAttrs={hasQueryAttrs}, numParams={numParams}, payloadLen={payloadLen}, Cap=0x{(UInt32)Capability:X8}\n{hex}");
 
             _seq = 0;
             await SendPacketAsync(pk, cancellationToken).ConfigureAwait(false);
