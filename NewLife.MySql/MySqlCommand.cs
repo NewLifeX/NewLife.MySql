@@ -141,10 +141,18 @@ public class MySqlCommand : DbCommand
     {
         using var reader = await ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
-        // 消费所有结果集（RecordsAffected 会在 NextResultAsync 中自动累加）
-        while (await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
+        // 存储过程需要读取输出参数
+        if (CommandType == CommandType.StoredProcedure)
         {
-            // 仅消费结果集，RecordsAffected 已在 NextResultAsync 中累加
+            await ReadOutputParametersAsync(reader, cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            // 消费所有结果集（RecordsAffected 会在 NextResultAsync 中自动累加）
+            while (await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
+            {
+                // 仅消费结果集，RecordsAffected 已在 NextResultAsync 中累加
+            }
         }
 
         // RecordsAffected 已经是所有结果的累加值
@@ -222,9 +230,116 @@ public class MySqlCommand : DbCommand
             ms.WriteByte(0x01);
         }
 
-        // 替换参数后的命令文本
-        var sql = SubstituteParameters(CommandText, _parameters);
+        // 存储过程使用 CALL 语句，先 SET 输入参数，后读取输出参数
+        String sql;
+        if (CommandType == CommandType.StoredProcedure)
+            sql = BuildStoredProcedureCall();
+        else
+            sql = SubstituteParameters(CommandText, _parameters);
+
         ms.Write(sql.GetBytes());
+    }
+
+    /// <summary>构建存储过程调用的多语句SQL。
+    /// 输入参数通过 SET @p=value 设置为用户变量，
+    /// 输出参数通过 CALL 后的 SELECT @p 读取。</summary>
+    /// <returns>完整的多语句SQL</returns>
+    private String BuildStoredProcedureCall()
+    {
+        var sb = new StringBuilder();
+        var callArgs = new List<String>();
+        var outParams = new List<String>();
+
+        foreach (MySqlParameter p in _parameters)
+        {
+            var name = p.ParameterName;
+            if (name.IsNullOrEmpty()) continue;
+
+            // 去掉前缀 @
+            var cleanName = name.StartsWith("@") ? name[1..] : name;
+            var userVar = "@" + cleanName;
+
+            if (p.Direction == ParameterDirection.Input || p.Direction == ParameterDirection.InputOutput)
+            {
+                // SET @param = value;
+                sb.Append("SET ");
+                sb.Append(userVar);
+                sb.Append('=');
+                sb.Append(SerializeValue(p.Value));
+                sb.Append(';');
+            }
+
+            callArgs.Add(userVar);
+
+            if (p.Direction == ParameterDirection.Output || p.Direction == ParameterDirection.InputOutput)
+                outParams.Add(userVar);
+        }
+
+        // CALL proc_name(@p1, @p2, ...);
+        sb.Append("CALL ");
+        sb.Append(CommandText);
+        sb.Append('(');
+        for (var i = 0; i < callArgs.Count; i++)
+        {
+            if (i > 0) sb.Append(',');
+            sb.Append(callArgs[i]);
+        }
+        sb.Append(')');
+
+        // 如果有输出参数，追加 SELECT 读取
+        if (outParams.Count > 0)
+        {
+            sb.Append(";SELECT ");
+            for (var i = 0; i < outParams.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                sb.Append(outParams[i]);
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>读取存储过程的输出参数值</summary>
+    /// <param name="reader">数据读取器</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    private async Task ReadOutputParametersAsync(DbDataReader reader, CancellationToken cancellationToken)
+    {
+        if (CommandType != CommandType.StoredProcedure) return;
+
+        // 收集输出参数列表
+        var outParams = new List<MySqlParameter>();
+        foreach (MySqlParameter p in _parameters)
+        {
+            if (p.Direction == ParameterDirection.Output || p.Direction == ParameterDirection.InputOutput)
+                outParams.Add(p);
+        }
+        if (outParams.Count == 0) return;
+
+        // 遍历剩余结果集，找到输出参数的 SELECT 结果集（最后一个有列的结果集）
+        // 存储过程可能返回多个结果集，输出参数的 SELECT 在最后
+        Object[]? lastRow = null;
+        while (await reader.NextResultAsync(cancellationToken).ConfigureAwait(false))
+        {
+            if (reader.FieldCount > 0 && reader.FieldCount == outParams.Count)
+            {
+                if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    lastRow = new Object[reader.FieldCount];
+                    reader.GetValues(lastRow);
+                }
+            }
+        }
+
+        // 赋值输出参数
+        if (lastRow != null)
+        {
+            for (var i = 0; i < outParams.Count && i < lastRow.Length; i++)
+            {
+                outParams[i].Value = lastRow[i] == DBNull.Value ? null : lastRow[i];
+            }
+        }
     }
     #endregion
 
