@@ -1,6 +1,6 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk" ToolsVersion="Current">
   <PropertyGroup>
-    <TargetFrameworks>net45;net461;netstandard2.0;netstandard2.1</TargetFrameworks>
+    <TargetFrameworks>net45;net461;netstandard2.0;netstandard2.1;net6.0</TargetFrameworks>
     <AssemblyTitle>轻量级MySql驱动</AssemblyTitle>
     <Description>轻量级高性能MySql驱动</Description>
     <Company>新生命开发团队</Company>
