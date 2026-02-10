@@ -404,8 +404,6 @@ public class SqlClient : DisposeBase
         pk2[2] = (Byte)((len >> 16) & 0xFF);
         pk2[3] = _seq++;
 
-        //var data = pk2.ReadBytes();
-        //await ms.WriteAsync(data, 0, data.Length, cancellationToken).ConfigureAwait(false);
         await pk2.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
         await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
 
@@ -536,22 +534,8 @@ public class SqlClient : DisposeBase
             if (rs.IsEOF) break;
 
             var reader = new SpanReader(rs.Data);
-
-            var dc = new MySqlColumn
-            {
-                Catalog = reader.ReadString(),
-                Database = reader.ReadString(),
-                Table = reader.ReadString(),
-                RealTable = reader.ReadString(),
-                Name = reader.ReadString(),
-                OriginalName = reader.ReadString(),
-                Flag = reader.ReadByte(),
-                Charset = reader.ReadInt16(),
-                Length = reader.ReadInt32(),
-                Type = (MySqlDbType)reader.ReadByte(),
-                ColumnFlags = reader.ReadInt16(),
-                Scale = reader.ReadByte()
-            };
+            var dc = new MySqlColumn();
+            dc.Read(ref reader);
 
             if (reader.Available >= 2) reader.ReadInt16();
 

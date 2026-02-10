@@ -1,4 +1,5 @@
-﻿using NewLife.MySql.Common;
+﻿using NewLife.Buffers;
+using NewLife.MySql.Common;
 
 namespace NewLife.MySql;
 
@@ -40,6 +41,24 @@ public class MySqlColumn
 
     /// <summary>小数位数</summary>
     public Byte Scale { get; set; }
+
+    /// <summary>从 SpanReader 读取列定义数据并填充属性</summary>
+    /// <param name="reader">数据读取器</param>
+    public void Read(ref SpanReader reader)
+    {
+        Catalog = reader.ReadString();
+        Database = reader.ReadString();
+        Table = reader.ReadString();
+        RealTable = reader.ReadString();
+        Name = reader.ReadString();
+        OriginalName = reader.ReadString();
+        Flag = reader.ReadByte();
+        Charset = reader.ReadInt16();
+        Length = reader.ReadInt32();
+        Type = (MySqlDbType)reader.ReadByte();
+        ColumnFlags = reader.ReadInt16();
+        Scale = reader.ReadByte();
+    }
 
     /// <summary>已重载</summary>
     public override String ToString() => $"{Name} {Type}({Length})";
