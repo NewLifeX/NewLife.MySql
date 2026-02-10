@@ -44,9 +44,6 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <Compile Remove="Common\BufferedReader.cs" />
-  </ItemGroup>
-  <ItemGroup>
     <PackageReference Include="NewLife.Core" Version="11.11.2026.208-beta0421" />
   </ItemGroup>
   <ItemGroup>
@@ -57,6 +54,10 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\Doc\leaf.png" Link="leaf.png" PackagePath="\" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="ReservedWords.txt">
+    </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\Readme.MD">

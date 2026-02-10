@@ -401,7 +401,7 @@ public class MySqlDataReader : DbDataReader
 
     /// <summary>异步关闭。无需消费剩余结果集，连接从池中取出时 SqlClient.Reset 会清理网络流残余数据</summary>
     /// <returns></returns>
-#if NETSTANDARD2_1_OR_GREATER
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
     public override Task CloseAsync()
     {
         if (_IsClosed) return Task.CompletedTask;

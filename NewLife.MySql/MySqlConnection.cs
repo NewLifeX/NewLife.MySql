@@ -59,7 +59,7 @@ public sealed partial class MySqlConnection : DbConnection
         Close();
     }
 
-#if NETSTANDARD2_1_OR_GREATER
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
     /// <summary>销毁</summary>
     public override async ValueTask DisposeAsync()
     {
@@ -161,7 +161,7 @@ public sealed partial class MySqlConnection : DbConnection
         SetState(ConnectionState.Open);
     }
 
-#if NETSTANDARD2_1_OR_GREATER
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
     /// <summary>异步关闭连接</summary>
     /// <returns></returns>
     public override Task CloseAsync()

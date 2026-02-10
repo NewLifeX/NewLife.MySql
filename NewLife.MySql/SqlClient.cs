@@ -267,7 +267,7 @@ public class SqlClient : DisposeBase
     /// <returns>服务器变量字典</returns>
     private async Task<IDictionary<String, String>> LoadVariablesAsync(CancellationToken cancellationToken)
     {
-        var dic = new Dictionary<String, String>();
+        var dic = new NullableDictionary<String, String>();
         var conn = new MySqlConnection { Client = this };
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SHOW VARIABLES";

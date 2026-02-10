@@ -6,22 +6,22 @@ namespace NewLife.MySql;
 public class MySqlColumn
 {
     /// <summary>目录</summary>
-    public String Catalog { get; set; }
+    public String? Catalog { get; set; }
 
     /// <summary>数据库</summary>
-    public String Database { get; set; }
+    public String? Database { get; set; }
 
     /// <summary>表</summary>
-    public String Table { get; set; }
+    public String? Table { get; set; }
 
     /// <summary>实际表</summary>
-    public String RealTable { get; set; }
+    public String? RealTable { get; set; }
 
     /// <summary>名称</summary>
-    public String Name { get; set; }
+    public String Name { get; set; } = null!;
 
     /// <summary>原始名称</summary>
-    public String OriginalName { get; set; }
+    public String? OriginalName { get; set; }
 
     /// <summary>标记</summary>
     public Byte Flag { get; set; }

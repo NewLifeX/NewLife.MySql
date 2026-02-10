@@ -1,5 +1,6 @@
 ﻿using System.Data;
 using System.Data.Common;
+using System.Data.SqlTypes;
 using System.Globalization;
 using System.Reflection;
 using System.Text;
@@ -11,7 +12,7 @@ internal class SchemaProvider(MySqlConnection connection)
 {
     public static String MetaCollection = "MetaDataCollections";
 
-    public SchemaCollection GetSchema(String? collection, String[]? restrictions)
+    public SchemaCollection GetSchema(String? collection, String?[]? restrictions)
     {
         collection = collection?.ToUpper(CultureInfo.InvariantCulture);
         switch (collection)
@@ -22,12 +23,18 @@ internal class SchemaProvider(MySqlConnection connection)
                 return GetDataSourceInformation();
             case "RESTRICTIONS":
                 return GetRestrictions();
+            case "DATATYPES":
+                return GetDataTypes();
+            case "RESERVEDWORDS":
+                return GetReservedWords();
+            case "USERS":
+                return GetUsers(restrictions);
             case "DATABASES":
                 return GetDatabases(restrictions);
             default:
                 restrictions ??= new String[2];
-                var db = connection?.Database;
-                if (db != null && db.Length > 0 && restrictions.Length > 1 && restrictions[1] == null)
+                var db = connection.Database;
+                if (!db.IsNullOrEmpty() && restrictions.Length > 1 && restrictions[1] == null)
                     restrictions[1] = db;
 
                 return collection switch
@@ -48,11 +55,14 @@ internal class SchemaProvider(MySqlConnection connection)
             ["MetaDataCollections", 0, 0],
             ["DataSourceInformation", 0, 0],
             ["Restrictions", 0, 0],
+            ["DataTypes", 0, 0],
+            ["ReservedWords", 0, 0],
+            ["Users", 1, 1],
             ["Databases", 1, 1],
             ["Tables", 4, 2],
             ["Columns", 4, 4],
-            ["IndexColumns", 5, 4],
             ["Indexes", 4, 3],
+            ["IndexColumns", 5, 4],
         };
         var collection = new SchemaCollection("MetaDataCollections");
         collection.AddColumn("CollectionName", typeof(String));
@@ -110,6 +120,7 @@ internal class SchemaProvider(MySqlConnection connection)
     {
         var data = new Object[][]
         {
+            ["Users", "Name", "", 0],
             ["Databases", "Name", "", 0],
             ["Tables", "Database", "", 0],
             ["Tables", "Schema", "", 1],
@@ -138,35 +149,216 @@ internal class SchemaProvider(MySqlConnection connection)
         return collection;
     }
 
-    public virtual SchemaCollection GetDatabases(String[]? restrictions)
+    /// <summary>添加数据类型行到 SchemaCollection</summary>
+    private static void AddDataTypeRow(SchemaCollection collection, String typeName, Int32 providerDbType,
+        Int64 columnSize = 0, String? createFormat = null, String? createParameters = null,
+        String? dataType = null, Boolean isAutoincrementable = false, Boolean isBestMatch = true,
+        Boolean isCaseSensitive = false, Boolean isFixedLength = false, Boolean isFixedPrecisionScale = true,
+        Boolean isLong = false, Boolean isNullable = true, Boolean isSearchable = true,
+        Boolean isSearchableWithLike = false, Object? isUnsigned = null,
+        Int16 maximumScale = 0, Int16 minimumScale = 0, Object? isConcurrencyType = null,
+        Boolean isLiteralSupported = false, String? literalPrefix = null,
+        Object? literalSuffix = null, Object? nativeDataType = null)
     {
-        Regex? regex = null;
-        var caseSetting = 0;
+        var row = collection.AddRow();
+        row["TypeName"] = typeName;
+        row["ProviderDbType"] = providerDbType;
+        row["ColumnSize"] = columnSize;
+        row["CreateFormat"] = createFormat;
+        row["CreateParameters"] = createParameters;
+        row["DataType"] = dataType;
+        row["IsAutoincrementable"] = isAutoincrementable;
+        row["IsBestMatch"] = isBestMatch;
+        row["IsCaseSensitive"] = isCaseSensitive;
+        row["IsFixedLength"] = isFixedLength;
+        row["IsFixedPrecisionScale"] = isFixedPrecisionScale;
+        row["IsLong"] = isLong;
+        row["IsNullable"] = isNullable;
+        row["IsSearchable"] = isSearchable;
+        row["IsSearchableWithLike"] = isSearchableWithLike;
+        row["IsUnsigned"] = isUnsigned ?? false;
+        row["MaximumScale"] = maximumScale;
+        row["MinimumScale"] = minimumScale;
+        row["IsConcurrencyType"] = isConcurrencyType ?? DBNull.Value;
+        row["IsLiteralSupported"] = isLiteralSupported;
+        row["LiteralPrefix"] = literalPrefix;
+        row["LiteralSuffix"] = literalSuffix ?? DBNull.Value;
+        row["NativeDataType"] = nativeDataType ?? DBNull.Value;
+    }
+
+    private static SchemaCollection GetDataTypes()
+    {
+        var collection = new SchemaCollection("DataTypes");
+        collection.AddColumn("TypeName", typeof(String));
+        collection.AddColumn("ProviderDbType", typeof(Int32));
+        collection.AddColumn("ColumnSize", typeof(Int64));
+        collection.AddColumn("CreateFormat", typeof(String));
+        collection.AddColumn("CreateParameters", typeof(String));
+        collection.AddColumn("DataType", typeof(String));
+        collection.AddColumn("IsAutoincrementable", typeof(Boolean));
+        collection.AddColumn("IsBestMatch", typeof(Boolean));
+        collection.AddColumn("IsCaseSensitive", typeof(Boolean));
+        collection.AddColumn("IsFixedLength", typeof(Boolean));
+        collection.AddColumn("IsFixedPrecisionScale", typeof(Boolean));
+        collection.AddColumn("IsLong", typeof(Boolean));
+        collection.AddColumn("IsNullable", typeof(Boolean));
+        collection.AddColumn("IsSearchable", typeof(Boolean));
+        collection.AddColumn("IsSearchableWithLike", typeof(Boolean));
+        collection.AddColumn("IsUnsigned", typeof(Boolean));
+        collection.AddColumn("MaximumScale", typeof(Int16));
+        collection.AddColumn("MinimumScale", typeof(Int16));
+        collection.AddColumn("IsConcurrencyType", typeof(Boolean));
+        collection.AddColumn("IsLiteralSupported", typeof(Boolean));
+        collection.AddColumn("LiteralPrefix", typeof(String));
+        collection.AddColumn("LiteralSuffix", typeof(String));
+        collection.AddColumn("NativeDataType", typeof(String));
+
+        // BIT
+        AddDataTypeRow(collection, "BIT", 16, columnSize: 64, createFormat: "BIT", dataType: "System.UInt64");
+
+        // BLOB, TINYBLOB, MEDIUMBLOB, LONGBLOB, BINARY, VARBINARY, VECTOR
+        var blobTypes = new[] { "BLOB", "TINYBLOB", "MEDIUMBLOB", "LONGBLOB", "BINARY", "VARBINARY", "VECTOR" };
+        var blobDbTypes = new[] { 252, 249, 250, 251, 600, 601, 602 };
+        var blobSizes = new[] { 65535L, 255L, 16777215L, 4294967295L, 255L, 65535L, 16777215L };
+        var blobFormats = new[] { null, null, null, null, "binary({0})", "varbinary({0})", null };
+        var blobParams = new[] { null, null, null, null, "length", "length", null };
+        for (var i = 0; i < blobTypes.Length; i++)
+            AddDataTypeRow(collection, blobTypes[i], blobDbTypes[i], columnSize: blobSizes[i], createFormat: blobFormats[i], createParameters: blobParams[i], dataType: "System.Byte[]", isFixedLength: i >= 4, isLong: blobSizes[i] > 255, literalPrefix: "0x", isConcurrencyType: DBNull.Value, literalSuffix: DBNull.Value);
+
+        // DATE, DATETIME, TIMESTAMP
+        AddDataTypeRow(collection, "DATE", 10, createFormat: "DATE", dataType: "System.DateTime", isFixedLength: true);
+        AddDataTypeRow(collection, "DATETIME", 12, createFormat: "DATETIME", dataType: "System.DateTime", isFixedLength: true);
+        AddDataTypeRow(collection, "TIMESTAMP", 7, createFormat: "TIMESTAMP", dataType: "System.DateTime", isFixedLength: true);
+
+        // TIME
+        AddDataTypeRow(collection, "TIME", 13, createFormat: "TIME", dataType: "System.TimeSpan", isFixedLength: true);
+
+        // CHAR, NCHAR, VARCHAR, NVARCHAR, SET, ENUM, TINYTEXT, TEXT, MEDIUMTEXT, LONGTEXT
+        var stringTypes = new[] { "CHAR", "NCHAR", "VARCHAR", "NVARCHAR", "SET", "ENUM", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT" };
+        var stringDbTypes = new[] { 254, 254, 15, 15, 248, 247, 249, 252, 250, 251 };
+        for (var i = 0; i < stringTypes.Length; i++)
+            AddDataTypeRow(collection, stringTypes[i], stringDbTypes[i],
+                createFormat: i < 4 ? stringTypes[i] + "({0})" : stringTypes[i],
+                createParameters: i < 4 ? "size" : null, dataType: "System.String", isSearchableWithLike: true);
+
+        // DOUBLE
+        AddDataTypeRow(collection, "DOUBLE", 5, createFormat: "DOUBLE", dataType: "System.Double", isFixedLength: true);
+
+        // FLOAT
+        AddDataTypeRow(collection, "FLOAT", 4, createFormat: "FLOAT", dataType: "System.Single", isFixedLength: true);
+
+        // TINYINT
+        AddDataTypeRow(collection, "TINYINT", 1, createFormat: "TINYINT", dataType: "System.Byte", isAutoincrementable: true, isFixedLength: true);
+
+        // SMALLINT
+        AddDataTypeRow(collection, "SMALLINT", 2, createFormat: "SMALLINT", dataType: "System.Int16", isAutoincrementable: true, isFixedLength: true);
+
+        // INT, YEAR, MEDIUMINT
+        AddDataTypeRow(collection, "INT", 3, createFormat: "INT", dataType: "System.Int32", isAutoincrementable: true, isFixedLength: true);
+        AddDataTypeRow(collection, "YEAR", 13, createFormat: "YEAR", dataType: "System.Int32", isAutoincrementable: false, isFixedLength: true);
+        AddDataTypeRow(collection, "MEDIUMINT", 9, createFormat: "MEDIUMINT", dataType: "System.Int32", isAutoincrementable: true, isFixedLength: true);
+
+        // BIGINT
+        AddDataTypeRow(collection, "BIGINT", 8, createFormat: "BIGINT", dataType: "System.Int64", isAutoincrementable: true, isFixedLength: true);
+
+        // DECIMAL
+        AddDataTypeRow(collection, "DECIMAL", 246, createFormat: "DECIMAL({0},{1})", createParameters: "precision,scale", dataType: "System.Decimal", isFixedLength: true);
+
+        // UNSIGNED TINYINT
+        AddDataTypeRow(collection, "TINYINT UNSIGNED", 501, createFormat: "TINYINT UNSIGNED", dataType: "System.Byte", isAutoincrementable: true, isFixedLength: true, isUnsigned: true);
+
+        // UNSIGNED SMALLINT
+        AddDataTypeRow(collection, "SMALLINT UNSIGNED", 502, createFormat: "SMALLINT UNSIGNED", dataType: "System.UInt16", isAutoincrementable: true, isFixedLength: true, isUnsigned: true);
+
+        // UNSIGNED INT
+        AddDataTypeRow(collection, "INT UNSIGNED", 503, createFormat: "INT UNSIGNED", dataType: "System.UInt32", isAutoincrementable: true, isFixedLength: true, isUnsigned: true);
+
+        // UNSIGNED BIGINT
+        AddDataTypeRow(collection, "BIGINT UNSIGNED", 504, createFormat: "BIGINT UNSIGNED", dataType: "System.UInt64", isAutoincrementable: true, isFixedLength: true, isUnsigned: true);
+
+        return collection;
+    }
+
+    internal static SchemaCollection GetReservedWords()
+    {
+        var collection = new SchemaCollection("ReservedWords");
+        collection.AddColumn(DbMetaDataColumnNames.ReservedWord, typeof(String));
+
+        var text = "NewLife.MySql.ReservedWords.txt";
+        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(text) ??
+            throw new Exception($"Resource {text} not found in {Assembly.GetExecutingAssembly()}.");
+
+        using var streamReader = new StreamReader(stream);
+        for (var line = streamReader.ReadLine(); line != null; line = streamReader.ReadLine())
+        {
+            var array = line.Split([' ']);
+            foreach (var value in array)
+            {
+                if (!value.IsNullOrEmpty())
+                {
+                    collection.AddRow()[0] = value;
+                }
+            }
+        }
+        return collection;
+    }
+
+    public SchemaCollection GetUsers(String?[]? restrictions)
+    {
+        var sql = "SELECT Host, User FROM mysql.user";
+        if (restrictions != null && restrictions.Length != 0)
+            sql += $" WHERE User LIKE '{restrictions[0]}'";
+
+        var collection = QueryCollection("Users", sql);
+        collection.Columns[0].Name = "HOST";
+        collection.Columns[1].Name = "USERNAME";
+
+        return collection;
+    }
+
+    public virtual SchemaCollection GetDatabases(String?[]? restrictions)
+    {
         var vs = connection.Client?.Variables;
-        if (vs != null && vs.TryGetValue("lower_case_table_names", out var value))
-            caseSetting = value.ToInt();
+        var lowerCase = vs?["lower_case_table_names"]?.ToBoolean() ?? false;
+
         var sql = "SHOW DATABASES";
-        if (caseSetting == 0 && restrictions != null && restrictions.Length >= 1)
-            sql = sql + " LIKE '" + restrictions[0] + "'";
+        String? name = null;
+
+        // 如果有restrictions，提取数据库名限制
+        if (restrictions != null && restrictions.Length >= 1)
+        {
+            name = restrictions[0];
+            if (!name.IsNullOrEmpty()) sql = $"{sql} LIKE '{name}'";
+        }
 
         var obj = QueryCollection("Databases", sql);
-        if (caseSetting != 0 && restrictions != null && restrictions.Length >= 1 && restrictions[0] != null)
-            regex = new Regex(restrictions[0], RegexOptions.IgnoreCase);
 
         var collection = new SchemaCollection("Databases");
         collection.AddColumn("CATALOG_NAME", typeof(String));
         collection.AddColumn("SCHEMA_NAME", typeof(String));
         foreach (var row in obj.Rows)
         {
-            if (regex == null || regex.Match(row[0].ToString()).Success)
+            var schemaName = row[0]?.ToString();
+            if (schemaName.IsNullOrEmpty()) continue;
+
+            // 如果没有name限制，返回所有数据库
+            if (name.IsNullOrEmpty())
             {
-                collection.AddRow()[1] = row[0];
+                collection.AddRow()[1] = schemaName;
+            }
+            else
+            {
+                // 有name限制，根据lowerCase决定是否区分大小写
+                if (lowerCase ? schemaName.EqualIgnoreCase(name) : schemaName == name)
+                {
+                    collection.AddRow()[1] = schemaName;
+                }
             }
         }
         return collection;
     }
 
-    public virtual SchemaCollection GetTables(String[] restrictions)
+    public virtual SchemaCollection GetTables(String[]? restrictions)
     {
         var collection = new SchemaCollection("Tables");
         collection.AddColumn("TABLE_CATALOG", typeof(String));
@@ -203,13 +395,16 @@ internal class SchemaProvider(MySqlConnection connection)
         }
         foreach (var row in dbs.Rows)
         {
-            dbRestriction[1] = row["SCHEMA_NAME"].ToString();
+            var schemaName = row["SCHEMA_NAME"]?.ToString();
+            if (schemaName.IsNullOrEmpty()) continue;
+
+            dbRestriction[1] = schemaName;
             FindTables(collection, dbRestriction);
         }
         return collection;
     }
 
-    public virtual SchemaCollection GetColumns(String[] restrictions)
+    public virtual SchemaCollection GetColumns(String[]? restrictions)
     {
         var collection = new SchemaCollection("Columns");
         collection.AddColumn("TABLE_CATALOG", typeof(String));
@@ -232,7 +427,7 @@ internal class SchemaProvider(MySqlConnection connection)
         collection.AddColumn("PRIVILEGES", typeof(String));
         collection.AddColumn("COLUMN_COMMENT", typeof(String));
         collection.AddColumn("GENERATION_EXPRESSION", typeof(String));
-        String columnName = null;
+        String? columnName = null;
         if (restrictions != null && restrictions.Length == 4)
         {
             columnName = restrictions[3];
@@ -240,13 +435,17 @@ internal class SchemaProvider(MySqlConnection connection)
         }
         foreach (var row in GetTables(restrictions).Rows)
         {
-            LoadTableColumns(collection, row["TABLE_SCHEMA"].ToString(), row["TABLE_NAME"].ToString(), columnName);
+            var schemaName = row["TABLE_SCHEMA"]?.ToString();
+            var tableName = row["TABLE_NAME"]?.ToString();
+            if (schemaName.IsNullOrEmpty() || tableName.IsNullOrEmpty()) continue;
+
+            LoadTableColumns(collection, schemaName, tableName, columnName);
         }
         QuoteDefaultValues(collection);
         return collection;
     }
 
-    private void LoadTableColumns(SchemaCollection schemaCollection, String schema, String tableName, String columnRestriction)
+    private void LoadTableColumns(SchemaCollection schemaCollection, String schema, String tableName, String? columnRestriction)
     {
         var sql = $"SHOW FULL COLUMNS FROM `{schema}`.`{tableName}`";
         using var cmd = new MySqlCommand(connection, sql);
@@ -290,7 +489,8 @@ internal class SchemaProvider(MySqlConnection connection)
         foreach (var row in schemaCollection.Rows)
         {
             var arg = row["COLUMN_DEFAULT"];
-            if (IsTextType(row["DATA_TYPE"].ToString()))
+            var dataType = row["DATA_TYPE"]?.ToString();
+            if (!dataType.IsNullOrEmpty() && IsTextType(dataType) && arg != null)
             {
                 row["COLUMN_DEFAULT"] = $"{arg}";
             }
@@ -308,22 +508,30 @@ internal class SchemaProvider(MySqlConnection connection)
 
     private static void ParseColumnRow(SchemaRow row)
     {
-        var text = row["CHARACTER_SET_NAME"].ToString();
-        var num = text.IndexOf('_');
-        if (num != -1)
+        var text = row["CHARACTER_SET_NAME"]?.ToString();
+        if (!text.IsNullOrEmpty())
         {
-            row["CHARACTER_SET_NAME"] = text.Substring(0, num);
+            var num = text.IndexOf('_');
+            if (num != -1)
+            {
+                row["CHARACTER_SET_NAME"] = text.Substring(0, num);
+            }
         }
-        var text2 = row["DATA_TYPE"].ToString();
-        num = text2.IndexOf('(');
-        if (num == -1)
+        var text2 = row["DATA_TYPE"]?.ToString();
+        if (text2.IsNullOrEmpty()) return;
+
+        var num2 = text2.IndexOf('(');
+        if (num2 == -1)
         {
             return;
         }
-        row["DATA_TYPE"] = text2.Substring(0, num);
-        var num2 = text2.IndexOf(')', num);
-        var text3 = text2.Substring(num + 1, num2 - (num + 1));
-        switch (row["DATA_TYPE"].ToString().ToLower())
+        row["DATA_TYPE"] = text2.Substring(0, num2);
+        var num3 = text2.IndexOf(')', num2);
+        if (num3 == -1) return;
+
+        var text3 = text2.Substring(num2 + 1, num3 - (num2 + 1));
+        var dataType = row["DATA_TYPE"]?.ToString() ?? String.Empty;
+        switch (dataType.ToLower(CultureInfo.InvariantCulture))
         {
             case "char":
             case "varchar":
@@ -343,7 +551,7 @@ internal class SchemaProvider(MySqlConnection connection)
         }
     }
 
-    public virtual SchemaCollection GetIndexes(String[] restrictions)
+    public virtual SchemaCollection GetIndexes(String[]? restrictions)
     {
         var collection = new SchemaCollection("Indexes");
         collection.AddColumn("INDEX_CATALOG", typeof(String));
@@ -355,8 +563,6 @@ internal class SchemaProvider(MySqlConnection connection)
         collection.AddColumn("TYPE", typeof(String));
         collection.AddColumn("COMMENT", typeof(String));
 
-        var ver = new Version(connection.ServerVersion);
-        var v801 = new Version(8, 0, 1);
         var array = new String[Math.Max((restrictions != null) ? restrictions.Length : 4, 4)];
         restrictions?.CopyTo(array, 0);
         array[3] = "BASE TABLE";
@@ -365,15 +571,21 @@ internal class SchemaProvider(MySqlConnection connection)
             var sql = String.Format("SHOW INDEX FROM `{0}`.`{1}`", table["TABLE_SCHEMA"], table["TABLE_NAME"]);
             foreach (var row in QueryCollection("indexes", sql).Rows)
             {
-                if (row["SEQ_IN_INDEX"].ToInt() == 1 && (restrictions == null || restrictions.Length != 4 || restrictions[3] == null || row["KEY_NAME"].Equals(restrictions[3])))
+                var keyName = row["KEY_NAME"]?.ToString();
+                if (keyName.IsNullOrEmpty()) continue;
+
+                if (row["SEQ_IN_INDEX"].ToInt() == 1 && (restrictions == null || restrictions.Length != 4 || restrictions[3] == null || String.Equals(keyName, restrictions[3], StringComparison.Ordinal)))
                 {
+                    var tableName = row["TABLE"]?.ToString();
+                    if (tableName.IsNullOrEmpty()) continue;
+
                     var row2 = collection.AddRow();
-                    row2["INDEX_CATALOG"] = null!;
+                    row2["INDEX_CATALOG"] = null;
                     row2["INDEX_SCHEMA"] = table["TABLE_SCHEMA"];
-                    row2["INDEX_NAME"] = row["KEY_NAME"];
-                    row2["TABLE_NAME"] = row["TABLE"];
+                    row2["INDEX_NAME"] = keyName;
+                    row2["TABLE_NAME"] = tableName;
                     row2["UNIQUE"] = row["NON_UNIQUE"].ToInt() == 0;
-                    row2["PRIMARY"] = row["KEY_NAME"].Equals("PRIMARY");
+                    row2["PRIMARY"] = String.Equals(keyName, "PRIMARY", StringComparison.Ordinal);
                     row2["TYPE"] = row["INDEX_TYPE"];
                     row2["COMMENT"] = row["COMMENT"];
                 }
@@ -382,7 +594,7 @@ internal class SchemaProvider(MySqlConnection connection)
         return collection;
     }
 
-    public virtual SchemaCollection GetIndexColumns(String[] restrictions)
+    public virtual SchemaCollection GetIndexColumns(String[]? restrictions)
     {
         var dt = new SchemaCollection("IndexColumns");
         dt.AddColumn("INDEX_CATALOG", typeof(String));
@@ -402,16 +614,18 @@ internal class SchemaProvider(MySqlConnection connection)
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                var @string = GetString(reader, reader.GetOrdinal("KEY_NAME"));
-                var string2 = GetString(reader, reader.GetOrdinal("COLUMN_NAME"));
-                if (restrictions == null || ((restrictions.Length < 4 || restrictions[3] == null || !(@string != restrictions[3])) && (restrictions.Length < 5 || restrictions[4] == null || !(string2 != restrictions[4]))))
+                var keyName = GetString(reader, reader.GetOrdinal("KEY_NAME"));
+                var columnName = GetString(reader, reader.GetOrdinal("COLUMN_NAME"));
+                if (keyName.IsNullOrEmpty() || columnName.IsNullOrEmpty()) continue;
+
+                if (restrictions == null || ((restrictions.Length < 4 || restrictions[3] == null || String.Equals(keyName, restrictions[3], StringComparison.Ordinal)) && (restrictions.Length < 5 || restrictions[4] == null || String.Equals(columnName, restrictions[4], StringComparison.Ordinal))))
                 {
                     var mySqlSchemaRow = dt.AddRow();
                     mySqlSchemaRow["INDEX_CATALOG"] = null;
                     mySqlSchemaRow["INDEX_SCHEMA"] = table["TABLE_SCHEMA"];
-                    mySqlSchemaRow["INDEX_NAME"] = @string;
+                    mySqlSchemaRow["INDEX_NAME"] = keyName;
                     mySqlSchemaRow["TABLE_NAME"] = table["TABLE_NAME"];
-                    mySqlSchemaRow["COLUMN_NAME"] = string2;
+                    mySqlSchemaRow["COLUMN_NAME"] = columnName;
                     mySqlSchemaRow["ORDINAL_POSITION"] = reader.GetValue(reader.GetOrdinal("SEQ_IN_INDEX"));
                     mySqlSchemaRow["SORT_ORDER"] = reader.GetValue(reader.GetOrdinal("COLLATION"));
                 }
@@ -434,22 +648,25 @@ internal class SchemaProvider(MySqlConnection connection)
 
     private void FindTables(SchemaCollection schema, String[] restrictions)
     {
+        if (restrictions == null || restrictions.Length < 2 || restrictions[1].IsNullOrEmpty()) return;
+
+        var schemaName = restrictions[1];
         var stringBuilder = new StringBuilder();
         var stringBuilder2 = new StringBuilder();
-        stringBuilder.AppendFormat(CultureInfo.InvariantCulture, "SHOW TABLE STATUS FROM `{0}`", restrictions[1]);
-        if (restrictions != null && restrictions.Length >= 3 && restrictions[2] != null)
+        stringBuilder.AppendFormat(CultureInfo.InvariantCulture, "SHOW TABLE STATUS FROM `{0}`", schemaName);
+        if (restrictions.Length >= 3 && restrictions[2] != null)
         {
             stringBuilder2.AppendFormat(CultureInfo.InvariantCulture, " LIKE '{0}'", restrictions[2]);
         }
         stringBuilder.Append(stringBuilder2.ToString());
-        var table_type = (restrictions[1].ToLower() == "information_schema") ? "SYSTEM VIEW" : "BASE TABLE";
+        var table_type = schemaName.ToLower(CultureInfo.InvariantCulture) == "information_schema" ? "SYSTEM VIEW" : "BASE TABLE";
         using var cmd = new MySqlCommand(connection, stringBuilder.ToString());
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
             var mySqlSchemaRow = schema.AddRow();
             mySqlSchemaRow["TABLE_CATALOG"] = null;
-            mySqlSchemaRow["TABLE_SCHEMA"] = restrictions[1];
+            mySqlSchemaRow["TABLE_SCHEMA"] = schemaName;
             mySqlSchemaRow["TABLE_NAME"] = reader.GetString(0);
             mySqlSchemaRow["TABLE_TYPE"] = table_type;
             mySqlSchemaRow["ENGINE"] = GetString(reader, 1);
@@ -472,32 +689,32 @@ internal class SchemaProvider(MySqlConnection connection)
         }
     }
 
-    private static String GetString(DbDataReader reader, Int32 index)
+    private static String? GetString(DbDataReader reader, Int32 index)
     {
-        if (reader.IsDBNull(index)) return null!;
+        if (reader.IsDBNull(index)) return null;
 
         return reader.GetString(index);
     }
 
     protected SchemaCollection QueryCollection(String name, String sql)
     {
-        var c = new SchemaCollection(name);
+        var collection = new SchemaCollection(name);
         using var cmd = new MySqlCommand(connection, sql);
         using var reader = cmd.ExecuteReader();
         for (var i = 0; i < reader.FieldCount; i++)
         {
-            c.AddColumn(reader.GetName(i), reader.GetFieldType(i));
+            collection.AddColumn(reader.GetName(i), reader.GetFieldType(i));
         }
         while (reader.Read())
         {
-            var mySqlSchemaRow = c.AddRow();
-            for (var j = 0; j < reader.FieldCount; j++)
+            var mySqlSchemaRow = collection.AddRow();
+            for (var i = 0; i < reader.FieldCount; i++)
             {
-                mySqlSchemaRow[j] = reader.GetValue(j);
+                mySqlSchemaRow[i] = reader.GetValue(i);
             }
         }
 
-        return c;
+        return collection;
     }
 }
 
@@ -507,13 +724,13 @@ class SchemaCollection
 
     private readonly List<SchemaRow> _rows = [];
 
-    private readonly DataTable _table;
+    private DataTable? _table;
 
     internal Dictionary<String, Int32> Mapping;
 
     internal Dictionary<Int32, Int32> LogicalMappings;
 
-    public String Name { get; set; }
+    public String Name { get; set; } = String.Empty;
 
     public IList<SchemaColumn> Columns => _columns;
 
@@ -581,38 +798,30 @@ class SchemaCollection
             }
             dataTable.Rows.Add(dataRow);
         }
+        _table = dataTable;
         return dataTable;
     }
 }
 
-class SchemaRow
+class SchemaRow(SchemaCollection collection)
 {
-    private Dictionary<Int32, Object> _data;
+    private readonly Dictionary<Int32, Object?> _data = [];
 
-    internal SchemaCollection Collection { get; }
+    internal SchemaCollection Collection { get; } = collection;
 
-    internal Object this[String s]
-    {
-        get
-        {
-            return GetValueForName(s);
-        }
-        set
-        {
-            SetValueForName(s, value);
-        }
-    }
+    internal Object? this[String s] { get => GetValueForName(s); set => SetValueForName(s, value); }
 
-    internal Object this[Int32 i]
+    internal Object? this[Int32 i]
     {
         get
         {
             var key = Collection.LogicalMappings[i];
-            if (!_data.ContainsKey(key))
+            if (!_data.TryGetValue(key, out var value))
             {
-                _data[key] = null;
+                value = null;
+                _data[key] = value;
             }
-            return _data[key];
+            return value;
         }
         set
         {
@@ -620,21 +829,13 @@ class SchemaRow
         }
     }
 
-    public SchemaRow(SchemaCollection c)
-    {
-        Collection = c;
-        InitMetadata();
-    }
-
-    internal void InitMetadata() => _data = [];
-
-    private void SetValueForName(String colName, Object value)
+    private void SetValueForName(String colName, Object? value)
     {
         var i = Collection.Mapping[colName];
         this[i] = value;
     }
 
-    private Object GetValueForName(String colName)
+    private Object? GetValueForName(String colName)
     {
         var num = Collection.Mapping[colName];
         if (!_data.ContainsKey(num))
@@ -647,7 +848,7 @@ class SchemaRow
 
 class SchemaColumn
 {
-    public String Name { get; set; }
+    public String Name { get; set; } = String.Empty;
 
-    public Type Type { get; set; }
+    public Type Type { get; set; } = typeof(Object);
 }
