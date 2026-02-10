@@ -55,14 +55,87 @@ public class MySqlConnectionTests
     [Fact]
     public void TestChangeDatabase()
     {
-        var connStr = DALTests.GetConnStr().Replace("Database=sys;", "Database=myDataBase;");
-        var connection = new MySqlConnection(connStr);
+        var connStr = _ConnStr;
 
-        Assert.Equal("myDataBase", connection.Database);
+        // 场景1：未打开连接时切换数据库
+        using (var conn = new MySqlConnection(connStr))
+        {
+            var originalDb = conn.Database;
+            Assert.Equal("sys", originalDb);
 
-        connection.ChangeDatabase("newDatabase");
+            // 未打开连接时切换数据库，不会抛出异常
+            conn.ChangeDatabase("information_schema");
+            Assert.Equal("information_schema", conn.Database);
 
-        Assert.Equal("newDatabase", connection.Database);
+            // 打开连接，验证连接到新数据库
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT DATABASE()";
+            var currentDb = cmd.ExecuteScalar()?.ToString();
+            Assert.Equal("information_schema", currentDb);
+        }
+
+        // 场景2：已打开连接时切换数据库
+        using (var conn = new MySqlConnection(connStr))
+        {
+            conn.Open();
+            var originalDb = conn.Database;
+            Assert.Equal("sys", originalDb);
+
+            // 切换数据库（内部会 Close + Open）
+            conn.ChangeDatabase("information_schema");
+
+            // 验证：连接仍然打开
+            Assert.Equal(ConnectionState.Open, conn.State);
+            Assert.Equal("information_schema", conn.Database);
+
+            // 验证：实际数据库已切换
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT DATABASE()";
+            var currentDb = cmd.ExecuteScalar()?.ToString();
+            Assert.Equal("information_schema", currentDb);
+        }
+    }
+
+    [Fact]
+    public void TestChangeDatabasePoolIsolation()
+    {
+        var connStr = _ConnStr;
+
+        // 第一个连接：使用 sys 数据库
+        using (var conn1 = new MySqlConnection(connStr))
+        {
+            conn1.Open();
+            Assert.Equal("sys", conn1.Database);
+
+            using var cmd = conn1.CreateCommand();
+            cmd.CommandText = "SELECT DATABASE()";
+            var db = cmd.ExecuteScalar()?.ToString();
+            Assert.Equal("sys", db);
+        }
+
+        // 第二个连接：切换到 information_schema
+        using (var conn2 = new MySqlConnection(connStr))
+        {
+            conn2.Open();
+            conn2.ChangeDatabase("information_schema");
+
+            using var cmd = conn2.CreateCommand();
+            cmd.CommandText = "SELECT DATABASE()";
+            var db = cmd.ExecuteScalar()?.ToString();
+            Assert.Equal("information_schema", db);
+        }
+
+        // 第三个连接：验证连接池隔离，应该连接到 sys
+        using (var conn3 = new MySqlConnection(connStr))
+        {
+            conn3.Open();
+
+            using var cmd = conn3.CreateCommand();
+            cmd.CommandText = "SELECT DATABASE()";
+            var db = cmd.ExecuteScalar()?.ToString();
+            Assert.Equal("sys", db);
+        }
     }
 
     [Fact]

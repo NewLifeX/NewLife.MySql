@@ -356,6 +356,39 @@ while (await reader.ReadAsync())
 - 无效连接（网络断开等）在获取时自动剔除
 - 新连接按需创建
 
+## 切换数据库
+
+### 方式一：通过 ChangeDatabase（推荐）
+
+```csharp
+using var conn = new MySqlConnection("Server=localhost;Database=db1;...");
+conn.Open();
+
+// 切换数据库（会关闭并重新打开连接）
+conn.ChangeDatabase("db2");
+```
+
+**注意事项**：
+- **不支持在事务中途切换**（事务会丢失）
+- 有连接关闭/打开的开销
+- 推荐为每个数据库创建独立连接对象
+
+### 方式二：通过 SqlClient.SetDatabaseAsync（低级 API）
+
+```csharp
+using var conn = new MySqlConnection(connStr);
+conn.Open();
+
+// 使用 COM_INIT_DB 二进制命令切换数据库（不关闭连接）
+await conn.Client.SetDatabaseAsync("information_schema");
+```
+
+**特点**：
+- 使用 MySQL COM_INIT_DB 协议命令，等效于 `USE database`
+- 不会关闭连接，性能略优
+- 仅切换服务器端当前数据库，不会更新连接字符串
+- 适合临时查询场景，不适合连接池复用场景
+
 ## 与 XCode ORM 集成
 
 NewLife.MySql 通过 `MySqlClientFactory` 自动注册为 XCode 的 MySQL 数据库驱动：
@@ -381,6 +414,11 @@ var tables = dal.Tables;
 
 1. **MySQL 版本**：支持 MySQL 5.x 及以上，推荐 MySQL 8.0+
 2. **字符编码**：默认使用 UTF-8 编码
+3. **ChangeDatabase 使用约束**：
+   - `ChangeDatabase` 通过关闭/重新打开连接实现数据库切换
+   - **不支持在事务中途切换数据库**（事务会丢失）
+   - 不建议频繁调用（有连接关闭/打开开销）
+   - 推荐为每个数据库创建独立的连接对象
 
 ## 相关文档
 

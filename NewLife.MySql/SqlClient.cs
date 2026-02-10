@@ -432,6 +432,46 @@ public class SqlClient : DisposeBase
     #endregion
 
     #region 逻辑命令
+    /// <summary>异步切换当前数据库。使用 COM_INIT_DB 二进制命令</summary>
+    /// <param name="databaseName">目标数据库名</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    /// <remarks>
+    /// 使用 MySQL COM_INIT_DB 协议命令切换数据库，等效于 USE database 语句。
+    /// 优点：无需 SQL 解析，性能略优于文本协议。
+    /// 注意：不会修改连接字符串，仅切换服务器端的当前数据库。
+    /// </remarks>
+    public async Task SetDatabaseAsync(String databaseName, CancellationToken cancellationToken = default)
+    {
+        if (databaseName.IsNullOrEmpty())
+            throw new ArgumentNullException(nameof(databaseName));
+
+        var bytes = Encoding.GetBytes(databaseName);
+        var len = 1 + bytes.Length;
+        var buf = Pool.Shared.Rent(4 + len);
+
+        try
+        {
+            // 预留4字节帧头
+            buf[4] = (Byte)DbCmd.INIT_DB;
+            Array.Copy(bytes, 0, buf, 5, bytes.Length);
+
+            // 每一次命令请求，序列号都要重置为0
+            _seq = 0;
+
+            await SendPacketAsync(new ArrayPacket(buf, 4, len), cancellationToken).ConfigureAwait(false);
+
+            // 读取 OK 响应
+            var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+            if (!rs.IsOK)
+                throw new MySqlException("切换数据库失败");
+        }
+        finally
+        {
+            Pool.Shared.Return(buf);
+        }
+    }
+
     /// <summary>异步发送 SQL 查询请求到服务器</summary>
     /// <param name="pk">包含查询语句的数据包</param>
     /// <param name="cancellationToken">取消令牌</param>

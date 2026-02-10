@@ -208,16 +208,34 @@ public sealed partial class MySqlConnection : DbConnection
         return new MySqlTransaction(this, isolationLevel);
     }
 
-    /// <summary>改变数据库</summary>
-    /// <param name="databaseName"></param>
+    /// <summary>改变数据库。不支持在事务中途切换数据库</summary>
+    /// <param name="databaseName">目标数据库名</param>
+    /// <remarks>
+    /// 本方法通过关闭连接、修改连接字符串、重新打开连接的方式实现数据库切换。
+    /// 优点：实现简单，连接池映射正确，避免连接池污染。
+    /// 缺点：有连接关闭/打开的性能开销。
+    /// 
+    /// 使用约束：
+    /// 1. 不支持在事务中途切换数据库（事务会丢失）
+    /// 2. 不建议频繁调用（有性能开销）
+    /// 3. 如需频繁切换数据库，建议使用多个连接对象
+    /// </remarks>
     public override void ChangeDatabase(String databaseName)
     {
-        var opened = State == ConnectionState.Open;
-        if (opened) Close();
+        // 场景1：未打开连接，直接修改设置，清空连接池引用
+        if (State != ConnectionState.Open)
+        {
+            Setting.Database = databaseName;
+            _pool = null;
+            return;
+        }
 
+        // 场景2：已打开连接，关闭后修改设置再重新打开
+        // 这样确保连接池映射正确（连接字符串变化后会映射到不同的连接池）
+        Close();
         Setting.Database = databaseName;
-
-        if (opened) Open();
+        _pool = null;
+        Open();
     }
 
     /// <summary>创建命令</summary>
