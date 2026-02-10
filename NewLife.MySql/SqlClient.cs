@@ -43,6 +43,9 @@ public class SqlClient : DisposeBase
     /// <summary>读取超时。单位秒，默认15秒，0表示不超时</summary>
     public Int32 Timeout { get; set; } = 15;
 
+    /// <summary>最后活跃时间。最后一次发送指令的时间</summary>
+    public DateTime LastActive { get; set; }
+
     private TcpClient? _client;
     private Byte _seq = 1;
     private TimerX? _timer;
@@ -240,8 +243,8 @@ public class SqlClient : DisposeBase
         var vs = Variables ??= await LoadVariablesAsync(cancellationToken).ConfigureAwait(false);
 
         if (vs.TryGetValue("max_allowed_packet", out var str)) MaxPacketSize = str.ToLong();
-        vs.TryGetValue("character_set_client", out var clientCharSet);
-        vs.TryGetValue("character_set_connection", out var connCharSet);
+        //vs.TryGetValue("character_set_client", out var clientCharSet);
+        //vs.TryGetValue("character_set_connection", out var connCharSet);
     }
     #endregion
 
@@ -405,6 +408,8 @@ public class SqlClient : DisposeBase
         //await ms.WriteAsync(data, 0, data.Length, cancellationToken).ConfigureAwait(false);
         await pk2.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
         await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
+
+        LastActive = DateTime.Now;
     }
 
     /// <summary>异步发送命令请求</summary>

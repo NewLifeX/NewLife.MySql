@@ -50,7 +50,8 @@ public class MySqlPool : ObjectPool<SqlClient>
             if (client.Welcome == null) return client;
 
             // 已打开的连接需要检查是否仍然可用
-            if (!client.Active || !client.Reset())
+            if (!client.Active || !client.Reset() ||
+                client.LastActive.AddSeconds(60) < DateTime.Now && !client.PingAsync().GetAwaiter().GetResult())
             {
                 // 连接已失效，丢弃后重试
                 client.TryDispose();
