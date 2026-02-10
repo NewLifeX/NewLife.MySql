@@ -137,7 +137,7 @@ public class MySqlDataReader : DbDataReader
             MySqlDbType.Geometry or MySqlDbType.Vector => typeof(Byte[]),
 
             // 其他
-            MySqlDbType.Bit => typeof(Boolean),
+            MySqlDbType.Bit => typeof(UInt64),
             MySqlDbType.Guid => typeof(Guid),
             _ => typeof(String),
         };

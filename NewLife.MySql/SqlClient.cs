@@ -571,7 +571,7 @@ public class SqlClient : DisposeBase
             return new RowResult(false, statusFlags, warnings);
         }
 
-        // 读取行数据
+        // 读取行数据（文本协议：所有值以 UTF-8 字符串传输）
         var reader = rs.CreateReader(0);
         for (var i = 0; i < values.Length; i++)
         {
@@ -582,29 +582,7 @@ public class SqlClient : DisposeBase
                 continue;
             }
 
-            var buf = reader.ReadBytes(len);
-            values[i] = columns[i].Type switch
-            {
-                MySqlDbType.Decimal or MySqlDbType.NewDecimal => Decimal.Parse(buf.ToStr()),
-                MySqlDbType.Byte => (SByte)Int64.Parse(buf.ToStr()),
-                MySqlDbType.UByte => (Byte)Int64.Parse(buf.ToStr()),
-                MySqlDbType.Int16 => (Int16)Int64.Parse(buf.ToStr()),
-                MySqlDbType.UInt16 => (UInt16)Int64.Parse(buf.ToStr()),
-                MySqlDbType.Int24 or MySqlDbType.Int32 => (Int32)Int64.Parse(buf.ToStr()),
-                MySqlDbType.UInt24 or MySqlDbType.UInt32 => (UInt32)Int64.Parse(buf.ToStr()),
-                MySqlDbType.Int64 => Int64.Parse(buf.ToStr()),
-                MySqlDbType.UInt64 => UInt64.Parse(buf.ToStr()),
-                MySqlDbType.Float => Single.Parse(buf.ToStr()),
-                MySqlDbType.Double => Double.Parse(buf.ToStr()),
-                MySqlDbType.DateTime or MySqlDbType.Timestamp or MySqlDbType.Date => buf.ToStr().ToDateTime(),
-                MySqlDbType.Time => TimeSpan.Parse(buf.ToStr()),
-                MySqlDbType.Year => (Int32)Int64.Parse(buf.ToStr()),
-                MySqlDbType.String or MySqlDbType.VarString or MySqlDbType.VarChar or MySqlDbType.TinyText or MySqlDbType.MediumText or MySqlDbType.LongText or MySqlDbType.Text or MySqlDbType.Enum or MySqlDbType.Set or MySqlDbType.Json => buf.ToStr(),
-                MySqlDbType.Blob or MySqlDbType.TinyBlob or MySqlDbType.MediumBlob or MySqlDbType.LongBlob or MySqlDbType.Binary or MySqlDbType.VarBinary or MySqlDbType.Geometry or MySqlDbType.Vector => buf.ToArray(),
-                MySqlDbType.Bit => buf[0] != 0,
-                MySqlDbType.Guid => buf.ToStr(),
-                _ => buf.ToArray(),
-            };
+            values[i] = MySqlFieldCodec.ReadTextValue(ref reader, columns[i], len);
         }
 
         return new RowResult(true, 0, 0);
@@ -652,100 +630,10 @@ public class SqlClient : DisposeBase
             }
 
             // SpanReader 是值类型，必须 ref 传递才能保留 Position 前进
-            values[i] = ReadBinaryColumnValue(ref reader, columns[i]);
+            values[i] = MySqlFieldCodec.ReadBinaryValue(ref reader, columns[i]);
         }
 
         return new RowResult(true, 0, 0);
-    }
-
-    /// <summary>从二进制行中读取单列的值</summary>
-    /// <param name="reader">数据读取器</param>
-    /// <param name="column">列定义</param>
-    /// <returns>列值</returns>
-    private Object ReadBinaryColumnValue(ref SpanReader reader, MySqlColumn column)
-    {
-        return column.Type switch
-        {
-            // 有符号整数
-            MySqlDbType.Byte => (SByte)reader.ReadByte(),
-            MySqlDbType.Int16 => reader.ReadInt16(),
-            MySqlDbType.Int24 or MySqlDbType.Int32 => reader.ReadInt32(),
-            MySqlDbType.Int64 => reader.ReadInt64(),
-
-            // 无符号整数
-            MySqlDbType.UByte => reader.ReadByte(),
-            MySqlDbType.UInt16 => (UInt16)reader.ReadInt16(),
-            MySqlDbType.UInt24 or MySqlDbType.UInt32 => (UInt32)reader.ReadInt32(),
-            MySqlDbType.UInt64 => (UInt64)reader.ReadInt64(),
-
-            // 浮点数
-            MySqlDbType.Float => BitConverter.ToSingle(reader.ReadBytes(4).ToArray(), 0),
-            MySqlDbType.Double => BitConverter.ToDouble(reader.ReadBytes(8).ToArray(), 0),
-            MySqlDbType.Decimal or MySqlDbType.NewDecimal => Decimal.Parse(reader.ReadString()),
-
-            // 日期时间
-            MySqlDbType.DateTime or MySqlDbType.Timestamp or MySqlDbType.Date => ReadBinaryDateTimeValue(ref reader),
-            MySqlDbType.Time => ReadBinaryTimeValue(ref reader),
-            MySqlDbType.Year => (Int32)reader.ReadUInt16(),
-
-            // 位字段
-            MySqlDbType.Bit => reader.ReadBytes((Int32)reader.ReadLength())[0] != 0,
-
-            // 二进制
-            MySqlDbType.Blob or MySqlDbType.TinyBlob or MySqlDbType.MediumBlob or MySqlDbType.LongBlob or MySqlDbType.Binary or MySqlDbType.VarBinary or MySqlDbType.Geometry or MySqlDbType.Vector => reader.ReadBytes((Int32)reader.ReadLength()).ToArray(),
-
-            // 字符串类型：VarString, String, VarChar, Text, JSON, Guid, Enum, Set 等
-            _ => reader.ReadString(),
-        };
-    }
-
-    /// <summary>读取二进制 DATETIME 值</summary>
-    private static Object ReadBinaryDateTimeValue(ref SpanReader reader)
-    {
-        var len = reader.ReadByte();
-        if (len == 0) return DateTime.MinValue;
-
-        var year = (Int32)reader.ReadUInt16();
-        var month = reader.ReadByte();
-        var day = reader.ReadByte();
-
-        var hour = 0;
-        var minute = 0;
-        var second = 0;
-        var microsecond = 0;
-
-        if (len >= 7)
-        {
-            hour = reader.ReadByte();
-            minute = reader.ReadByte();
-            second = reader.ReadByte();
-        }
-        if (len >= 11)
-        {
-            microsecond = reader.ReadInt32();
-        }
-
-        return new DateTime(year, month, day, hour, minute, second, microsecond / 1000);
-    }
-
-    /// <summary>读取二进制 TIME 值</summary>
-    private static Object ReadBinaryTimeValue(ref SpanReader reader)
-    {
-        var len = reader.ReadByte();
-        if (len == 0) return TimeSpan.Zero;
-
-        var isNeg = reader.ReadByte() != 0;
-        var days = reader.ReadInt32();
-        var hours = reader.ReadByte();
-        var minutes = reader.ReadByte();
-        var seconds = reader.ReadByte();
-
-        var microseconds = 0;
-        if (len >= 12)
-            microseconds = reader.ReadInt32();
-
-        var ts = new TimeSpan(days, hours, minutes, seconds, microseconds / 1000);
-        return isNeg ? ts.Negate() : ts;
     }
 
     /// <summary>异步准备预编译语句</summary>
@@ -829,330 +717,63 @@ public class SqlClient : DisposeBase
         var hasQueryAttrs = Capability.Has(ClientFlags.CLIENT_QUERY_ATTRIBUTES);
 
         // 构建 COM_STMT_EXECUTE 数据包
-        var ms = Pool.MemoryStream.Get();
-        try
+        using var pk = new OwnerPacket(8192);
+        var writer = new SpanWriter(pk);
+        writer.Advance(4); // 预留帧头
+
+        writer.Write((Byte)DbCmd.EXECUTE);
+        writer.Write(statementId);  // statement_id (4 bytes LE)
+        writer.Write((Byte)0x00);   // flags (cursor_type): 不使用游标
+        writer.Write((Int32)1);     // iteration_count: 固定 1
+
+        // CLIENT_QUERY_ATTRIBUTES 模式下需要发送 parameter_count（含查询属性参数）
+        if (hasQueryAttrs)
+            writer.WriteLength(numParams);
+
+        if (numParams > 0)
         {
-            // 预留帧头 4 字节
-            ms.Seek(4, SeekOrigin.Current);
-
-            ms.WriteByte((Byte)DbCmd.EXECUTE);
-
-            // statement_id (4 bytes LE)
-            ms.WriteByte((Byte)(statementId & 0xFF));
-            ms.WriteByte((Byte)((statementId >> 8) & 0xFF));
-            ms.WriteByte((Byte)((statementId >> 16) & 0xFF));
-            ms.WriteByte((Byte)((statementId >> 24) & 0xFF));
-
-            // flags (cursor_type): 1 字节，0x00 表示不使用游标
-            ms.WriteByte(0x00);
-
-            // iteration_count: 固定 1
-            ms.WriteByte(0x01);
-            ms.WriteByte(0x00);
-            ms.WriteByte(0x00);
-            ms.WriteByte(0x00);
-
-            // CLIENT_QUERY_ATTRIBUTES 模式下需要发送 parameter_count（含查询属性参数）
-            if (hasQueryAttrs)
-                WriteLengthEncodedInteger(ms, numParams);
-
-            if (numParams > 0)
+            // null_bitmap: (numParams + 7) / 8 bytes
+            var nullBitmapLen = (numParams + 7) / 8;
+            var nullBitmap = new Byte[nullBitmapLen];
+            for (var i = 0; i < numParams; i++)
             {
-                // null_bitmap: (numParams + 7) / 8 bytes
-                var nullBitmapLen = (numParams + 7) / 8;
-                var nullBitmap = new Byte[nullBitmapLen];
-                for (var i = 0; i < numParams; i++)
+                var val = ((MySqlParameter)parameters![i]).Value;
+                if (val == null || val == DBNull.Value)
+                    nullBitmap[i / 8] |= (Byte)(1 << (i % 8));
+            }
+            writer.Write(nullBitmap);
+
+            // new_params_bound_flag = 1（始终重新发送类型信息）
+            writer.Write((Byte)0x01);
+
+            // param_type × N (每个2字节: type + unsigned_flag)
+            // CLIENT_QUERY_ATTRIBUTES 模式下，每个参数类型后还需附带参数名（length-encoded string）
+            for (var i = 0; i < numParams; i++)
+            {
+                var val = ((MySqlParameter)parameters![i]).Value;
+                var (typeId, unsigned) = MySqlFieldCodec.GetMySqlTypeForValue(val);
+                writer.Write(typeId);
+                writer.Write(unsigned ? (Byte)0x80 : (Byte)0x00);
+
+                if (hasQueryAttrs)
                 {
-                    var val = ((MySqlParameter)parameters![i]).Value;
-                    if (val == null || val == DBNull.Value)
-                        nullBitmap[i / 8] |= (Byte)(1 << (i % 8));
-                }
-                ms.Write(nullBitmap, 0, nullBitmapLen);
-
-                // new_params_bound_flag = 1（始终重新发送类型信息）
-                ms.WriteByte(0x01);
-
-                // param_type × N (每个2字节: type + unsigned_flag)
-                // CLIENT_QUERY_ATTRIBUTES 模式下，每个参数类型后还需附带参数名（length-encoded string）
-                for (var i = 0; i < numParams; i++)
-                {
-                    var val = ((MySqlParameter)parameters![i]).Value;
-                    var (typeId, unsigned) = GetMySqlTypeForValue(val);
-                    ms.WriteByte(typeId);
-                    ms.WriteByte(unsigned ? (Byte)0x80 : (Byte)0x00);
-
-                    if (hasQueryAttrs)
-                    {
-                        // 参数名为空字符串（预编译语句按位置绑定，不需要名称）
-                        WriteLengthEncodedInteger(ms, 0);
-                    }
-                }
-
-                // param_value × N（仅非 NULL 参数）
-                for (var i = 0; i < numParams; i++)
-                {
-                    var val = ((MySqlParameter)parameters![i]).Value;
-                    if (val != null && val != DBNull.Value)
-                        WriteBinaryValue(ms, val);
+                    // 参数名为空字符串（预编译语句按位置绑定，不需要名称）
+                    writer.WriteLength(0);
                 }
             }
 
-            ms.Position = 4;
-            var pk = new ArrayPacket(ms);
-
-            _seq = 0;
-            await SendPacketAsync(pk, cancellationToken).ConfigureAwait(false);
+            // param_value × N（仅非 NULL 参数）
+            for (var i = 0; i < numParams; i++)
+            {
+                var val = ((MySqlParameter)parameters![i]).Value;
+                if (val != null && val != DBNull.Value)
+                    MySqlFieldCodec.WriteBinaryValue(ref writer, val, Encoding);
+            }
         }
-        finally
-        {
-            Pool.MemoryStream.Return(ms);
-        }
-    }
 
-    /// <summary>根据 C# 值推断 MySQL 二进制协议类型 ID</summary>
-    /// <param name="value">参数值</param>
-    /// <returns>MySQL type ID 和是否无符号</returns>
-    private static (Byte typeId, Boolean unsigned) GetMySqlTypeForValue(Object? value) => value switch
-    {
-        null or DBNull => (0x06, false),        // MYSQL_TYPE_NULL
-        SByte => (0x01, false),                 // MYSQL_TYPE_TINY
-        Byte => (0x01, true),                   // MYSQL_TYPE_TINY unsigned
-        Int16 => (0x02, false),                 // MYSQL_TYPE_SHORT
-        UInt16 => (0x02, true),                 // MYSQL_TYPE_SHORT unsigned
-        Int32 => (0x03, false),                 // MYSQL_TYPE_LONG
-        UInt32 => (0x03, true),                 // MYSQL_TYPE_LONG unsigned
-        Int64 => (0x08, false),                 // MYSQL_TYPE_LONGLONG
-        UInt64 => (0x08, true),                 // MYSQL_TYPE_LONGLONG unsigned
-        Single => (0x04, false),                // MYSQL_TYPE_FLOAT
-        Double => (0x05, false),                // MYSQL_TYPE_DOUBLE
-        Decimal => (0xF6, false),               // MYSQL_TYPE_NEWDECIMAL → length-encoded string
-        Boolean => (0x01, false),               // MYSQL_TYPE_TINY
-        DateTime => (0x0C, false),              // MYSQL_TYPE_DATETIME
-        DateTimeOffset => (0x0C, false),        // MYSQL_TYPE_DATETIME
-        TimeSpan => (0x0B, false),              // MYSQL_TYPE_TIME
-        Byte[] => (0xFC, false),                // MYSQL_TYPE_BLOB
-        Guid => (0xFE, false),                  // MYSQL_TYPE_STRING
-        String => (0xFE, false),                // MYSQL_TYPE_STRING
-        Enum => (0x08, false),                  // MYSQL_TYPE_LONGLONG
-        _ => (0xFE, false),                     // MYSQL_TYPE_STRING (fallback: ToString)
-    };
-
-    /// <summary>将 C# 值以 MySQL 二进制协议格式写入流</summary>
-    /// <param name="ms">目标流</param>
-    /// <param name="value">参数值</param>
-    private void WriteBinaryValue(Stream ms, Object value)
-    {
-        switch (value)
-        {
-            case SByte v:
-                ms.WriteByte(unchecked((Byte)v));
-                break;
-            case Byte v:
-                ms.WriteByte(v);
-                break;
-            case Boolean v:
-                ms.WriteByte(v ? (Byte)1 : (Byte)0);
-                break;
-            case Int16 v:
-                ms.WriteByte((Byte)(v & 0xFF));
-                ms.WriteByte((Byte)((v >> 8) & 0xFF));
-                break;
-            case UInt16 v:
-                ms.WriteByte((Byte)(v & 0xFF));
-                ms.WriteByte((Byte)((v >> 8) & 0xFF));
-                break;
-            case Int32 v:
-                WriteInt32(ms, v);
-                break;
-            case UInt32 v:
-                WriteInt32(ms, unchecked((Int32)v));
-                break;
-            case Int64 v:
-                WriteInt64(ms, v);
-                break;
-            case UInt64 v:
-                WriteInt64(ms, unchecked((Int64)v));
-                break;
-            case Single v:
-                {
-                    var bytes = BitConverter.GetBytes(v);
-                    ms.Write(bytes, 0, 4);
-                    break;
-                }
-            case Double v:
-                {
-                    var bytes = BitConverter.GetBytes(v);
-                    ms.Write(bytes, 0, 8);
-                    break;
-                }
-            case Decimal v:
-                WriteLengthEncodedString(ms, v.ToString());
-                break;
-            case DateTime v:
-                WriteBinaryDateTime(ms, v);
-                break;
-            case DateTimeOffset v:
-                WriteBinaryDateTime(ms, v.DateTime);
-                break;
-            case TimeSpan v:
-                WriteBinaryTime(ms, v);
-                break;
-            case Byte[] v:
-                WriteLengthEncodedBytes(ms, v);
-                break;
-            case Guid v:
-                WriteLengthEncodedString(ms, v.ToString());
-                break;
-            case String v:
-                WriteLengthEncodedString(ms, v);
-                break;
-            case Enum v:
-                WriteInt64(ms, Convert.ToInt64(v));
-                break;
-            default:
-                WriteLengthEncodedString(ms, value.ToString()!);
-                break;
-        }
-    }
-
-    /// <summary>写入 4 字节小端整数</summary>
-    private static void WriteInt32(Stream ms, Int32 v)
-    {
-        ms.WriteByte((Byte)(v & 0xFF));
-        ms.WriteByte((Byte)((v >> 8) & 0xFF));
-        ms.WriteByte((Byte)((v >> 16) & 0xFF));
-        ms.WriteByte((Byte)((v >> 24) & 0xFF));
-    }
-
-    /// <summary>写入 8 字节小端整数</summary>
-    private static void WriteInt64(Stream ms, Int64 v)
-    {
-        ms.WriteByte((Byte)(v & 0xFF));
-        ms.WriteByte((Byte)((v >> 8) & 0xFF));
-        ms.WriteByte((Byte)((v >> 16) & 0xFF));
-        ms.WriteByte((Byte)((v >> 24) & 0xFF));
-        ms.WriteByte((Byte)((v >> 32) & 0xFF));
-        ms.WriteByte((Byte)((v >> 40) & 0xFF));
-        ms.WriteByte((Byte)((v >> 48) & 0xFF));
-        ms.WriteByte((Byte)((v >> 56) & 0xFF));
-    }
-
-    /// <summary>写入 length-encoded 字符串</summary>
-    private void WriteLengthEncodedString(Stream ms, String value)
-    {
-        var bytes = Encoding.GetBytes(value);
-        WriteLengthEncodedBytes(ms, bytes);
-    }
-
-    /// <summary>写入 length-encoded 字节数组</summary>
-    private static void WriteLengthEncodedBytes(Stream ms, Byte[] bytes)
-    {
-        WriteLengthEncodedInteger(ms, bytes.Length);
-        ms.Write(bytes, 0, bytes.Length);
-    }
-
-    /// <summary>写入 length-encoded 整数</summary>
-    private static void WriteLengthEncodedInteger(Stream ms, Int64 length)
-    {
-        if (length < 0xFB)
-        {
-            ms.WriteByte((Byte)length);
-        }
-        else if (length < 0xFFFF)
-        {
-            ms.WriteByte(0xFC);
-            ms.WriteByte((Byte)(length & 0xFF));
-            ms.WriteByte((Byte)((length >> 8) & 0xFF));
-        }
-        else if (length <= 0xFF_FFFF)
-        {
-            ms.WriteByte(0xFD);
-            ms.WriteByte((Byte)(length & 0xFF));
-            ms.WriteByte((Byte)((length >> 8) & 0xFF));
-            ms.WriteByte((Byte)((length >> 16) & 0xFF));
-        }
-        else
-        {
-            ms.WriteByte(0xFE);
-            for (var i = 0; i < 8; i++)
-                ms.WriteByte((Byte)((length >> (i * 8)) & 0xFF));
-        }
-    }
-
-    /// <summary>写入 MySQL 二进制 DATETIME 格式</summary>
-    private static void WriteBinaryDateTime(Stream ms, DateTime dt)
-    {
-        // MySQL binary datetime: length + year(2) + month(1) + day(1) + [hour(1) + min(1) + sec(1)] + [microsec(4)]
-        var hasTime = dt.Hour != 0 || dt.Minute != 0 || dt.Second != 0 || dt.Millisecond != 0;
-        var hasMicro = dt.Millisecond != 0;
-
-        if (!hasTime)
-        {
-            // 仅日期: 4 bytes
-            ms.WriteByte(4);
-            ms.WriteByte((Byte)(dt.Year & 0xFF));
-            ms.WriteByte((Byte)((dt.Year >> 8) & 0xFF));
-            ms.WriteByte((Byte)dt.Month);
-            ms.WriteByte((Byte)dt.Day);
-        }
-        else if (!hasMicro)
-        {
-            // 日期 + 时间: 7 bytes
-            ms.WriteByte(7);
-            ms.WriteByte((Byte)(dt.Year & 0xFF));
-            ms.WriteByte((Byte)((dt.Year >> 8) & 0xFF));
-            ms.WriteByte((Byte)dt.Month);
-            ms.WriteByte((Byte)dt.Day);
-            ms.WriteByte((Byte)dt.Hour);
-            ms.WriteByte((Byte)dt.Minute);
-            ms.WriteByte((Byte)dt.Second);
-        }
-        else
-        {
-            // 日期 + 时间 + 微秒: 11 bytes
-            ms.WriteByte(11);
-            ms.WriteByte((Byte)(dt.Year & 0xFF));
-            ms.WriteByte((Byte)((dt.Year >> 8) & 0xFF));
-            ms.WriteByte((Byte)dt.Month);
-            ms.WriteByte((Byte)dt.Day);
-            ms.WriteByte((Byte)dt.Hour);
-            ms.WriteByte((Byte)dt.Minute);
-            ms.WriteByte((Byte)dt.Second);
-            var micro = dt.Millisecond * 1000;
-            WriteInt32(ms, micro);
-        }
-    }
-
-    /// <summary>写入 MySQL 二进制 TIME 格式</summary>
-    private static void WriteBinaryTime(Stream ms, TimeSpan ts)
-    {
-        var isNegative = ts < TimeSpan.Zero;
-        if (isNegative) ts = ts.Negate();
-
-        var hasMicro = ts.Milliseconds != 0;
-
-        if (!hasMicro)
-        {
-            // 8 bytes: is_negative(1) + days(4) + hours(1) + minutes(1) + seconds(1)
-            ms.WriteByte(8);
-            ms.WriteByte(isNegative ? (Byte)1 : (Byte)0);
-            WriteInt32(ms, ts.Days);
-            ms.WriteByte((Byte)ts.Hours);
-            ms.WriteByte((Byte)ts.Minutes);
-            ms.WriteByte((Byte)ts.Seconds);
-        }
-        else
-        {
-            // 12 bytes: 包含微秒
-            ms.WriteByte(12);
-            ms.WriteByte(isNegative ? (Byte)1 : (Byte)0);
-            WriteInt32(ms, ts.Days);
-            ms.WriteByte((Byte)ts.Hours);
-            ms.WriteByte((Byte)ts.Minutes);
-            ms.WriteByte((Byte)ts.Seconds);
-            var micro = ts.Milliseconds * 1000;
-            WriteInt32(ms, micro);
-        }
+        var sendPk = pk.Slice(4, writer.Position - 4);
+        _seq = 0;
+        await SendPacketAsync(sendPk, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>异步关闭预编译语句并释放服务器资源。COM_STMT_CLOSE 无响应包</summary>

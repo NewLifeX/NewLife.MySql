@@ -694,7 +694,8 @@ public class SqlClientTests
         WriteLengthBytes(rowBuf, "123.45".GetBytes()); // Decimal
         WriteLengthBytes(rowBuf, "3.14".GetBytes()); // Double
         WriteLengthBytes(rowBuf, new Byte[] { 0x01, 0x02, 0x03 }); // Blob
-        WriteLengthBytes(rowBuf, new Byte[] { 1 }); // Bit (true)
+        // Bit 类型: 8字节小端序。0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08 -> 0x0807060504030201UL = 578437695752307201UL
+        WriteLengthBytes(rowBuf, new Byte[] { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 });
         WriteLengthBytes(rowBuf, "{\"key\":1}".GetBytes()); // Json
         WritePacket(ms, ref seq, rowBuf.ToArray());
 
@@ -717,7 +718,7 @@ public class SqlClientTests
         Assert.Equal(123.45m, values[0]);
         Assert.Equal(3.14d, values[1]);
         Assert.Equal(new Byte[] { 0x01, 0x02, 0x03 }, values[2]);
-        Assert.Equal(true, values[3]);
+        Assert.Equal(578437695752307201UL, values[3]);
         Assert.Equal("{\"key\":1}", values[4]);
     }
 
