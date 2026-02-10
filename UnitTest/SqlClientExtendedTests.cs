@@ -170,7 +170,7 @@ public class SqlClientExtendedTests
         var data = new Byte[] { 0x00, 0x0A, 0x05, 0x00, 0x02, 0x00, 0x00 };
         using var pk = new OwnerPacket(data.Length);
         data.CopyTo(pk.Buffer, pk.Offset);
-        var response = new Response(new MemoryStream());
+        var response = new ServerPacket(new MemoryStream());
         response.Set(pk);
 
         var client = new SqlClient();
@@ -190,7 +190,7 @@ public class SqlClientExtendedTests
         var data = new Byte[] { 0x03 };
         using var pk = new OwnerPacket(data.Length);
         data.CopyTo(pk.Buffer, pk.Offset);
-        var response = new Response(new MemoryStream());
+        var response = new ServerPacket(new MemoryStream());
         response.Set(pk);
 
         var client = new SqlClient();

@@ -198,7 +198,7 @@ public class MySqlConnectionTests
 
         var dt = connection.GetSchema();
         Assert.NotNull(dt);
-        Assert.Equal(8, dt.Rows.Count);
+        Assert.Equal(11, dt.Rows.Count);
         //Assert.Throws<NotSupportedException>(() => connection.GetSchema());
 
         foreach (DataRow dr in dt.Rows)

@@ -328,8 +328,8 @@ public class SqlClient : DisposeBase
 
     /// <summary>异步从网络流读取一个完整的 MySQL 协议数据包</summary>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>响应数据包</returns>
-    public async Task<Response> ReadPacketAsync(CancellationToken cancellationToken = default)
+    /// <returns>服务器数据包</returns>
+    public async Task<ServerPacket> ReadPacketAsync(CancellationToken cancellationToken = default)
     {
         var ms = _stream ?? throw new InvalidOperationException("未打开连接");
 
@@ -348,7 +348,7 @@ public class SqlClient : DisposeBase
             var count = await ms.ReadExactlyAsync(buf, 0, 4, token).ConfigureAwait(false);
             if (count < 4) throw new InvalidDataException($"读取数据包头部失败，可用{count}字节");
 
-            var rs = new Response(ms)
+            var rs = new ServerPacket(ms)
             {
                 Length = buf[0] + (buf[1] << 8) + (buf[2] << 16),
                 Sequence = buf[3],
@@ -492,9 +492,9 @@ public class SqlClient : DisposeBase
     }
 
     /// <summary>解析服务器响应获取查询结果。解析 OK 包获取影响行数和最后插入ID，或返回结果集列数</summary>
-    /// <param name="rs">服务器响应数据包</param>
+    /// <param name="rs">服务器数据包</param>
     /// <returns>查询结果对象</returns>
-    public QueryResult GetResult(Response rs)
+    public QueryResult GetResult(ServerPacket rs)
     {
         var reader = rs.CreateReader(0);
 

@@ -70,7 +70,7 @@ class Authentication(SqlClient client)
             await PerformFullAuthenticationAsync(set.Password!, seed, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task ToNativePasswordAsync(Response rs, String password, CancellationToken cancellationToken)
+    private async Task ToNativePasswordAsync(ServerPacket rs, String password, CancellationToken cancellationToken)
     {
         var reader = new SpanReader(rs.Data.Slice(1));
         var authMethod = reader.ReadZeroString();

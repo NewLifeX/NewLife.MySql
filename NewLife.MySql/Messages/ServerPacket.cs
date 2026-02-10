@@ -3,9 +3,9 @@ using NewLife.Data;
 
 namespace NewLife.MySql.Messages;
 
-/// <summary>响应</summary>
-/// <remarks>实例化响应</remarks>
-public class Response(Stream stream)
+/// <summary>服务器数据包。MySQL 协议层从服务器收到的数据包，包含 OK/Error/EOF 判断</summary>
+/// <remarks>实例化服务器数据包</remarks>
+public class ServerPacket(Stream stream)
 {
     #region 属性
     /// <summary>数据包</summary>
