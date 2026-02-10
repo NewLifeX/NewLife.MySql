@@ -58,6 +58,39 @@ public class MySqlColumn
         Type = (MySqlDbType)reader.ReadByte();
         ColumnFlags = reader.ReadInt16();
         Scale = reader.ReadByte();
+
+        // MySQL 线协议中 BLOB/TEXT 共用同一组类型码，靠字符集区分：
+        // charset == 63 (binary) 为真正的二进制，否则为文本
+        RemapTypeByCharset();
+    }
+
+    /// <summary>根据字符集重映射类型码，区分 BLOB/TEXT 和 Binary/String</summary>
+    private void RemapTypeByCharset()
+    {
+        const Int16 BinaryCharset = 63;
+
+        if (Charset != BinaryCharset)
+        {
+            // 非 binary 字符集，BLOB 系列实际上是 TEXT 系列
+            Type = Type switch
+            {
+                MySqlDbType.TinyBlob => MySqlDbType.TinyText,
+                MySqlDbType.MediumBlob => MySqlDbType.MediumText,
+                MySqlDbType.LongBlob => MySqlDbType.LongText,
+                MySqlDbType.Blob => MySqlDbType.Text,
+                _ => Type,
+            };
+        }
+        else
+        {
+            // binary 字符集，String/VarChar 实际上是 Binary/VarBinary
+            Type = Type switch
+            {
+                MySqlDbType.String => MySqlDbType.Binary,
+                MySqlDbType.VarChar => MySqlDbType.VarBinary,
+                _ => Type,
+            };
+        }
     }
 
     /// <summary>已重载</summary>

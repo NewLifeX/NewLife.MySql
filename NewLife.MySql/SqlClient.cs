@@ -560,7 +560,7 @@ public class SqlClient : DisposeBase
         if (rs.IsEOF)
         {
             // EOF_Packet: header(0xFE) + warnings(2) + status_flags(2)
-            var eofReader = new Buffers.SpanReader(rs.Data.Slice(1));
+            var eofReader = rs.CreateReader(1);
             ServerStatusFlags statusFlags = 0;
             UInt16 warnings = 0;
             if (Capability.Has(ClientFlags.PROTOCOL_41) && eofReader.Available >= 4)
@@ -587,16 +587,21 @@ public class SqlClient : DisposeBase
             {
                 MySqlDbType.Decimal or MySqlDbType.NewDecimal => Decimal.Parse(buf.ToStr()),
                 MySqlDbType.Byte => (SByte)Int64.Parse(buf.ToStr()),
-                MySqlDbType.Int16 or MySqlDbType.UInt16 => (Int16)Int64.Parse(buf.ToStr()),
-                MySqlDbType.Int24 or MySqlDbType.UInt24 or MySqlDbType.Int32 or MySqlDbType.UInt32 => (Int32)Int64.Parse(buf.ToStr()),
-                MySqlDbType.Int64 or MySqlDbType.UInt64 => Int64.Parse(buf.ToStr()),
+                MySqlDbType.UByte => (Byte)Int64.Parse(buf.ToStr()),
+                MySqlDbType.Int16 => (Int16)Int64.Parse(buf.ToStr()),
+                MySqlDbType.UInt16 => (UInt16)Int64.Parse(buf.ToStr()),
+                MySqlDbType.Int24 or MySqlDbType.Int32 => (Int32)Int64.Parse(buf.ToStr()),
+                MySqlDbType.UInt24 or MySqlDbType.UInt32 => (UInt32)Int64.Parse(buf.ToStr()),
+                MySqlDbType.Int64 => Int64.Parse(buf.ToStr()),
+                MySqlDbType.UInt64 => UInt64.Parse(buf.ToStr()),
                 MySqlDbType.Float => Single.Parse(buf.ToStr()),
                 MySqlDbType.Double => Double.Parse(buf.ToStr()),
-                MySqlDbType.DateTime or MySqlDbType.Timestamp or MySqlDbType.Date or MySqlDbType.Time => buf.ToStr().ToDateTime(),
-                MySqlDbType.VarChar or MySqlDbType.String or MySqlDbType.TinyText or MySqlDbType.MediumText or MySqlDbType.LongText or MySqlDbType.Text or MySqlDbType.VarString or MySqlDbType.Enum => buf.ToStr(),
-                MySqlDbType.Blob or MySqlDbType.TinyBlob or MySqlDbType.MediumBlob or MySqlDbType.LongBlob => buf.ToArray(),
+                MySqlDbType.DateTime or MySqlDbType.Timestamp or MySqlDbType.Date => buf.ToStr().ToDateTime(),
+                MySqlDbType.Time => TimeSpan.Parse(buf.ToStr()),
+                MySqlDbType.Year => (Int32)Int64.Parse(buf.ToStr()),
+                MySqlDbType.String or MySqlDbType.VarString or MySqlDbType.VarChar or MySqlDbType.TinyText or MySqlDbType.MediumText or MySqlDbType.LongText or MySqlDbType.Text or MySqlDbType.Enum or MySqlDbType.Set or MySqlDbType.Json => buf.ToStr(),
+                MySqlDbType.Blob or MySqlDbType.TinyBlob or MySqlDbType.MediumBlob or MySqlDbType.LongBlob or MySqlDbType.Binary or MySqlDbType.VarBinary or MySqlDbType.Geometry or MySqlDbType.Vector => buf.ToArray(),
                 MySqlDbType.Bit => buf[0] != 0,
-                MySqlDbType.Json => buf.ToStr(),
                 MySqlDbType.Guid => buf.ToStr(),
                 _ => buf.ToArray(),
             };
@@ -615,7 +620,7 @@ public class SqlClient : DisposeBase
         var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         if (rs.IsEOF)
         {
-            var eofReader = new Buffers.SpanReader(rs.Data.Slice(1));
+            var eofReader = new SpanReader(rs.Data.Slice(1));
             ServerStatusFlags statusFlags = 0;
             UInt16 warnings = 0;
             if (Capability.Has(ClientFlags.PROTOCOL_41) && eofReader.Available >= 4)
@@ -657,70 +662,45 @@ public class SqlClient : DisposeBase
     /// <param name="reader">数据读取器</param>
     /// <param name="column">列定义</param>
     /// <returns>列值</returns>
-    private Object ReadBinaryColumnValue(ref Buffers.SpanReader reader, MySqlColumn column)
+    private Object ReadBinaryColumnValue(ref SpanReader reader, MySqlColumn column)
     {
-        switch (column.Type)
+        return column.Type switch
         {
-            case MySqlDbType.Byte:
-                return (SByte)reader.ReadByte();
-            case MySqlDbType.Int16:
-                return reader.ReadInt16();
-            case MySqlDbType.UInt16:
-                return (UInt16)reader.ReadInt16();
-            case MySqlDbType.Int24:
-            case MySqlDbType.Int32:
-                return reader.ReadInt32();
-            case MySqlDbType.UInt24:
-            case MySqlDbType.UInt32:
-                return (UInt32)reader.ReadInt32();
-            case MySqlDbType.Int64:
-                return reader.ReadInt64();
-            case MySqlDbType.UInt64:
-                return (UInt64)reader.ReadInt64();
-            case MySqlDbType.Float:
-                {
-                    var bytes = reader.ReadBytes(4);
-                    return BitConverter.ToSingle(bytes.ToArray(), 0);
-                }
-            case MySqlDbType.Double:
-                {
-                    var bytes = reader.ReadBytes(8);
-                    return BitConverter.ToDouble(bytes.ToArray(), 0);
-                }
-            case MySqlDbType.Decimal:
-            case MySqlDbType.NewDecimal:
-                {
-                    var buf = reader.ReadString();
-                    return Decimal.Parse(buf);
-                }
-            case MySqlDbType.DateTime:
-            case MySqlDbType.Timestamp:
-            case MySqlDbType.Date:
-                return ReadBinaryDateTimeValue(ref reader);
-            case MySqlDbType.Time:
-                return ReadBinaryTimeValue(ref reader);
-            case MySqlDbType.Bit:
-                {
-                    var len = (Int32)reader.ReadLength();
-                    var buf = reader.ReadBytes(len);
-                    return buf[0] != 0;
-                }
-            case MySqlDbType.Blob:
-            case MySqlDbType.TinyBlob:
-            case MySqlDbType.MediumBlob:
-            case MySqlDbType.LongBlob:
-                {
-                    var len = (Int32)reader.ReadLength();
-                    return reader.ReadBytes(len).ToArray();
-                }
-            default:
-                // 字符串类型：VarChar, String, Text, Json, Guid, Enum 等
-                return reader.ReadString();
-        }
+            // 有符号整数
+            MySqlDbType.Byte => (SByte)reader.ReadByte(),
+            MySqlDbType.Int16 => reader.ReadInt16(),
+            MySqlDbType.Int24 or MySqlDbType.Int32 => reader.ReadInt32(),
+            MySqlDbType.Int64 => reader.ReadInt64(),
+
+            // 无符号整数
+            MySqlDbType.UByte => reader.ReadByte(),
+            MySqlDbType.UInt16 => (UInt16)reader.ReadInt16(),
+            MySqlDbType.UInt24 or MySqlDbType.UInt32 => (UInt32)reader.ReadInt32(),
+            MySqlDbType.UInt64 => (UInt64)reader.ReadInt64(),
+
+            // 浮点数
+            MySqlDbType.Float => BitConverter.ToSingle(reader.ReadBytes(4).ToArray(), 0),
+            MySqlDbType.Double => BitConverter.ToDouble(reader.ReadBytes(8).ToArray(), 0),
+            MySqlDbType.Decimal or MySqlDbType.NewDecimal => Decimal.Parse(reader.ReadString()),
+
+            // 日期时间
+            MySqlDbType.DateTime or MySqlDbType.Timestamp or MySqlDbType.Date => ReadBinaryDateTimeValue(ref reader),
+            MySqlDbType.Time => ReadBinaryTimeValue(ref reader),
+            MySqlDbType.Year => (Int32)reader.ReadUInt16(),
+
+            // 位字段
+            MySqlDbType.Bit => reader.ReadBytes((Int32)reader.ReadLength())[0] != 0,
+
+            // 二进制
+            MySqlDbType.Blob or MySqlDbType.TinyBlob or MySqlDbType.MediumBlob or MySqlDbType.LongBlob or MySqlDbType.Binary or MySqlDbType.VarBinary or MySqlDbType.Geometry or MySqlDbType.Vector => reader.ReadBytes((Int32)reader.ReadLength()).ToArray(),
+
+            // 字符串类型：VarString, String, VarChar, Text, JSON, Guid, Enum, Set 等
+            _ => reader.ReadString(),
+        };
     }
 
     /// <summary>读取二进制 DATETIME 值</summary>
-    private static Object ReadBinaryDateTimeValue(ref Buffers.SpanReader reader)
+    private static Object ReadBinaryDateTimeValue(ref SpanReader reader)
     {
         var len = reader.ReadByte();
         if (len == 0) return DateTime.MinValue;
@@ -749,7 +729,7 @@ public class SqlClient : DisposeBase
     }
 
     /// <summary>读取二进制 TIME 值</summary>
-    private static Object ReadBinaryTimeValue(ref Buffers.SpanReader reader)
+    private static Object ReadBinaryTimeValue(ref SpanReader reader)
     {
         var len = reader.ReadByte();
         if (len == 0) return TimeSpan.Zero;
@@ -948,7 +928,7 @@ public class SqlClient : DisposeBase
         Decimal => (0xF6, false),               // MYSQL_TYPE_NEWDECIMAL → length-encoded string
         Boolean => (0x01, false),               // MYSQL_TYPE_TINY
         DateTime => (0x0C, false),              // MYSQL_TYPE_DATETIME
-        DateTimeOffset dto => (0x0C, false),    // MYSQL_TYPE_DATETIME
+        DateTimeOffset => (0x0C, false),        // MYSQL_TYPE_DATETIME
         TimeSpan => (0x0B, false),              // MYSQL_TYPE_TIME
         Byte[] => (0xFC, false),                // MYSQL_TYPE_BLOB
         Guid => (0xFE, false),                  // MYSQL_TYPE_STRING

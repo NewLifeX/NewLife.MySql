@@ -80,69 +80,76 @@ public class MySqlDataReader : DbDataReader
     #endregion
 
     #region 方法
-    /// <summary>
-    /// 在给定从零开始的列序号时获取该列的名称。
-    /// </summary>
-    /// <param name="ordinal">从零开始的列序号。</param>
-    /// <returns>指定列的名称。</returns>
+    /// <summary>获取指定列的名称</summary>
+    /// <param name="ordinal">从零开始的列序号</param>
+    /// <returns>指定列的名称</returns>
     public override String GetName(Int32 ordinal) => _Columns![ordinal].Name;
 
-    /// <summary>
-    /// 在给定列名时获取相应的列序号。
-    /// </summary>
-    /// <param name="name">列的名称，不区分大小写。</param>
-    /// <returns>从零开始的列序号，如果不存在给定列，返回-1。</returns>
-    public override Int32 GetOrdinal(String name) => Array.FindIndex(_Columns, p => name.EqualIgnoreCase(p.Name));
+    /// <summary>获取指定列名对应的列序号</summary>
+    /// <param name="name">列名，不区分大小写</param>
+    /// <returns>从零开始的列序号，不存在返回-1</returns>
+    public override Int32 GetOrdinal(String name) => _Columns == null ? -1 : Array.FindIndex(_Columns, p => name.EqualIgnoreCase(p.Name));
 
-    /// <summary>
-    /// 获取指定列的数据类型的名称。
-    /// </summary>
-    /// <param name="ordinal">从零开始的列序号。</param>
-    /// <returns>一个字符串，表示数据类型的名称。</returns>
+    /// <summary>获取指定列的数据类型名称</summary>
+    /// <param name="ordinal">从零开始的列序号</param>
+    /// <returns>数据类型名称</returns>
     public override String GetDataTypeName(Int32 ordinal) => _Columns![ordinal].Type.ToString();
 
-    private static readonly ICollection<String> _mytypes = ["VarString", "VarChar", "String", "TinyText", "MediumText", "LongText", "Text"];
     /// <summary>获取指定列的数据类型</summary>
-    /// <param name="ordinal">从零开始的列序号。</param>
-    /// <returns>指定列的数据类型。</returns>
+    /// <param name="ordinal">从零开始的列序号</param>
+    /// <returns>指定列的数据类型</returns>
     public override Type GetFieldType(Int32 ordinal)
     {
         var col = _Columns![ordinal];
-        var typeName = col.Type.ToString();
-        if (_mytypes.Contains(typeName)) return typeof(String);
 
-        // 暂时把Enum和Set类型也算做是string
-        if (typeName.EqualIgnoreCase("Enum", "Set")) return typeof(String);
-
-        // 数字类型映射
         return col.Type switch
         {
+            // 有符号整数
             MySqlDbType.Byte => typeof(SByte),
-            MySqlDbType.Int16 or MySqlDbType.UInt16 => typeof(Int16),
-            MySqlDbType.Int24 or MySqlDbType.UInt24 or MySqlDbType.Int32 or MySqlDbType.UInt32 => typeof(Int32),
-            MySqlDbType.Int64 or MySqlDbType.UInt64 => typeof(Int64),
+            MySqlDbType.Int16 => typeof(Int16),
+            MySqlDbType.Int24 or MySqlDbType.Int32 => typeof(Int32),
+            MySqlDbType.Int64 => typeof(Int64),
+
+            // 无符号整数
+            MySqlDbType.UByte => typeof(Byte),
+            MySqlDbType.UInt16 => typeof(UInt16),
+            MySqlDbType.UInt24 or MySqlDbType.UInt32 => typeof(UInt32),
+            MySqlDbType.UInt64 => typeof(UInt64),
+
+            // 浮点数
             MySqlDbType.Float => typeof(Single),
             MySqlDbType.Double => typeof(Double),
             MySqlDbType.Decimal or MySqlDbType.NewDecimal => typeof(Decimal),
-            MySqlDbType.DateTime or MySqlDbType.Timestamp or MySqlDbType.Date or MySqlDbType.Time => typeof(DateTime),
-            MySqlDbType.Bit => typeof(Boolean),
+
+            // 日期时间
+            MySqlDbType.DateTime or MySqlDbType.Timestamp or MySqlDbType.Date or MySqlDbType.Newdate => typeof(DateTime),
+            MySqlDbType.Time => typeof(TimeSpan),
+            MySqlDbType.Year => typeof(Int32),
+
+            // 字符串
+            MySqlDbType.VarString or MySqlDbType.String or MySqlDbType.VarChar => typeof(String),
+            MySqlDbType.TinyText or MySqlDbType.MediumText or MySqlDbType.LongText or MySqlDbType.Text => typeof(String),
+            MySqlDbType.Enum or MySqlDbType.Set or MySqlDbType.Json => typeof(String),
+
+            // 二进制
             MySqlDbType.Blob or MySqlDbType.TinyBlob or MySqlDbType.MediumBlob or MySqlDbType.LongBlob => typeof(Byte[]),
+            MySqlDbType.Binary or MySqlDbType.VarBinary => typeof(Byte[]),
+            MySqlDbType.Geometry or MySqlDbType.Vector => typeof(Byte[]),
+
+            // 其他
+            MySqlDbType.Bit => typeof(Boolean),
             MySqlDbType.Guid => typeof(Guid),
             _ => typeof(String),
         };
     }
 
-    /// <summary>
-    /// 以 System.Object 实例的形式获取指定列的值。
-    /// </summary>
-    /// <param name="ordinal">从零开始的列序号。</param>
-    /// <returns>指定列的值。</returns>
+    /// <summary>获取指定列的值</summary>
+    /// <param name="ordinal">从零开始的列序号</param>
+    /// <returns>指定列的值</returns>
     public override Object GetValue(Int32 ordinal) => _Values![ordinal];
 
-    /// <summary>
-    /// 将当前行的值复制到制定的object数组
-    /// </summary>
-    /// <param name="values">值复制到的数组</param>
+    /// <summary>将当前行的值复制到指定数组</summary>
+    /// <param name="values">目标数组</param>
     /// <returns>实际复制的对象个数</returns>
     public override Int32 GetValues(Object[] values)
     {
@@ -159,29 +166,23 @@ public class MySqlDataReader : DbDataReader
     /// <returns>true 如果指定的列等效于 System.DBNull; 否则为 false。</returns>
     public override Boolean IsDBNull(Int32 ordinal) => GetValue(ordinal) == DBNull.Value;
 
-    /// <summary>
-    /// 以布尔值的形式获取指定列的值
-    /// </summary>
+    /// <summary>获取指定列的布尔值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
     public override Boolean GetBoolean(Int32 ordinal) => (Boolean)_Values![ordinal];
 
-    /// <summary>
-    /// 以字节的形式获取指定列的值。
-    /// </summary>
-    /// <param name="ordinal">从零开始的列序号。</param>
-    /// <returns>指定列的值。</returns>
+    /// <summary>获取指定列的字节值</summary>
+    /// <param name="ordinal">从零开始的列序号</param>
+    /// <returns>指定列的值</returns>
     public override Byte GetByte(Int32 ordinal) => (Byte)_Values![ordinal];
 
-    /// <summary>
-    /// 从指定的列中，从 dataOffset 处开始读取字节流到 buffer 缓冲区，从 bufferOffset 所指示的位置开始写入 。
-    /// </summary>
-    /// <param name="ordinal">从零开始的列序号。</param>
-    /// <param name="dataOffset">读取字节数组的起始位置</param>
-    /// <param name="buffer">缓冲区</param>
+    /// <summary>从指定列读取字节流到缓冲区</summary>
+    /// <param name="ordinal">从零开始的列序号</param>
+    /// <param name="dataOffset">数据读取起始偏移</param>
+    /// <param name="buffer">目标缓冲区</param>
     /// <param name="bufferOffset">缓冲区写入起始位置</param>
-    /// <param name="length">最大写入长度</param>
-    /// <returns></returns>
+    /// <param name="length">最大读取长度</param>
+    /// <returns>实际读取的字节数</returns>
     public override Int64 GetBytes(Int32 ordinal, Int64 dataOffset, Byte[] buffer, Int32 bufferOffset, Int32 length)
     {
         var buf = _Values![ordinal] as Byte[];
@@ -199,22 +200,18 @@ public class MySqlDataReader : DbDataReader
 
     }
 
-    /// <summary>
-    /// 以单个字符的形式获取指定列的值。
-    /// </summary>
-    /// <param name="ordinal">从零开始的列序号。</param>
-    /// <returns>指定列的值。</returns>
+    /// <summary>获取指定列的字符值</summary>
+    /// <param name="ordinal">从零开始的列序号</param>
+    /// <returns>指定列的值</returns>
     public override Char GetChar(Int32 ordinal) => Convert.ToChar(_Values![ordinal]);
 
-    /// <summary>
-    /// 
-    /// </summary>
-    /// <param name="ordinal"></param>
-    /// <param name="dataOffset"></param>
-    /// <param name="buffer"></param>
-    /// <param name="bufferOffset"></param>
-    /// <param name="length"></param>
-    /// <returns></returns>
+    /// <summary>从指定列读取字符流到缓冲区</summary>
+    /// <param name="ordinal">从零开始的列序号</param>
+    /// <param name="dataOffset">数据读取起始偏移</param>
+    /// <param name="buffer">目标字符缓冲区</param>
+    /// <param name="bufferOffset">缓冲区写入起始位置</param>
+    /// <param name="length">最大读取长度</param>
+    /// <returns>实际读取的字符数</returns>
     public override Int64 GetChars(Int32 ordinal, Int64 dataOffset, Char[] buffer, Int32 bufferOffset, Int32 length)
     {
         var str = GetString(ordinal);
@@ -240,60 +237,44 @@ public class MySqlDataReader : DbDataReader
         return count;
     }
 
-    /// <summary>
-    /// 以 System.DateTime 对象的形式获取指定列的值。
-    /// </summary>
-    /// <param name="ordinal">从零开始的列序号。</param>
-    /// <returns>指定列的值。</returns>
+    /// <summary>获取指定列的日期时间值</summary>
+    /// <param name="ordinal">从零开始的列序号</param>
+    /// <returns>指定列的值</returns>
     public override DateTime GetDateTime(Int32 ordinal) => (DateTime)_Values![ordinal];
 
-    /// <summary>
-    /// 以 System.Decimal 对象的形式获取指定列的值。
-    /// </summary>
-    /// <param name="ordinal">从零开始的列序号。</param>
-    /// <returns>指定列的值。</returns>
+    /// <summary>获取指定列的Decimal值</summary>
+    /// <param name="ordinal">从零开始的列序号</param>
+    /// <returns>指定列的值</returns>
     public override Decimal GetDecimal(Int32 ordinal) => (Decimal)_Values![ordinal];
 
-    /// <summary>
-    /// 以双精度浮点数字的形式获取指定列的值。
-    /// </summary>
-    /// <param name="ordinal">从零开始的列序号。</param>
-    /// <returns>指定列的值。</returns>
+    /// <summary>获取指定列的双精度浮点值</summary>
+    /// <param name="ordinal">从零开始的列序号</param>
+    /// <returns>指定列的值</returns>
     public override Double GetDouble(Int32 ordinal) => (Double)_Values![ordinal];
 
-    /// <summary>
-    /// 以单精度浮点数字的形式获取指定列的值。
-    /// </summary>
-    /// <param name="ordinal">从零开始的列序号。</param>
-    /// <returns>指定列的值。</returns>
+    /// <summary>获取指定列的单精度浮点值</summary>
+    /// <param name="ordinal">从零开始的列序号</param>
+    /// <returns>指定列的值</returns>
     public override Single GetFloat(Int32 ordinal) => (Single)_Values![ordinal];
 
-    /// <summary>
-    /// 以全局唯一标识符 (GUID) 的形式获取指定列的值。
-    /// </summary>
-    /// <param name="ordinal">从零开始的列序号。</param>
-    /// <returns>指定列的值。</returns>
+    /// <summary>获取指定列的GUID值</summary>
+    /// <param name="ordinal">从零开始的列序号</param>
+    /// <returns>指定列的值</returns>
     public override Guid GetGuid(Int32 ordinal) => (Guid)_Values![ordinal];
 
-    /// <summary>
-    /// 16 位有符号整数形式获取指定列的值。
-    /// </summary>
-    /// <param name="ordinal">从零开始的列序号。</param>
-    /// <returns>指定列的值。</returns>
+    /// <summary>获取指定列的16位有符号整数值</summary>
+    /// <param name="ordinal">从零开始的列序号</param>
+    /// <returns>指定列的值</returns>
     public override Int16 GetInt16(Int32 ordinal) => (Int16)_Values![ordinal];
 
-    /// <summary>
-    /// 作为 32 位有符号整数获取指定列的值。
-    /// </summary>
-    /// <param name="ordinal">从零开始的列序号。</param>
-    /// <returns>指定列的值。</returns>
+    /// <summary>获取指定列的32位有符号整数值</summary>
+    /// <param name="ordinal">从零开始的列序号</param>
+    /// <returns>指定列的值</returns>
     public override Int32 GetInt32(Int32 ordinal) => (Int32)_Values![ordinal];
 
-    /// <summary>
-    /// 以 64 位有符号整数的形式获取指定列的值。
-    /// </summary>
-    /// <param name="ordinal">从零开始的列序号。</param>
-    /// <returns>指定列的值。</returns>
+    /// <summary>获取指定列的64位有符号整数值</summary>
+    /// <param name="ordinal">从零开始的列序号</param>
+    /// <returns>指定列的值</returns>
     public override Int64 GetInt64(Int32 ordinal) => (Int64)_Values![ordinal];
 
     /// <summary>以 System.String 实例的形式获取指定列的值</summary>

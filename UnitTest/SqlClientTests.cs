@@ -584,7 +584,7 @@ public class SqlClientTests
         WriteColumnPacket(ms, ref seq, "def", "testdb", "users", "users", "id", "id",
             0x0C, 33, 11, MySqlDbType.Int32, 0, 0);
         WriteColumnPacket(ms, ref seq, "def", "testdb", "users", "users", "name", "name",
-            0x0C, 33, 255, MySqlDbType.VarChar, 0, 0);
+            0x0C, 33, 255, MySqlDbType.VarString, 0, 0);
         WriteColumnPacket(ms, ref seq, "def", "testdb", "users", "users", "age", "age",
             0x0C, 33, 3, MySqlDbType.Int16, 0, 0);
 
@@ -599,15 +599,15 @@ public class SqlClientTests
         Assert.Equal("id", columns[0].Name);
         Assert.Equal(MySqlDbType.Int32, columns[0].Type);
         Assert.Equal("name", columns[1].Name);
-        Assert.Equal(MySqlDbType.VarChar, columns[1].Type);
+        Assert.Equal(MySqlDbType.VarString, columns[1].Type);
         Assert.Equal("age", columns[2].Name);
         Assert.Equal(MySqlDbType.Int16, columns[2].Type);
     }
 
     [Fact]
-    public async Task NextRow_IntAndVarChar()
+    public async Task NextRow_IntAndVarString()
     {
-        // 验证行数据读取：Int32 和 VarChar 类型
+        // 验证行数据读取：Int32 和 VarString 类型
         var seq = (Byte)1;
         var ms = new MemoryStream();
 
@@ -623,7 +623,7 @@ public class SqlClientTests
         var columns = new MySqlColumn[]
         {
             new() { Name = "id", Type = MySqlDbType.Int32 },
-            new() { Name = "name", Type = MySqlDbType.VarChar },
+            new() { Name = "name", Type = MySqlDbType.VarString },
         };
         var values = new Object[2];
 
@@ -652,7 +652,7 @@ public class SqlClientTests
         var columns = new MySqlColumn[]
         {
             new() { Name = "id", Type = MySqlDbType.Int32 },
-            new() { Name = "name", Type = MySqlDbType.VarChar },
+            new() { Name = "name", Type = MySqlDbType.VarString },
         };
         var values = new Object[2];
 
