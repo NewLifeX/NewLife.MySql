@@ -28,6 +28,9 @@ public class MySqlCommand : DbCommand
     /// <summary>参数集合</summary>
     protected override DbParameterCollection DbParameterCollection => _parameters;
 
+    /// <summary>参数集合</summary>
+    public new MySqlParameterCollection Parameters => _parameters;
+
     /// <summary>命令超时。单位秒</summary>
     public override Int32 CommandTimeout { get; set; }
 
