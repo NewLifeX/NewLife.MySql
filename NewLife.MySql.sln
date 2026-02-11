@@ -9,7 +9,10 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Test", "Test\Test.csproj", 
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Other", "Other", "{41BB9089-D57E-41E9-9820-69B649402C1F}"
 	ProjectSection(SolutionItems) = preProject
+		.github\workflows\publish-beta.yml = .github\workflows\publish-beta.yml
+		.github\workflows\publish.yml = .github\workflows\publish.yml
 		Readme.MD = Readme.MD
+		.github\workflows\test.yml = .github\workflows\test.yml
 		Doc\架构设计.md = Doc\架构设计.md
 	EndProjectSection
 EndProject
