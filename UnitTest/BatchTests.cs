@@ -649,4 +649,305 @@ public class BatchTests
         }
     }
     #endregion
+
+    #region 管道化执行测试
+    /// <summary>获取启用管道化的连接</summary>
+    private static MySqlConnection CreatePipelineConnection()
+    {
+        var connStr = _ConnStr.TrimEnd(';') + ";Pipeline=true;";
+        var conn = new MySqlConnection(connStr);
+        conn.Open();
+        return conn;
+    }
+
+    [Fact]
+    public void Pipeline_ArrayBatch_Insert()
+    {
+        var table = "batch_test_pipe_ins_" + Rand.Next(10000);
+        using var conn = CreatePipelineConnection();
+        CreateTestTable(conn, table);
+
+        try
+        {
+            using var cmd = new MySqlCommand(conn, $"INSERT INTO `{table}` (name, age, score) VALUES (@name, @age, @score)");
+            var ps = cmd.Parameters as MySqlParameterCollection;
+            ps.AddWithValue("name", new String[] { "P1", "P2", "P3", "P4", "P5" });
+            ps.AddWithValue("age", new Int32[] { 10, 20, 30, 40, 50 });
+            ps.AddWithValue("score", new Decimal[] { 80.5m, 85.0m, 90.5m, 95.0m, 100.0m });
+
+            var affected = cmd.ExecuteArrayBatch(5);
+            Assert.Equal(5, affected);
+
+            // 验证总行数
+            using var verifyCmd = new MySqlCommand(conn, $"SELECT COUNT(*) FROM `{table}`");
+            Assert.Equal(5, verifyCmd.ExecuteScalar().ToInt());
+
+            // 验证具体值
+            using var cmd2 = new MySqlCommand(conn, $"SELECT score FROM `{table}` WHERE name='P3'");
+            Assert.Equal(90.5m, Convert.ToDecimal(cmd2.ExecuteScalar()));
+
+            using var cmd3 = new MySqlCommand(conn, $"SELECT age FROM `{table}` WHERE name='P5'");
+            Assert.Equal(50, cmd3.ExecuteScalar().ToInt());
+        }
+        finally
+        {
+            DropTestTable(conn, table);
+        }
+    }
+
+    [Fact]
+    public void Pipeline_ArrayBatch_Update()
+    {
+        var table = "batch_test_pipe_upd_" + Rand.Next(10000);
+        using var conn = CreatePipelineConnection();
+        CreateTestTable(conn, table);
+
+        try
+        {
+            // 先插入数据
+            conn.ExecuteNonQuery($"INSERT INTO `{table}` (name, age) VALUES ('U1', 10), ('U2', 20), ('U3', 30)");
+
+            // 管道化批量更新
+            using var cmd = new MySqlCommand(conn, $"UPDATE `{table}` SET age=@age WHERE name=@name");
+            var ps = cmd.Parameters as MySqlParameterCollection;
+            ps.AddWithValue("age", new Int32[] { 11, 22, 33 });
+            ps.AddWithValue("name", new String[] { "U1", "U2", "U3" });
+
+            var affected = cmd.ExecuteArrayBatch(3);
+            Assert.Equal(3, affected);
+
+            // 验证更新结果
+            using var cmd2 = new MySqlCommand(conn, $"SELECT age FROM `{table}` WHERE name='U1'");
+            Assert.Equal(11, cmd2.ExecuteScalar().ToInt());
+
+            using var cmd3 = new MySqlCommand(conn, $"SELECT age FROM `{table}` WHERE name='U3'");
+            Assert.Equal(33, cmd3.ExecuteScalar().ToInt());
+        }
+        finally
+        {
+            DropTestTable(conn, table);
+        }
+    }
+
+    [Fact]
+    public void Pipeline_ArrayBatch_Delete()
+    {
+        var table = "batch_test_pipe_del_" + Rand.Next(10000);
+        using var conn = CreatePipelineConnection();
+        CreateTestTable(conn, table);
+
+        try
+        {
+            // 先插入数据
+            conn.ExecuteNonQuery($"INSERT INTO `{table}` (name, age) VALUES ('D1', 10), ('D2', 20), ('D3', 30), ('D4', 40)");
+
+            // 管道化批量删除
+            using var cmd = new MySqlCommand(conn, $"DELETE FROM `{table}` WHERE name=@name");
+            var ps = cmd.Parameters as MySqlParameterCollection;
+            ps.AddWithValue("name", new String[] { "D1", "D3" });
+
+            var affected = cmd.ExecuteArrayBatch(2);
+            Assert.Equal(2, affected);
+
+            // 验证剩余数据
+            using var verifyCmd = new MySqlCommand(conn, $"SELECT COUNT(*) FROM `{table}`");
+            Assert.Equal(2, verifyCmd.ExecuteScalar().ToInt());
+
+            // D2 和 D4 应还在
+            using var cmd2 = new MySqlCommand(conn, $"SELECT age FROM `{table}` WHERE name='D2'");
+            Assert.Equal(20, cmd2.ExecuteScalar().ToInt());
+        }
+        finally
+        {
+            DropTestTable(conn, table);
+        }
+    }
+
+    [Fact]
+    public void Pipeline_DictBatch_Insert()
+    {
+        var table = "batch_test_pipe_dict_" + Rand.Next(10000);
+        using var conn = CreatePipelineConnection();
+        CreateTestTable(conn, table);
+
+        try
+        {
+            using var cmd = new MySqlCommand(conn, $"INSERT INTO `{table}` (name, age) VALUES (@name, @age)");
+            var ps = cmd.Parameters as MySqlParameterCollection;
+            ps.AddWithValue("name", "");
+            ps.AddWithValue("age", 0);
+
+            var paramSets = new List<IDictionary<String, Object?>>
+            {
+                new Dictionary<String, Object?> { ["name"] = "Dict1", ["age"] = 10 },
+                new Dictionary<String, Object?> { ["name"] = "Dict2", ["age"] = 20 },
+                new Dictionary<String, Object?> { ["name"] = "Dict3", ["age"] = 30 },
+            };
+
+            var affected = cmd.ExecuteBatch(paramSets);
+            Assert.Equal(3, affected);
+
+            using var verifyCmd = new MySqlCommand(conn, $"SELECT COUNT(*) FROM `{table}`");
+            Assert.Equal(3, verifyCmd.ExecuteScalar().ToInt());
+        }
+        finally
+        {
+            DropTestTable(conn, table);
+        }
+    }
+
+    [Fact]
+    public void Pipeline_LargeBatch_Insert()
+    {
+        var table = "batch_test_pipe_large_" + Rand.Next(10000);
+        using var conn = CreatePipelineConnection();
+        CreateTestTable(conn, table);
+
+        try
+        {
+            var batchSize = 1000;
+            var names = new String[batchSize];
+            var ages = new Int32[batchSize];
+            for (var i = 0; i < batchSize; i++)
+            {
+                names[i] = $"User_{i:D5}";
+                ages[i] = i % 100;
+            }
+
+            using var cmd = new MySqlCommand(conn, $"INSERT INTO `{table}` (name, age) VALUES (@name, @age)");
+            var ps = cmd.Parameters as MySqlParameterCollection;
+            ps.AddWithValue("name", names);
+            ps.AddWithValue("age", ages);
+
+            var affected = cmd.ExecuteArrayBatch(batchSize);
+            Assert.Equal(batchSize, affected);
+
+            // 验证总行数
+            using var verifyCmd = new MySqlCommand(conn, $"SELECT COUNT(*) FROM `{table}`");
+            Assert.Equal(batchSize, verifyCmd.ExecuteScalar().ToInt());
+
+            // 抽样验证
+            using var cmd2 = new MySqlCommand(conn, $"SELECT age FROM `{table}` WHERE name='User_00500'");
+            Assert.Equal(0, cmd2.ExecuteScalar().ToInt());
+        }
+        finally
+        {
+            DropTestTable(conn, table);
+        }
+    }
+
+    [Fact]
+    public void Pipeline_LargeBatch_Update()
+    {
+        var table = "batch_test_pipe_lupd_" + Rand.Next(10000);
+        using var conn = CreatePipelineConnection();
+        CreateTestTable(conn, table);
+
+        try
+        {
+            // 先批量插入数据
+            var batchSize = 500;
+            var insertNames = new String[batchSize];
+            var insertAges = new Int32[batchSize];
+            for (var i = 0; i < batchSize; i++)
+            {
+                insertNames[i] = $"LU_{i:D4}";
+                insertAges[i] = i;
+            }
+
+            using var insertCmd = new MySqlCommand(conn, $"INSERT INTO `{table}` (name, age) VALUES (@name, @age)");
+            var ips = insertCmd.Parameters as MySqlParameterCollection;
+            ips.AddWithValue("name", insertNames);
+            ips.AddWithValue("age", insertAges);
+            insertCmd.ExecuteArrayBatch(batchSize);
+
+            // 管道化批量更新所有行：age = age + 1000
+            var updateNames = new String[batchSize];
+            var updateAges = new Int32[batchSize];
+            for (var i = 0; i < batchSize; i++)
+            {
+                updateNames[i] = $"LU_{i:D4}";
+                updateAges[i] = i + 1000;
+            }
+
+            using var updateCmd = new MySqlCommand(conn, $"UPDATE `{table}` SET age=@age WHERE name=@name");
+            var ups = updateCmd.Parameters as MySqlParameterCollection;
+            ups.AddWithValue("age", updateAges);
+            ups.AddWithValue("name", updateNames);
+
+            var affected = updateCmd.ExecuteArrayBatch(batchSize);
+            Assert.Equal(batchSize, affected);
+
+            // 抽样验证
+            using var cmd2 = new MySqlCommand(conn, $"SELECT age FROM `{table}` WHERE name='LU_0250'");
+            Assert.Equal(1250, cmd2.ExecuteScalar().ToInt());
+
+            using var cmd3 = new MySqlCommand(conn, $"SELECT age FROM `{table}` WHERE name='LU_0000'");
+            Assert.Equal(1000, cmd3.ExecuteScalar().ToInt());
+        }
+        finally
+        {
+            DropTestTable(conn, table);
+        }
+    }
+
+    [Fact]
+    public void Pipeline_Consistency_Check()
+    {
+        var table1 = "batch_test_pipe_cons1_" + Rand.Next(10000);
+        var table2 = "batch_test_pipe_cons2_" + Rand.Next(10000);
+
+        // 非管道化连接
+        using var conn1 = CreateConnection();
+        // 管道化连接
+        using var conn2 = CreatePipelineConnection();
+
+        CreateTestTable(conn1, table1);
+        CreateTestTable(conn2, table2);
+
+        try
+        {
+            var batchSize = 50;
+            var names = new String[batchSize];
+            var ages = new Int32[batchSize];
+            for (var i = 0; i < batchSize; i++)
+            {
+                names[i] = $"C_{i:D3}";
+                ages[i] = i * 2;
+            }
+
+            // 非管道化 INSERT
+            using var cmd1 = new MySqlCommand(conn1, $"INSERT INTO `{table1}` (name, age) VALUES (@name, @age)");
+            var ps1 = cmd1.Parameters as MySqlParameterCollection;
+            ps1.AddWithValue("name", names);
+            ps1.AddWithValue("age", ages);
+            var affected1 = cmd1.ExecuteArrayBatch(batchSize);
+
+            // 管道化 INSERT
+            using var cmd2 = new MySqlCommand(conn2, $"INSERT INTO `{table2}` (name, age) VALUES (@name, @age)");
+            var ps2 = cmd2.Parameters as MySqlParameterCollection;
+            ps2.AddWithValue("name", names);
+            ps2.AddWithValue("age", ages);
+            var affected2 = cmd2.ExecuteArrayBatch(batchSize);
+
+            // 影响行数应相同
+            Assert.Equal(affected1, affected2);
+
+            // 行数应相同
+            using var v1 = new MySqlCommand(conn1, $"SELECT COUNT(*) FROM `{table1}`");
+            using var v2 = new MySqlCommand(conn2, $"SELECT COUNT(*) FROM `{table2}`");
+            Assert.Equal(v1.ExecuteScalar().ToInt(), v2.ExecuteScalar().ToInt());
+
+            // 抽样验证数据一致
+            using var s1 = new MySqlCommand(conn1, $"SELECT age FROM `{table1}` WHERE name='C_025'");
+            using var s2 = new MySqlCommand(conn2, $"SELECT age FROM `{table2}` WHERE name='C_025'");
+            Assert.Equal(s1.ExecuteScalar().ToInt(), s2.ExecuteScalar().ToInt());
+        }
+        finally
+        {
+            DropTestTable(conn1, table1);
+            DropTestTable(conn2, table2);
+        }
+    }
+    #endregion
 }

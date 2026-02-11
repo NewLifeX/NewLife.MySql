@@ -51,7 +51,7 @@ Server=localhost;Port=3306;Database=mydb;User Id=root;Password=pass;
 | CommandTimeout | Default Command Timeout | 30 | 命令超时（秒） |
 | SslMode | Ssl Mode | None | SSL 模式（None/Preferred/Required） |
 | UseServerPrepare | Use Server Prepare | false | 参数化查询是否走服务端预编译（COM_STMT_PREPARE/EXECUTE 二进制协议） |
-| Pipeline | Pipelining | false | 批量操作是否启用管道化执行（协议层快速循环） |
+| Pipeline | Pipelining | false | 批量操作是否启用真管道化执行（批量发送请求后批量接收响应，大幅减少网络延迟） |
 
 ## 快速开始
 
@@ -270,11 +270,30 @@ var totalAffected2 = await cmd.ExecuteArrayBatchAsync(3);
 
 ### 方案 C：管道化执行
 
-通过连接字符串开启 `Pipeline=true`，批量操作在协议层快速循环执行，减少命令层开销：
+通过连接字符串开启 `Pipeline=true`，启用真管道化批量执行。底层会先批量发送所有 COM_STMT_EXECUTE 请求包到网络缓冲区，然后按顺序批量读取响应。网络往返延迟仅发生一次，适合大批量 DML 场景（万级/十万级行）：
 
 ```
 Server=localhost;Database=mydb;User Id=root;Password=pass;Pipeline=true;
 ```
+
+管道化对 INSERT、UPDATE、DELETE 均有效，搭配数组绑定或字典参数集使用：
+
+```csharp
+// 管道化 + 数组绑定，批量 UPDATE 一万行
+var connStr = "Server=localhost;Database=mydb;User Id=root;Password=pass;Pipeline=true;";
+using var conn = new MySqlConnection(connStr);
+conn.Open();
+
+using var cmd = new MySqlCommand(conn, "UPDATE users SET age=@age WHERE name=@name");
+cmd.Parameters.AddWithValue("age", agesArray);    // Int32[10000]
+cmd.Parameters.AddWithValue("name", namesArray);   // String[10000]
+var totalAffected = cmd.ExecuteArrayBatch(10000);
+```
+
+**工作原理**：
+- 默认模式（Pipeline=false）：逐条发送请求并等待响应，耗时 ≈ N × 网络延迟
+- 管道化模式（Pipeline=true）：批量发送 → 一次 Flush → 批量读取，耗时 ≈ 1 × 网络延迟 + N × 服务器处理时间
+- 网络延迟越高（如跨机房），管道化收益越大
 
 ### 方案 D：多行 INSERT VALUES
 

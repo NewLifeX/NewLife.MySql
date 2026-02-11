@@ -391,8 +391,9 @@ public class SqlClient : DisposeBase
     /// <summary>异步发送 MySQL 协议数据包。建议数据包头部预留4字节空间以填充帧头</summary>
     /// <param name="pk">待发送的数据包</param>
     /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="flush">是否立即刷新网络流。管道化批量发送时设为 false，最后统一 Flush</param>
     /// <returns>异步任务</returns>
-    public async Task SendPacketAsync(IPacket pk, CancellationToken cancellationToken = default)
+    public async Task SendPacketAsync(IPacket pk, CancellationToken cancellationToken = default, Boolean flush = true)
     {
         var ms = _stream ?? throw new InvalidOperationException("未打开连接");
 
@@ -405,9 +406,18 @@ public class SqlClient : DisposeBase
         pk2[3] = _seq++;
 
         await pk2.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
-        await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
+        if (flush) await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
 
         LastActive = DateTime.Now;
+    }
+
+    /// <summary>异步刷新网络流，确保所有缓冲数据发送到服务器</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    public async Task FlushAsync(CancellationToken cancellationToken = default)
+    {
+        var ms = _stream ?? throw new InvalidOperationException("未打开连接");
+        await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>异步发送命令请求</summary>
@@ -713,11 +723,22 @@ public class SqlClient : DisposeBase
     /// <returns>异步任务</returns>
     public async Task ExecuteStatementAsync(Int32 statementId, MySqlParameterCollection? parameters, MySqlColumn[]? paramColumns, CancellationToken cancellationToken = default)
     {
+        var sendPk = BuildExecutePacket(statementId, parameters);
+        _seq = 0;
+        await SendPacketAsync(sendPk, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>构建 COM_STMT_EXECUTE 数据包。仅构建包内容，不发送</summary>
+    /// <param name="statementId">预编译语句 ID</param>
+    /// <param name="parameters">参数集合，可为空</param>
+    /// <returns>待发送的数据包（不含帧头）</returns>
+    private IPacket BuildExecutePacket(Int32 statementId, MySqlParameterCollection? parameters)
+    {
         var numParams = parameters?.Count ?? 0;
         var hasQueryAttrs = Capability.Has(ClientFlags.CLIENT_QUERY_ATTRIBUTES);
 
         // 构建 COM_STMT_EXECUTE 数据包
-        using var pk = new OwnerPacket(8192);
+        var pk = new OwnerPacket(8192);
         var writer = new SpanWriter(pk);
         writer.Advance(4); // 预留帧头
 
@@ -771,9 +792,7 @@ public class SqlClient : DisposeBase
             }
         }
 
-        var sendPk = pk.Slice(4, writer.Position - 4);
-        _seq = 0;
-        await SendPacketAsync(sendPk, cancellationToken).ConfigureAwait(false);
+        return pk.Slice(4, writer.Position - 4);
     }
 
     /// <summary>异步关闭预编译语句并释放服务器资源。COM_STMT_CLOSE 无响应包</summary>
@@ -829,7 +848,12 @@ public class SqlClient : DisposeBase
         await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
     }
 
-    /// <summary>管道化批量执行预编译语句。连续发送多组 EXECUTE 包，然后批量读取响应</summary>
+    /// <summary>管道化批量执行预编译语句。根据 Pipeline 设置选择真管道化或串行模式</summary>
+    /// <remarks>
+    /// 真管道化模式（Pipeline=true）：批量构建并发送所有 EXECUTE 包到网络缓冲区，最后一次性 Flush，
+    /// 然后按顺序逐个读取响应。网络延迟仅发生一次，适合大批量 DML 操作。
+    /// 串行模式（Pipeline=false）：逐条发送并读取响应，跳过 MySqlCommand 层的开销，直接在协议层循环。
+    /// </remarks>
     /// <param name="statementId">预编译语句 ID</param>
     /// <param name="parameterSets">多组参数集合</param>
     /// <param name="paramColumns">Prepare 返回的参数列信息</param>
@@ -839,10 +863,11 @@ public class SqlClient : DisposeBase
     {
         if (parameterSets == null || parameterSets.Count == 0) return 0;
 
-        // 管道化：逐条发送 EXECUTE + 读取响应
-        // MySQL 协议是严格的请求-响应模式，每个 COM_STMT_EXECUTE 都需要独立的序列号
-        // 因此管道化实际上是：发送→读响应→发送→读响应... 的快速循环
-        // 相比普通模式的优势在于：跳过了 MySqlCommand 层的开销，直接在协议层循环
+        // 真管道化：批量发送所有请求包，最后一次性 Flush，再批量读取响应
+        if (Setting.Pipeline)
+            return await ExecutePipelineCoreAsync(statementId, parameterSets, cancellationToken).ConfigureAwait(false);
+
+        // 串行模式：逐条发送 EXECUTE + 读取响应的快速循环
         var totalAffected = 0;
         for (var i = 0; i < parameterSets.Count; i++)
         {
@@ -851,6 +876,53 @@ public class SqlClient : DisposeBase
             var qr = GetResult(rs);
             totalAffected += qr.AffectedRows;
         }
+
+        return totalAffected;
+    }
+
+    /// <summary>真管道化执行核心。批量发送所有 COM_STMT_EXECUTE 包后批量读取响应</summary>
+    /// <remarks>
+    /// MySQL 协议中每个 COM_STMT_EXECUTE 独立使用 seq=0，服务器按顺序处理并返回 OK/Error 包。
+    /// 通过延迟 Flush 让 TCP 协议栈合并多个小包为大包发送，减少系统调用和网络往返次数。
+    /// 对于大批量 DML（万级/十万级），可显著降低总耗时。
+    /// </remarks>
+    /// <param name="statementId">预编译语句 ID</param>
+    /// <param name="parameterSets">多组参数集合</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>总影响行数</returns>
+    private async Task<Int32> ExecutePipelineCoreAsync(Int32 statementId, IList<MySqlParameterCollection> parameterSets, CancellationToken cancellationToken)
+    {
+        var count = parameterSets.Count;
+
+        // Phase 1: 批量构建并发送所有 EXECUTE 包，仅最后一个包做 Flush
+        for (var i = 0; i < count; i++)
+        {
+            var pk = BuildExecutePacket(statementId, parameterSets[i]);
+            _seq = 0;
+            var isLast = i == count - 1;
+            await SendPacketAsync(pk, cancellationToken, flush: isLast).ConfigureAwait(false);
+        }
+
+        // Phase 2: 批量读取所有响应，累加影响行数
+        var totalAffected = 0;
+        MySqlException? firstError = null;
+        for (var i = 0; i < count; i++)
+        {
+            try
+            {
+                var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+                var qr = GetResult(rs);
+                totalAffected += qr.AffectedRows;
+            }
+            catch (MySqlException ex)
+            {
+                // 记录第一个错误，继续读取后续响应以保持连接状态干净
+                firstError ??= ex;
+            }
+        }
+
+        // 如果管道中有命令执行失败，抛出第一个错误
+        if (firstError != null) throw firstError;
 
         return totalAffected;
     }
