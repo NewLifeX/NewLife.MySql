@@ -1,22 +1,130 @@
 # NewLife.MySql
 
-轻量级高性能 MySql 驱动，基于 ADO.NET 标准接口实现，直接通过 TCP 通信实现 MySQL 协议层，无需依赖官方驱动或第三方库。
+[![NuGet](https://img.shields.io/nuget/v/NewLife.MySql.svg)](https://www.nuget.org/packages/NewLife.MySql)
+[![License](https://img.shields.io/github/license/NewLifeX/NewLife.MySql)](https://github.com/NewLifeX/NewLife.MySql/blob/master/LICENSE)
+
+**NewLife.MySql** 是新生命团队（NewLife）出品的**纯国产高性能 MySQL 驱动**，基于 ADO.NET 标准接口实现，直接通过 TCP 通信实现 MySQL 协议层（Protocol Version 10），完全不依赖 NewLife 团队以外的任何第三方组件，采用 **MIT 开源协议**。
+
+仅依赖 `NewLife.Core`（同为新生命团队出品），实现了一个**零第三方依赖**、**全链路真异步**、**支持大数据批量操作**的纯托管 MySQL 客户端。
+
+## 设计目标
+
+- **轻量极简**：只做 ADO.NET 标准的增删改查、事务、参数化查询、存储过程和批量操作，不追求大而全
+- **高性能**：零额外内存分配（`ArrayPool` / `OwnerPacket`）、真异步 IO、管道化批量执行
+- **纯国产**：核心代码完全自主可控，无 GPL 许可风险，适合国产化替代场景
+- **大数据友好**：内置多种批量操作方案（字典参数集 / 数组绑定 / 管道化 / 多行 VALUES / DbBatch），覆盖万级到百万级行操作
+- **广泛兼容**：支持 `net45` ~ `net10` 全版本，MySQL 5.x ~ 9.0+ 全系列
 
 ## 核心功能
 
-- 连接数据库（支持 MySQL 5.x / 8.0 / 9.0+，支持 `mysql_native_password` 和 `caching_sha2_password` 认证）
-- 执行 SQL 查询并返回数据集（`ExecuteReader` / `ExecuteScalar`）
-- 执行增删改 SQL 并返回影响行数（`ExecuteNonQuery`）
-- 参数化查询（客户端参数替换，支持 `@参数名` 语法，自动转义防注入）
-- 预编译语句（`Prepare` / `COM_STMT_PREPARE`，服务端编译 + 二进制协议执行，可选 `UseServerPrepare` 开关）
-- 批量操作（`ExecuteBatch` 字典参数集 / `ExecuteArrayBatch` Oracle 风格数组绑定，基于预编译 Prepare + Execute × N）
-- DbBatch 支持（.NET 6+ 的 ADO.NET 标准批量 API）
-- 事务支持（`BeginTransaction` / `Commit` / `Rollback`，支持多种隔离级别）
-- 存储过程调用（`CommandType.StoredProcedure`，支持输入/输出参数）
-- SSL/TLS 加密连接（`SslMode=Preferred` 或 `Required`）
-- 连接池（默认开启，按连接字符串分池管理）
-- ADO.NET 异步方法（`OpenAsync` / `ExecuteReaderAsync` / `ReadAsync` 等）
-- Schema 信息查询（Tables / Columns / Indexes 等）
+| 功能 | 说明 |
+|------|------|
+| 连接管理 | 支持 MySQL 5.x / 8.0 / 9.0+，`mysql_native_password` 和 `caching_sha2_password` 双认证 |
+| 查询执行 | `ExecuteReader` / `ExecuteScalar` / `ExecuteNonQuery`，完整 ADO.NET 接口 |
+| 参数化查询 | 客户端参数替换，`@参数名` 语法，自动转义防注入 |
+| 预编译语句 | `Prepare()` 走 `COM_STMT_PREPARE` 二进制协议，可选 `UseServerPrepare` 全局开关 |
+| 批量操作 | `ExecuteBatch`（字典参数集）/ `ExecuteArrayBatch`（Oracle 数组绑定）/ 管道化 / 多行 VALUES / DbBatch |
+| 管道化执行 | `Pipeline=true` 批量发送后批量接收，网络延迟仅一次，万级行性能提升 3~10× |
+| 事务支持 | `BeginTransaction` / `Commit` / `Rollback`，四种隔离级别，自动回滚 |
+| 存储过程 | `CommandType.StoredProcedure`，支持 IN/OUT 参数 |
+| SSL/TLS | `SslMode=Preferred/Required`，支持 TLS 1.2/1.3 |
+| 连接池 | 默认开启，按连接字符串分池，自动健康检查与回收 |
+| 异步方法 | 全链路 `async/await`，`OpenAsync` / `ExecuteReaderAsync` / `ReadAsync` 等 |
+| Schema 查询 | Tables / Columns / Indexes / Databases 等元数据 |
+| DbBatch | .NET 6+ ADO.NET 标准批量 API |
+| XCode 集成 | 通过 `MySqlClientFactory` 自动注册，无缝对接 XCode ORM |
+
+## 亮点特性
+
+### 🚀 真管道化批量执行（Pipeline）
+
+独创的管道化执行模式，基于 `COM_STMT_PREPARE + COM_STMT_EXECUTE` 二进制协议：
+
+- **Phase 1**：批量构建并发送所有 EXECUTE 包到网络缓冲区，仅最后一个包 Flush
+- **Phase 2**：按顺序批量读取所有 OK/Error 响应，累加影响行数
+- **原理**：TCP 协议栈合并小包为大包（Nagle 算法），网络往返仅一次
+
+| 场景 | 串行模式 | 管道化模式 | 提升 |
+|------|---------|-----------|------|
+| 1000 行 INSERT（内网） | ~1s | ~0.3s | **3×** |
+| 10000 行 INSERT（跨机房） | ~30s | ~3s | **10×** |
+
+### 🔧 多种批量操作方案
+
+| 方案 | API | 适用场景 |
+|------|-----|---------|
+| 字典参数集 | `ExecuteBatch` | 动态参数，参数来自集合 |
+| 数组绑定 | `ExecuteArrayBatch` | 大批量 DML，Oracle 风格 |
+| 管道化 | `Pipeline=true` | 万级/十万级行，跨机房 |
+| 多行 VALUES | 拼接 SQL | 纯 INSERT 批量 |
+| DbBatch (.NET 6+) | `CreateBatch` | 不同 SQL 混合批量 |
+
+### 🛡️ 零第三方依赖
+
+- 仅依赖 `NewLife.Core`（同为 NewLife 团队出品），无任何外部第三方库
+- 无 GPL 许可风险，MIT 协议，商用无忧
+- 适合国产化替代、信创环境、安全审计严格的场景
+
+### ⚡ 极致性能优化
+
+- **零额外分配**：使用 `ArrayPool<T>` 和 `OwnerPacket` 管理内存，减少 GC 压力
+- **对象池复用**：`Pool.StringBuilder` / `Pool.MemoryStream` / `Pool.Shared` 全面池化
+- **真异步 IO**：全链路 `async/await`，无 `sync-over-async` 反模式
+- **精简协议解析**：只解析必要字段，跳过冗余数据，最小化 CPU 开销
+
+### 🌐 广泛兼容性
+
+- **目标框架**：`net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net10.0`
+- **MySQL 版本**：5.5 ~ 9.0+，支持 `mysql_native_password` 和 `caching_sha2_password`
+- **条件编译**：针对不同框架自动选择最优实现（如 TLS 1.3 仅 .NET 5.0+）
+
+## 与主流 MySQL 驱动对比
+
+### 功能对比
+
+| 功能 | NewLife.MySql | MySqlConnector | MySql.Data (Oracle) |
+|------|:------------:|:--------------:|:-------------------:|
+| **许可协议** | **MIT** | MIT | GPL (商用需付费) |
+| **国产自主** | ✅ 完全自主 | ❌ | ❌ |
+| **第三方依赖** | **无**（仅 NewLife.Core） | 无 | 无 |
+| **纯托管实现** | ✅ | ✅ | ✅ |
+| **真异步 IO** | ✅ | ✅ | ❌ (sync-over-async) |
+| **连接池** | ✅ 自动分池 | ✅ | ✅ |
+| **参数化查询** | ✅ 客户端替换 | ✅ 客户端/服务端 | ✅ 客户端替换 |
+| **预编译语句** | ✅ Prepare/Execute | ✅ | ✅ |
+| **存储过程** | ✅ IN/OUT 参数 | ✅ | ✅ |
+| **事务** | ✅ 4种隔离级别 | ✅ | ✅ |
+| **SSL/TLS** | ✅ TLS 1.2/1.3 | ✅ | ✅ |
+| **mysql_native_password** | ✅ | ✅ | ✅ |
+| **caching_sha2_password** | ✅ | ✅ | ✅ |
+| **管道化批量执行** | ✅ **独创** | ❌ | ❌ |
+| **数组绑定批量** | ✅ Oracle 风格 | ❌ | ❌ |
+| **字典参数集批量** | ✅ | ❌ | ❌ |
+| **DbBatch (.NET 6+)** | ✅ | ✅ | ❌ |
+| **Schema 查询** | ✅ | ✅ | ✅ |
+| **DataAdapter** | ✅ | ❌ | ✅ |
+| **XCode ORM 集成** | ✅ 原生支持 | ❌ | ❌ |
+| **多目标框架** | net45~net10 | netstandard2.0+ | net462+ |
+| **MySQL 5.x~9.0** | ✅ | ✅ | ✅ |
+| **MariaDB** | ✅ 基础 | ✅ | ❌ |
+| sha256_password | ❌ | ✅ | ✅ |
+| ed25519 (MariaDB) | ❌ | ✅ | ❌ |
+| DbDataSource (.NET 7+) | ❌ | ✅ | ❌ |
+| EF Core 支持 | ❌ (定位轻量) | ✅ (via Pomelo) | ✅ |
+| 压缩协议 | ❌ | ✅ | ✅ |
+| 负载均衡/故障转移 | ❌ | ✅ | ✅ |
+| LOAD DATA LOCAL | ❌ | ✅ | ✅ |
+
+### 核心优势总结
+
+| 维度 | NewLife.MySql 优势 |
+|------|-------------------|
+| **批量性能** | 独创管道化执行 + 数组绑定 + 字典参数集，大数据场景性能领先 |
+| **许可安全** | MIT 协议，无 GPL 风险，商用友好 |
+| **国产自主** | 完全自主可控，适合信创/国产化替代 |
+| **轻量部署** | 零第三方依赖，包体积小 |
+| **框架兼容** | 支持 .NET Framework 4.5 到 .NET 10，覆盖最广 |
+| **XCode 生态** | 原生集成 XCode ORM，开箱即用 |
 
 ## 安装
 
@@ -425,9 +533,14 @@ var tables = dal.Tables;
 
 ## 多目标框架
 
-支持 `net45`、`net461`、`netstandard2.0`、`netstandard2.1`、`net6.0`、`net8.0`。
+支持 `net45`、`net461`、`netstandard2.0`、`netstandard2.1`、`net6.0`、`net10.0`。
 
-- `net6.0`/`net8.0`：额外支持 `DbBatch` API
+| 框架 | 说明 |
+|------|------|
+| `net45` / `net461` | .NET Framework，兼容老项目 |
+| `netstandard2.0` / `netstandard2.1` | 跨平台兼容，支持异步 Dispose |
+| `net6.0` | 额外支持 `DbBatch` API |
+| `net10.0` | 最新 .NET，享受最优性能 |
 
 ## 注意事项
 
@@ -441,7 +554,8 @@ var tables = dal.Tables;
 
 ## 相关文档
 
-- [架构设计](Doc/架构设计.md)
+- [架构设计](Doc/架构设计.md) — 核心功能的架构设计与协议实现细节
+- [性能测试报告](Doc/性能测试报告.md) — 批量操作基准性能测试报告
 
 
 
