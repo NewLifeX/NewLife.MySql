@@ -3,6 +3,7 @@ using NewLife.MySql.Messages;
 
 namespace UnitTest;
 
+[Collection(TestCollections.InMemory)]
 public class WelcomeMessageTests
 {
     /// <summary>构造一个标准 HandshakeV10 测试包</summary>

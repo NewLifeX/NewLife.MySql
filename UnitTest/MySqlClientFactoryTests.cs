@@ -3,6 +3,7 @@ using NewLife.MySql;
 
 namespace UnitTest;
 
+[Collection(TestCollections.InMemory)]
 public class MySqlClientFactoryTests
 {
     #region 单例与注册

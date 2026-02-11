@@ -9,6 +9,7 @@ using NewLife.Security;
 
 namespace UnitTest;
 
+[Collection(TestCollections.InMemory)]
 [TestCaseOrderer("NewLife.UnitTest.DefaultOrderer", "NewLife.UnitTest")]
 public class SqlClientTests
 {

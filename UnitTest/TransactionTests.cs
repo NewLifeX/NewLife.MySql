@@ -4,6 +4,8 @@ using NewLife.MySql;
 
 namespace UnitTest;
 
+[Collection(TestCollections.DataModification)]
+[TestCaseOrderer("NewLife.UnitTest.DefaultOrderer", "NewLife.UnitTest")]
 public class TransactionTests
 {
     private static String _ConnStr = DALTests.GetConnStr();

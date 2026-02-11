@@ -4,6 +4,7 @@ using NewLife.MySql;
 namespace UnitTest;
 
 /// <summary>SchemaProvider 元数据集合完整测试，通过 MySqlConnection.GetSchema 调用</summary>
+[Collection(TestCollections.SchemaQuery)]
 [TestCaseOrderer("NewLife.UnitTest.DefaultOrderer", "NewLife.UnitTest")]
 public class SchemaProviderTests
 {
@@ -305,16 +306,14 @@ public class SchemaProviderTests
     {
         using var conn = OpenConnection();
 
-        var allTables = conn.GetSchema("Tables");
-        Assert.True(allTables.Rows.Count > 0);
+        // 使用固定的系统表 sys.sys_config
+        var schema = "sys";
+        var tableName = "sys_config";
 
-        var firstTable = allTables.Rows[0]["TABLE_NAME"]?.ToString();
-        var schema = allTables.Rows[0]["TABLE_SCHEMA"]?.ToString();
-
-        var dt = conn.GetSchema("Tables", [null, schema, firstTable]);
+        var dt = conn.GetSchema("Tables", [null, schema, tableName]);
 
         Assert.True(dt.Rows.Count >= 1);
-        Assert.Equal(firstTable, dt.Rows[0]["TABLE_NAME"]?.ToString());
+        Assert.Equal(tableName, dt.Rows[0]["TABLE_NAME"]?.ToString());
     }
     #endregion
 
@@ -324,7 +323,8 @@ public class SchemaProviderTests
     {
         using var conn = OpenConnection();
 
-        var dt = conn.GetSchema("Columns");
+        // 只查询 sys 数据库的列，避免查询到临时表
+        var dt = conn.GetSchema("Columns", [null, "sys"]);
         Assert.True(dt.Rows.Count > 0);
 
         Assert.Equal("Columns", dt.TableName);
@@ -350,11 +350,9 @@ public class SchemaProviderTests
     {
         using var conn = OpenConnection();
 
-        var tables = conn.GetSchema("Tables");
-        Assert.True(tables.Rows.Count > 0);
-
-        var schema = tables.Rows[0]["TABLE_SCHEMA"]?.ToString();
-        var tableName = tables.Rows[0]["TABLE_NAME"]?.ToString();
+        // 使用固定的系统表 sys.sys_config，避免查询到临时表
+        var schema = "sys";
+        var tableName = "sys_config";
 
         var dt = conn.GetSchema("Columns", [null, schema, tableName]);
 
@@ -371,12 +369,10 @@ public class SchemaProviderTests
     {
         using var conn = OpenConnection();
 
-        var allColumns = conn.GetSchema("Columns");
-        Assert.True(allColumns.Rows.Count > 0);
-
-        var schema = allColumns.Rows[0]["TABLE_SCHEMA"]?.ToString();
-        var tableName = allColumns.Rows[0]["TABLE_NAME"]?.ToString();
-        var columnName = allColumns.Rows[0]["COLUMN_NAME"]?.ToString();
+        // 使用固定的系统表 sys.sys_config 和列名 variable
+        var schema = "sys";
+        var tableName = "sys_config";
+        var columnName = "variable";
 
         var dt = conn.GetSchema("Columns", [null, schema, tableName, columnName]);
 
@@ -391,7 +387,8 @@ public class SchemaProviderTests
     {
         using var conn = OpenConnection();
 
-        var dt = conn.GetSchema("Indexes");
+        // 只查询 sys 数据库的索引，避免查询到临时表
+        var dt = conn.GetSchema("Indexes", [null, "sys"]);
 
         Assert.Equal("Indexes", dt.TableName);
         Assert.True(dt.Columns.Contains("INDEX_CATALOG"));
@@ -409,11 +406,9 @@ public class SchemaProviderTests
     {
         using var conn = OpenConnection();
 
-        var allIndexes = conn.GetSchema("Indexes");
-        Assert.True(allIndexes.Rows.Count > 0);
-
-        var schema = allIndexes.Rows[0]["INDEX_SCHEMA"]?.ToString();
-        var tableName = allIndexes.Rows[0]["TABLE_NAME"]?.ToString();
+        // 使用固定的系统表 sys.sys_config
+        var schema = "sys";
+        var tableName = "sys_config";
 
         var dt = conn.GetSchema("Indexes", [null, schema, tableName]);
 
@@ -431,7 +426,8 @@ public class SchemaProviderTests
     {
         using var conn = OpenConnection();
 
-        var dt = conn.GetSchema("IndexColumns");
+        // 只查询 sys 数据库的索引列，避免查询到临时表
+        var dt = conn.GetSchema("IndexColumns", [null, "sys"]);
 
         Assert.Equal("IndexColumns", dt.TableName);
         Assert.True(dt.Columns.Contains("INDEX_CATALOG"));
@@ -448,12 +444,10 @@ public class SchemaProviderTests
     {
         using var conn = OpenConnection();
 
-        var allIndexes = conn.GetSchema("Indexes");
-        Assert.True(allIndexes.Rows.Count > 0);
-
-        var schema = allIndexes.Rows[0]["INDEX_SCHEMA"]?.ToString();
-        var tableName = allIndexes.Rows[0]["TABLE_NAME"]?.ToString();
-        var indexName = allIndexes.Rows[0]["INDEX_NAME"]?.ToString();
+        // 使用固定的系统表 sys.sys_config 和其主键索引 PRIMARY
+        var schema = "sys";
+        var tableName = "sys_config";
+        var indexName = "PRIMARY";
 
         var dt = conn.GetSchema("IndexColumns", [null, schema, tableName, indexName]);
 

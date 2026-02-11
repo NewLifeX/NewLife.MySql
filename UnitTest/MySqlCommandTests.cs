@@ -5,6 +5,8 @@ using System.Text;
 
 namespace UnitTest;
 
+[Collection(TestCollections.DataModification)]
+[TestCaseOrderer("NewLife.UnitTest.DefaultOrderer", "NewLife.UnitTest")]
 public class MySqlCommandTests
 {
     private static String _ConnStr = DALTests.GetConnStr();

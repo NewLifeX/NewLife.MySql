@@ -3,6 +3,7 @@ using XCode.DataAccessLayer;
 
 namespace UnitTest;
 
+[Collection(TestCollections.ReadOnly)]
 public class DALTests
 {
     private static String _ConnStr = "Server=localhost;Database=sys;User Id=root;Password=root;";

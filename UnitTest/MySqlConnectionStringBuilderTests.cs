@@ -2,6 +2,7 @@
 
 namespace UnitTest;
 
+[Collection(TestCollections.InMemory)]
 public class MySqlConnectionStringBuilderTests
 {
     [Fact]

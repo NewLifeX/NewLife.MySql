@@ -5,6 +5,7 @@ using NewLife.MySql;
 namespace UnitTest;
 
 /// <summary>异步方法测试</summary>
+[Collection(TestCollections.ReadOnly)]
 [TestCaseOrderer("NewLife.UnitTest.DefaultOrderer", "NewLife.UnitTest")]
 public class AsyncTests
 {

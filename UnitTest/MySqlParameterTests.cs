@@ -3,6 +3,7 @@ using NewLife.MySql;
 
 namespace UnitTest;
 
+[Collection(TestCollections.InMemory)]
 public class MySqlParameterTests
 {
     [Fact]

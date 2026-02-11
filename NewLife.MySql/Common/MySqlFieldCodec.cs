@@ -33,6 +33,7 @@ public static class MySqlFieldCodec
     public static Object ReadTextValue(ref SpanReader reader, MySqlColumn column, Int32 len)
     {
         var span = reader.ReadBytes(len);
+        var reader2 = new SpanReader(span);
 
         return column.Type switch
         {
@@ -63,8 +64,8 @@ public static class MySqlFieldCodec
             MySqlDbType.Blob or MySqlDbType.TinyBlob or MySqlDbType.MediumBlob or MySqlDbType.LongBlob
                 or MySqlDbType.Binary or MySqlDbType.VarBinary or MySqlDbType.Geometry or MySqlDbType.Vector => span.ToArray(),
 
-            // BIT：字节数组转为 UInt64
-            MySqlDbType.Bit => (UInt64)Int64.Parse(span.ToStr()),
+            // BIT：MySQL 文本协议中 Bit 类型以二进制字节传输，需从字节数组转为 UInt64（小端序）
+            MySqlDbType.Bit => ConvertBitBytesToUInt64(span),
 
             // GUID：字符串形式
             MySqlDbType.Guid => span.ToStr(),
@@ -72,6 +73,26 @@ public static class MySqlFieldCodec
             // 未知类型：保留为字节数组
             _ => span.ToArray(),
         };
+    }
+
+    /// <summary>将 MySQL 文本协议中 Bit 类型的字节数组转换为 UInt64</summary>
+    /// <remarks>
+    /// MySQL 文本协议中 Bit 类型以二进制字节传输（小端序）。
+    /// 例如：BIT(64) 值 0x0807060504030201 传输为字节 [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08]
+    /// </remarks>
+    /// <param name="span">字节数据</param>
+    /// <returns>UInt64 值</returns>
+    private static UInt64 ConvertBitBytesToUInt64(ReadOnlySpan<Byte> span)
+    {
+        if (span.Length == 0) return 0;
+
+        // MySQL Bit 字节以小端序传输，逐字节读取并构建 UInt64
+        var value = 0UL;
+        for (var i = 0; i < span.Length && i < 8; i++)
+        {
+            value |= (UInt64)span[i] << (i * 8);
+        }
+        return value;
     }
 
     /// <summary>解析 MySQL 文本协议的 TIME 值</summary>

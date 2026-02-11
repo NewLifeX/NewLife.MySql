@@ -3,6 +3,7 @@
 namespace UnitTest;
 
 /// <summary>SqlClient.SetDatabaseAsync 方法测试</summary>
+[Collection(TestCollections.ReadOnly)]
 public class SetDatabaseAsyncTests
 {
     private static String _ConnStr = DALTests.GetConnStr();

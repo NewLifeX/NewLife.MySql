@@ -46,6 +46,9 @@ public class SqlClient : DisposeBase
     /// <summary>最后活跃时间。最后一次发送指令的时间</summary>
     public DateTime LastActive { get; set; }
 
+    /// <summary>当前数据库名。记录正在使用的数据库，首次打开连接时赋值，调用 SetDatabaseAsync 后会更新</summary>
+    internal String Database { get; set; } = null!;
+
     private TcpClient? _client;
     private Byte _seq = 1;
     private TimerX? _timer;
@@ -158,6 +161,9 @@ public class SqlClient : DisposeBase
 
             // 认证成功后，将 Capability 更新为实际协商的客户端标志
             Capability = auth.GetFlags(welcome.Capability);
+
+            // 记录当前使用的数据库
+            Database = Setting.Database ?? "";
 
             // 认证成功后才标记为活动状态
             Active = true;
@@ -453,6 +459,12 @@ public class SqlClient : DisposeBase
     /// 使用 MySQL COM_INIT_DB 协议命令切换数据库，等效于 USE database 语句。
     /// 优点：无需 SQL 解析，性能略优于文本协议。
     /// 注意：不会修改连接字符串，仅切换服务器端的当前数据库。
+    /// 
+    /// 连接池安全性：
+    /// - 调用此方法后，Database 会被更新为新的数据库名
+    /// - 连接归还连接池时，会检查 Database 是否等于原始数据库名
+    /// - 如果不等于（未切回原始数据库），连接将被销毁而不是归还连接池
+    /// - 如果等于（已切回原始数据库），连接可以安全归还连接池复用
     /// </remarks>
     public async Task SetDatabaseAsync(String databaseName, CancellationToken cancellationToken = default)
     {
@@ -478,6 +490,9 @@ public class SqlClient : DisposeBase
             var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
             if (!rs.IsOK)
                 throw new MySqlException("切换数据库失败");
+
+            // 更新当前数据库名
+            Database = databaseName;
         }
         finally
         {

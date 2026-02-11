@@ -1,12 +1,12 @@
-﻿using System.Data;
-using NewLife;
-using NewLife.Log;
+﻿using NewLife;
 using NewLife.MySql;
 using NewLife.Security;
 
 namespace UnitTest;
 
 /// <summary>批量操作测试。自建测试表，批量 INSERT/UPDATE/DELETE，验证结果后清理</summary>
+[Collection(TestCollections.TableOperations)]
+[TestCaseOrderer("NewLife.UnitTest.DefaultOrderer", "NewLife.UnitTest")]
 public class BatchTests
 {
     private static String _ConnStr = DALTests.GetConnStr();
@@ -43,7 +43,7 @@ public class BatchTests
     [Fact]
     public void Diagnostic_ServerCapability()
     {
-        // 诊断：输出 MySQL 版本和 Capability 标志
+        // 诊断：验证 MySQL 版本和 Capability 标志
         using var conn = CreateConnection();
         var client = conn.Client!;
 
@@ -56,7 +56,18 @@ public class BatchTests
         var clientFlags = (UInt32)auth.GetFlags(client.Capability);
         var clientHasQA = ((NewLife.MySql.Messages.ClientFlags)clientFlags).HasFlag(NewLife.MySql.Messages.ClientFlags.CLIENT_QUERY_ATTRIBUTES);
 
-        Assert.Fail($"MySQL={version}, ServerCap=0x{cap:X8}, ServerQA={hasQA}, ClientFlags=0x{clientFlags:X8}, ClientQA={clientHasQA}");
+        // 验证服务器版本有效
+        Assert.NotNull(version);
+        Assert.NotEmpty(version);
+
+        // 验证服务器 Capability 有效（应至少有基础标志）
+        Assert.True(cap > 0, $"ServerCap=0x{cap:X8} should be > 0");
+
+        // 验证客户端协商的标志有效
+        Assert.True(clientFlags > 0, $"ClientFlags=0x{clientFlags:X8} should be > 0");
+
+        // 客户端标志应是服务器 Capability 的子集
+        Assert.True((clientFlags & cap) == clientFlags, $"ClientFlags=0x{clientFlags:X8} should be subset of ServerCap=0x{cap:X8}");
     }
 
     [Fact]

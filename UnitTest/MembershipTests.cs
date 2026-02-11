@@ -4,6 +4,7 @@ using XCode.Membership;
 
 namespace UnitTest;
 
+[Collection(TestCollections.WriteOperations)]
 public class MembershipTests
 {
     private static String _ConnStr = DALTests.GetConnStr();

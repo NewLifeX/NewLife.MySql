@@ -8,6 +8,7 @@ using NewLife.MySql.Messages;
 namespace UnitTest;
 
 /// <summary>Authentication 辅助方法单元测试</summary>
+[Collection(TestCollections.InMemory)]
 public class AuthenticationTests
 {
     /// <summary>创建 Authentication 实例用于测试</summary>

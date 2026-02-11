@@ -6,6 +6,7 @@ using NewLife.MySql;
 namespace UnitTest;
 
 /// <summary>连接池共享测试</summary>
+[Collection(TestCollections.ReadOnly)]
 public class MySqlPoolTests
 {
     private static String _ConnStr = DALTests.GetConnStr();

@@ -5,6 +5,7 @@ using NewLife.MySql.Common;
 namespace UnitTest;
 
 /// <summary>MySqlColumn 类型映射单元测试</summary>
+[Collection(TestCollections.InMemory)]
 public class MySqlColumnTests
 {
     [Theory]

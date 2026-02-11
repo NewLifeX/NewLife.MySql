@@ -11,6 +11,7 @@ using System.Net.Sockets;
 namespace UnitTest;
 
 /// <summary>SqlClient 新增单元测试</summary>
+[Collection(TestCollections.WriteOperations)]
 public class SqlClientExtendedTests
 {
     [Fact(DisplayName = "测试连接超时处理")]

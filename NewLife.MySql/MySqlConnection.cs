@@ -84,11 +84,24 @@ public sealed partial class MySqlConnection : DbConnection
         var client = Client;
         if (client != null)
         {
-            // 关闭网络连接，归还连接池
-            if (_pool != null)
-                _pool.Return(client);
-            else
+            // 检查当前数据库是否与原始数据库一致
+            // 如果不一致，说明调用过 SetDatabaseAsync 且未切回，连接状态被污染，直接销毁
+            // 如果一致，说明要么未切换过数据库，要么切换后又切回来了，可以安全归还连接池
+            if (client.Database != Setting.Database)
+            {
+                // 数据库状态被污染，销毁连接不归还连接池
                 client.TryDispose();
+            }
+            else if (_pool != null)
+            {
+                // 数据库状态正常，归还连接池
+                _pool.Return(client);
+            }
+            else
+            {
+                client.TryDispose();
+            }
+
             Client = null;
             _pool = null;
         }

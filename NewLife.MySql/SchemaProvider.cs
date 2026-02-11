@@ -447,38 +447,45 @@ internal class SchemaProvider(MySqlConnection connection)
 
     private void LoadTableColumns(SchemaCollection schemaCollection, String schema, String tableName, String? columnRestriction)
     {
-        var sql = $"SHOW FULL COLUMNS FROM `{schema}`.`{tableName}`";
-        using var cmd = new MySqlCommand(connection, sql);
-        var pos = 1;
-        using var reader = cmd.ExecuteReader(CommandBehavior.Default);
-        while (reader.Read())
+        try
         {
-            var @string = reader.GetString(0);
-            if (columnRestriction == null || !(@string != columnRestriction))
+            var sql = $"SHOW FULL COLUMNS FROM `{schema}`.`{tableName}`";
+            using var cmd = new MySqlCommand(connection, sql);
+            var pos = 1;
+            using var reader = cmd.ExecuteReader(CommandBehavior.Default);
+            while (reader.Read())
             {
-                var row = schemaCollection.AddRow();
-                row["TABLE_CATALOG"] = DBNull.Value;
-                row["TABLE_SCHEMA"] = schema;
-                row["TABLE_NAME"] = tableName;
-                row["COLUMN_NAME"] = @string;
-                row["ORDINAL_POSITION"] = pos++;
-                row["COLUMN_DEFAULT"] = reader.GetValue(5);
-                row["IS_NULLABLE"] = reader.GetString(3);
-                row["DATA_TYPE"] = reader.GetString(1);
-                row["CHARACTER_MAXIMUM_LENGTH"] = DBNull.Value;
-                row["CHARACTER_OCTET_LENGTH"] = DBNull.Value;
-                row["NUMERIC_PRECISION"] = DBNull.Value;
-                row["NUMERIC_SCALE"] = DBNull.Value;
-                row["CHARACTER_SET_NAME"] = reader.GetValue(2);
-                row["COLLATION_NAME"] = row["CHARACTER_SET_NAME"];
-                row["COLUMN_TYPE"] = reader.GetString(1);
-                row["COLUMN_KEY"] = reader.GetString(4);
-                row["EXTRA"] = reader.GetString(6);
-                row["PRIVILEGES"] = reader.GetString(7);
-                row["COLUMN_COMMENT"] = reader.GetString(8);
-                row["GENERATION_EXPRESSION"] = reader.GetString(6).Contains("VIRTUAL") ? reader.GetString(9) : String.Empty;
-                ParseColumnRow(row);
+                var @string = reader.GetString(0);
+                if (columnRestriction == null || !(@string != columnRestriction))
+                {
+                    var row = schemaCollection.AddRow();
+                    row["TABLE_CATALOG"] = DBNull.Value;
+                    row["TABLE_SCHEMA"] = schema;
+                    row["TABLE_NAME"] = tableName;
+                    row["COLUMN_NAME"] = @string;
+                    row["ORDINAL_POSITION"] = pos++;
+                    row["COLUMN_DEFAULT"] = reader.GetValue(5);
+                    row["IS_NULLABLE"] = reader.GetString(3);
+                    row["DATA_TYPE"] = reader.GetString(1);
+                    row["CHARACTER_MAXIMUM_LENGTH"] = DBNull.Value;
+                    row["CHARACTER_OCTET_LENGTH"] = DBNull.Value;
+                    row["NUMERIC_PRECISION"] = DBNull.Value;
+                    row["NUMERIC_SCALE"] = DBNull.Value;
+                    row["CHARACTER_SET_NAME"] = reader.GetValue(2);
+                    row["COLLATION_NAME"] = row["CHARACTER_SET_NAME"];
+                    row["COLUMN_TYPE"] = reader.GetString(1);
+                    row["COLUMN_KEY"] = reader.GetString(4);
+                    row["EXTRA"] = reader.GetString(6);
+                    row["PRIVILEGES"] = reader.GetString(7);
+                    row["COLUMN_COMMENT"] = reader.GetString(8);
+                    row["GENERATION_EXPRESSION"] = reader.GetString(6).Contains("VIRTUAL") ? reader.GetString(9) : String.Empty;
+                    ParseColumnRow(row);
+                }
             }
+        }
+        catch (MySqlException ex) when (ex.Message.Contains("doesn't exist"))
+        {
+            // 表不存在（可能已被其他测试删除），跳过该表继续处理
         }
     }
 
@@ -568,27 +575,34 @@ internal class SchemaProvider(MySqlConnection connection)
         array[3] = "BASE TABLE";
         foreach (var table in GetTables(array).Rows)
         {
-            var sql = String.Format("SHOW INDEX FROM `{0}`.`{1}`", table["TABLE_SCHEMA"], table["TABLE_NAME"]);
-            foreach (var row in QueryCollection("indexes", sql).Rows)
+            try
             {
-                var keyName = row["KEY_NAME"]?.ToString();
-                if (keyName.IsNullOrEmpty()) continue;
-
-                if (row["SEQ_IN_INDEX"].ToInt() == 1 && (restrictions == null || restrictions.Length != 4 || restrictions[3] == null || String.Equals(keyName, restrictions[3], StringComparison.Ordinal)))
+                var sql = String.Format("SHOW INDEX FROM `{0}`.`{1}`", table["TABLE_SCHEMA"], table["TABLE_NAME"]);
+                foreach (var row in QueryCollection("indexes", sql).Rows)
                 {
-                    var tableName = row["TABLE"]?.ToString();
-                    if (tableName.IsNullOrEmpty()) continue;
+                    var keyName = row["KEY_NAME"]?.ToString();
+                    if (keyName.IsNullOrEmpty()) continue;
 
-                    var row2 = collection.AddRow();
-                    row2["INDEX_CATALOG"] = null;
-                    row2["INDEX_SCHEMA"] = table["TABLE_SCHEMA"];
-                    row2["INDEX_NAME"] = keyName;
-                    row2["TABLE_NAME"] = tableName;
-                    row2["UNIQUE"] = row["NON_UNIQUE"].ToInt() == 0;
-                    row2["PRIMARY"] = String.Equals(keyName, "PRIMARY", StringComparison.Ordinal);
-                    row2["TYPE"] = row["INDEX_TYPE"];
-                    row2["COMMENT"] = row["COMMENT"];
+                    if (row["SEQ_IN_INDEX"].ToInt() == 1 && (restrictions == null || restrictions.Length != 4 || restrictions[3] == null || String.Equals(keyName, restrictions[3], StringComparison.Ordinal)))
+                    {
+                        var tableName = row["TABLE"]?.ToString();
+                        if (tableName.IsNullOrEmpty()) continue;
+
+                        var row2 = collection.AddRow();
+                        row2["INDEX_CATALOG"] = null;
+                        row2["INDEX_SCHEMA"] = table["TABLE_SCHEMA"];
+                        row2["INDEX_NAME"] = keyName;
+                        row2["TABLE_NAME"] = tableName;
+                        row2["UNIQUE"] = row["NON_UNIQUE"].ToInt() == 0;
+                        row2["PRIMARY"] = String.Equals(keyName, "PRIMARY", StringComparison.Ordinal);
+                        row2["TYPE"] = row["INDEX_TYPE"];
+                        row2["COMMENT"] = row["COMMENT"];
+                    }
                 }
+            }
+            catch (MySqlException ex) when (ex.Message.Contains("doesn't exist"))
+            {
+                // 表不存在（可能已被其他测试删除），跳过该表继续处理
             }
         }
         return collection;
@@ -609,26 +623,33 @@ internal class SchemaProvider(MySqlConnection connection)
         array[3] = "BASE TABLE";
         foreach (var table in GetTables(array).Rows)
         {
-            var sql = String.Format("SHOW INDEX FROM `{0}`.`{1}`", table["TABLE_SCHEMA"], table["TABLE_NAME"]);
-            using var cmd = new MySqlCommand(connection, sql);
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read())
+            try
             {
-                var keyName = GetString(reader, reader.GetOrdinal("KEY_NAME"));
-                var columnName = GetString(reader, reader.GetOrdinal("COLUMN_NAME"));
-                if (keyName.IsNullOrEmpty() || columnName.IsNullOrEmpty()) continue;
-
-                if (restrictions == null || ((restrictions.Length < 4 || restrictions[3] == null || String.Equals(keyName, restrictions[3], StringComparison.Ordinal)) && (restrictions.Length < 5 || restrictions[4] == null || String.Equals(columnName, restrictions[4], StringComparison.Ordinal))))
+                var sql = String.Format("SHOW INDEX FROM `{0}`.`{1}`", table["TABLE_SCHEMA"], table["TABLE_NAME"]);
+                using var cmd = new MySqlCommand(connection, sql);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
                 {
-                    var mySqlSchemaRow = dt.AddRow();
-                    mySqlSchemaRow["INDEX_CATALOG"] = null;
-                    mySqlSchemaRow["INDEX_SCHEMA"] = table["TABLE_SCHEMA"];
-                    mySqlSchemaRow["INDEX_NAME"] = keyName;
-                    mySqlSchemaRow["TABLE_NAME"] = table["TABLE_NAME"];
-                    mySqlSchemaRow["COLUMN_NAME"] = columnName;
-                    mySqlSchemaRow["ORDINAL_POSITION"] = reader.GetValue(reader.GetOrdinal("SEQ_IN_INDEX"));
-                    mySqlSchemaRow["SORT_ORDER"] = reader.GetValue(reader.GetOrdinal("COLLATION"));
+                    var keyName = GetString(reader, reader.GetOrdinal("KEY_NAME"));
+                    var columnName = GetString(reader, reader.GetOrdinal("COLUMN_NAME"));
+                    if (keyName.IsNullOrEmpty() || columnName.IsNullOrEmpty()) continue;
+
+                    if (restrictions == null || ((restrictions.Length < 4 || restrictions[3] == null || String.Equals(keyName, restrictions[3], StringComparison.Ordinal)) && (restrictions.Length < 5 || restrictions[4] == null || String.Equals(columnName, restrictions[4], StringComparison.Ordinal))))
+                    {
+                        var mySqlSchemaRow = dt.AddRow();
+                        mySqlSchemaRow["INDEX_CATALOG"] = null;
+                        mySqlSchemaRow["INDEX_SCHEMA"] = table["TABLE_SCHEMA"];
+                        mySqlSchemaRow["INDEX_NAME"] = keyName;
+                        mySqlSchemaRow["TABLE_NAME"] = table["TABLE_NAME"];
+                        mySqlSchemaRow["COLUMN_NAME"] = columnName;
+                        mySqlSchemaRow["ORDINAL_POSITION"] = reader.GetValue(reader.GetOrdinal("SEQ_IN_INDEX"));
+                        mySqlSchemaRow["SORT_ORDER"] = reader.GetValue(reader.GetOrdinal("COLLATION"));
+                    }
                 }
+            }
+            catch (MySqlException ex) when (ex.Message.Contains("doesn't exist"))
+            {
+                // 表不存在（可能已被其他测试删除），跳过该表继续处理
             }
         }
         return dt;

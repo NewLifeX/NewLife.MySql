@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 17
-VisualStudioVersion = 17.12.35707.178 d17.12
+# Visual Studio Version 18
+VisualStudioVersion = 18.2.11415.280
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NewLife.MySql", "NewLife.MySql\NewLife.MySql.csproj", "{235B5638-1AB1-48A2-ABDE-577F9349B73D}"
 EndProject
@@ -10,6 +10,7 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Other", "Other", "{41BB9089-D57E-41E9-9820-69B649402C1F}"
 	ProjectSection(SolutionItems) = preProject
 		Readme.MD = Readme.MD
+		Doc\架构设计.md = Doc\架构设计.md
 	EndProjectSection
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UnitTest", "UnitTest\UnitTest.csproj", "{42D46C49-05C7-4B16-9F0E-ABA4149DDD7C}"
