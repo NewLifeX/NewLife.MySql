@@ -895,11 +895,13 @@ public class SqlClient : DisposeBase
         return totalAffected;
     }
 
-    /// <summary>真管道化执行核心。批量发送所有 COM_STMT_EXECUTE 包后批量读取响应</summary>
+    /// <summary>真管道化执行核心。并发发送 COM_STMT_EXECUTE 包和读取响应</summary>
     /// <remarks>
-    /// MySQL 协议中每个 COM_STMT_EXECUTE 独立使用 seq=0，服务器按顺序处理并返回 OK/Error 包。
-    /// 通过延迟 Flush 让 TCP 协议栈合并多个小包为大包发送，减少系统调用和网络往返次数。
-    /// 对于大批量 DML（万级/十万级），可显著降低总耗时。
+    /// 利用 TCP 全双工特性，发送和接收并发执行，避免大批量管道化时 TCP 缓冲区双向填满导致死锁。
+    /// 当批量数较大时（如万行 UPDATE），若先发完所有请求再读响应，客户端发送缓冲区和服务端发送缓冲区
+    /// 可能同时填满，双方均阻塞在写操作上形成死锁，最终触发读取超时。
+    /// 并发模式下，读取任务在 ReadExactlyAsync 处让出执行权等待数据，发送任务持续推送数据包，
+    /// 服务端处理后返回的响应立即被读取任务消费，保持双向数据流畅通。
     /// </remarks>
     /// <param name="statementId">预编译语句 ID</param>
     /// <param name="parameterSets">多组参数集合</param>
@@ -908,17 +910,41 @@ public class SqlClient : DisposeBase
     private async Task<Int32> ExecutePipelineCoreAsync(Int32 statementId, IList<MySqlParameterCollection> parameterSets, CancellationToken cancellationToken)
     {
         var count = parameterSets.Count;
+        var ms = _stream ?? throw new InvalidOperationException("未打开连接");
 
-        // Phase 1: 批量构建并发送所有 EXECUTE 包，仅最后一个包做 Flush
+        // 先启动读取任务，它会在 ReadExactlyAsync 处让出执行权等待数据到达
+        var readTask = ReadPipelineResponsesAsync(count, cancellationToken);
+
+        // 发送所有 EXECUTE 包，直接写入 seq=0 帧头，避免与读取任务竞争 _seq 字段
         for (var i = 0; i < count; i++)
         {
             var pk = BuildExecutePacket(statementId, parameterSets[i]);
-            _seq = 0;
-            var isLast = i == count - 1;
-            await SendPacketAsync(pk, cancellationToken, flush: isLast).ConfigureAwait(false);
+
+            // 管道化每个 EXECUTE 独立使用 seq=0，直接构造帧头避免并发读写 _seq 竞态
+            var len = pk.Total;
+            var pk2 = pk.ExpandHeader(4);
+            pk2[0] = (Byte)(len & 0xFF);
+            pk2[1] = (Byte)((len >> 8) & 0xFF);
+            pk2[2] = (Byte)((len >> 16) & 0xFF);
+            pk2[3] = 0;
+
+            await pk2.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+
+            // 定期 Flush 推送数据到服务端（SslStream 有内部缓冲，必须 Flush 才能发出）
+            if (i == count - 1 || (i + 1) % 100 == 0)
+                await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        // Phase 2: 批量读取所有响应，累加影响行数
+        // 等待所有响应读取完成
+        return await readTask.ConfigureAwait(false);
+    }
+
+    /// <summary>批量读取管道化响应，累加影响行数</summary>
+    /// <param name="count">需要读取的响应数量</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>总影响行数</returns>
+    private async Task<Int32> ReadPipelineResponsesAsync(Int32 count, CancellationToken cancellationToken)
+    {
         var totalAffected = 0;
         MySqlException? firstError = null;
         for (var i = 0; i < count; i++)
