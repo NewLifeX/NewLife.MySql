@@ -470,7 +470,7 @@ public class SqlClient : DisposeBase
     }
     #endregion
 
-    #region 逻辑命令
+    #region 基础命令
     /// <summary>异步发送心跳检测连接可用性</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>连接是否正常</returns>
@@ -563,6 +563,83 @@ public class SqlClient : DisposeBase
         }
     }
 
+    /// <summary>异步创建数据库。使用 COM_CREATE_DB 二进制命令</summary>
+    /// <param name="databaseName">要创建的数据库名</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    /// <remarks>
+    /// COM_CREATE_DB 协议格式：
+    /// 请求：command(1) + schema_name(EOF-terminated)
+    /// 响应：OK 包或 ERR 包
+    /// 注意：此命令已被弃用，建议使用 CREATE DATABASE 语句替代
+    /// </remarks>
+    public async Task CreateDatabaseAsync(String databaseName, CancellationToken cancellationToken = default)
+    {
+        if (databaseName.IsNullOrEmpty())
+            throw new ArgumentNullException(nameof(databaseName));
+
+        var bytes = Encoding.GetBytes(databaseName);
+        var len = 1 + bytes.Length;
+        var buf = Pool.Shared.Rent(4 + len);
+
+        try
+        {
+            buf[4] = (Byte)DbCmd.CREATE_DB;
+            Array.Copy(bytes, 0, buf, 5, bytes.Length);
+
+            _seq = 0;
+            await SendPacketAsync(new ArrayPacket(buf, 4, len), cancellationToken).ConfigureAwait(false);
+
+            using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+            if (!rs.IsOK)
+                throw new MySqlException("创建数据库失败");
+        }
+        finally
+        {
+            Pool.Shared.Return(buf);
+        }
+    }
+
+    /// <summary>异步删除数据库。使用 COM_DROP_DB 二进制命令</summary>
+    /// <param name="databaseName">要删除的数据库名</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    /// <remarks>
+    /// COM_DROP_DB 协议格式：
+    /// 请求：command(1) + schema_name(EOF-terminated)
+    /// 响应：OK 包或 ERR 包
+    /// 注意：此命令已被弃用，建议使用 DROP DATABASE 语句替代
+    /// </remarks>
+    public async Task DropDatabaseAsync(String databaseName, CancellationToken cancellationToken = default)
+    {
+        if (databaseName.IsNullOrEmpty())
+            throw new ArgumentNullException(nameof(databaseName));
+
+        var bytes = Encoding.GetBytes(databaseName);
+        var len = 1 + bytes.Length;
+        var buf = Pool.Shared.Rent(4 + len);
+
+        try
+        {
+            buf[4] = (Byte)DbCmd.DROP_DB;
+            Array.Copy(bytes, 0, buf, 5, bytes.Length);
+
+            _seq = 0;
+            await SendPacketAsync(new ArrayPacket(buf, 4, len), cancellationToken).ConfigureAwait(false);
+
+            using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+            if (!rs.IsOK)
+                throw new MySqlException("删除数据库失败");
+        }
+        finally
+        {
+            Pool.Shared.Return(buf);
+        }
+    }
+
+    #endregion
+
+    #region 查询与结果集
     /// <summary>异步发送 SQL 查询请求到服务器。</summary>
     /// <remarks>构造查询包时通常应预留帧头或使用 `ExpandHeader(4)`/在偏移 4 处写入命令字节，以便本方法把 `DbCmd.QUERY` 写入第一字节。</remarks>
     /// <param name="pk">包含查询语句的数据包。注意：数据包的第一个字节必须留作命令字节（DbCmd），构造查询数据包时不要占用该字节。</param>
@@ -719,6 +796,63 @@ public class SqlClient : DisposeBase
         return new RowResult(false, statusFlags, warnings);
     }
 
+    /// <summary>异步获取指定表的字段列表。使用 COM_FIELD_LIST 二进制命令</summary>
+    /// <param name="table">表名</param>
+    /// <param name="wildcard">列名通配符模式，可为空表示获取所有列</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>列信息数组</returns>
+    /// <remarks>
+    /// COM_FIELD_LIST 协议格式：
+    /// 请求：command(1) + table(NUL-terminated) + wildcard(optional, EOF-terminated)
+    /// 响应：多个列定义包 + EOF 包，或 ERR 包
+    /// 注意：此命令在 MySQL 5.7.11 后被标记为已弃用，建议使用 SHOW COLUMNS 替代
+    /// </remarks>
+    public async Task<MySqlColumn[]> FieldListAsync(String table, String? wildcard = null, CancellationToken cancellationToken = default)
+    {
+        if (table.IsNullOrEmpty())
+            throw new ArgumentNullException(nameof(table));
+
+        var tableBytes = Encoding.GetBytes(table);
+        var wildcardBytes = wildcard.IsNullOrEmpty() ? new Byte[0] : Encoding.GetBytes(wildcard);
+        // command(1) + table + NUL(1) + wildcard
+        var len = 1 + tableBytes.Length + 1 + wildcardBytes.Length;
+        var buf = Pool.Shared.Rent(4 + len);
+
+        try
+        {
+            buf[4] = (Byte)DbCmd.FIELD_LIST;
+            Array.Copy(tableBytes, 0, buf, 5, tableBytes.Length);
+            buf[5 + tableBytes.Length] = 0; // NUL 终止符
+            if (wildcardBytes.Length > 0)
+                Array.Copy(wildcardBytes, 0, buf, 6 + tableBytes.Length, wildcardBytes.Length);
+
+            _seq = 0;
+            await SendPacketAsync(new ArrayPacket(buf, 4, len), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Pool.Shared.Return(buf);
+        }
+
+        // 读取列定义包直到 EOF
+        var list = new List<MySqlColumn>();
+        while (true)
+        {
+            using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+            if (rs.IsEOF) break;
+
+            var reader = new SpanReader(rs.Data);
+            var dc = new MySqlColumn();
+            dc.Read(ref reader);
+            list.Add(dc);
+        }
+
+        return [.. list];
+    }
+
+    #endregion
+
+    #region 预编译语句
     /// <summary>异步准备预编译语句</summary>
     /// <param name="sql">SQL 语句</param>
     /// <param name="cancellationToken">取消令牌</param>
@@ -894,6 +1028,90 @@ public class SqlClient : DisposeBase
         using var _ = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>异步发送预编译语句的大数据参数。使用 COM_STMT_SEND_LONG_DATA 二进制命令</summary>
+    /// <param name="statementId">预编译语句 ID</param>
+    /// <param name="paramIndex">参数索引（从 0 开始）</param>
+    /// <param name="data">要发送的数据块</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    /// <remarks>
+    /// COM_STMT_SEND_LONG_DATA 协议格式：
+    /// 请求：command(1) + statement_id(4) + param_id(2) + data(EOF-terminated)
+    /// 响应：无响应包。可多次调用同一参数发送大数据分片，服务端自动拼接
+    /// 用途：用于发送 BLOB/TEXT 等大字段数据，避免一次性将大数据放入 EXECUTE 包
+    /// </remarks>
+    public async Task SendLongDataAsync(Int32 statementId, Int16 paramIndex, Byte[] data, CancellationToken cancellationToken = default)
+    {
+        if (data == null)
+            throw new ArgumentNullException(nameof(data));
+
+        // command(1) + statement_id(4) + param_id(2) + data
+        var len = 1 + 4 + 2 + data.Length;
+        var buf = Pool.Shared.Rent(4 + len);
+
+        try
+        {
+            buf[4] = (Byte)DbCmd.LONG_DATA;
+            buf[5] = (Byte)(statementId & 0xFF);
+            buf[6] = (Byte)((statementId >> 8) & 0xFF);
+            buf[7] = (Byte)((statementId >> 16) & 0xFF);
+            buf[8] = (Byte)((statementId >> 24) & 0xFF);
+            buf[9] = (Byte)(paramIndex & 0xFF);
+            buf[10] = (Byte)((paramIndex >> 8) & 0xFF);
+            Array.Copy(data, 0, buf, 11, data.Length);
+
+            _seq = 0;
+            await SendPacketAsync(new ArrayPacket(buf, 4, len), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Pool.Shared.Return(buf);
+        }
+
+        // COM_STMT_SEND_LONG_DATA 无响应包
+    }
+
+    /// <summary>异步获取预编译语句的游标结果行。使用 COM_STMT_FETCH 二进制命令</summary>
+    /// <param name="statementId">预编译语句 ID</param>
+    /// <param name="numRows">要获取的行数</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    /// <remarks>
+    /// COM_STMT_FETCH 协议格式：
+    /// 请求：command(1) + statement_id(4) + num_rows(4, little-endian)
+    /// 响应：多个二进制行数据包 + EOF 包
+    /// 前提：EXECUTE 时需指定 CURSOR_TYPE_READ_ONLY 游标标志，否则服务端返回错误
+    /// 用途：配合服务端游标逐批拉取数据行，适合大结果集场景
+    /// </remarks>
+    public async Task FetchAsync(Int32 statementId, Int32 numRows, CancellationToken cancellationToken = default)
+    {
+        var buf = Pool.Shared.Rent(4 + 1 + 4 + 4);
+        try
+        {
+            buf[4] = (Byte)DbCmd.FETCH;
+            buf[5] = (Byte)(statementId & 0xFF);
+            buf[6] = (Byte)((statementId >> 8) & 0xFF);
+            buf[7] = (Byte)((statementId >> 16) & 0xFF);
+            buf[8] = (Byte)((statementId >> 24) & 0xFF);
+            buf[9] = (Byte)(numRows & 0xFF);
+            buf[10] = (Byte)((numRows >> 8) & 0xFF);
+            buf[11] = (Byte)((numRows >> 16) & 0xFF);
+            buf[12] = (Byte)((numRows >> 24) & 0xFF);
+
+            _seq = 0;
+            await SendPacketAsync(new ArrayPacket(buf, 4, 9), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Pool.Shared.Return(buf);
+        }
+
+        // 响应的行数据和 EOF 包由调用方通过 NextBinaryRowAsync 逐行读取
+    }
+
+    #endregion
+
+    #region 管道化执行
     /// <summary>管道化批量执行预编译语句。根据 Pipeline 设置选择真管道化或串行模式</summary>
     /// <remarks>
     /// 真管道化模式（Pipeline=true）：批量构建并发送所有 EXECUTE 包到网络缓冲区，最后一次性 Flush，
@@ -997,6 +1215,207 @@ public class SqlClient : DisposeBase
         if (firstError != null) throw firstError;
 
         return totalAffected;
+    }
+    #endregion
+
+    #region 扩展命令
+    /// <summary>异步获取服务器统计信息。使用 COM_STATISTICS 二进制命令</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>服务器统计信息字符串，包含 Uptime、Threads、Queries 等</returns>
+    /// <remarks>
+    /// COM_STATISTICS 协议格式：
+    /// 请求：command(1)
+    /// 响应：非标准 OK 包，直接返回一个人类可读的统计信息字符串（不以 0x00 开头）
+    /// 示例响应：Uptime: 123  Threads: 1  Questions: 456  Slow queries: 0  Opens: 78  ...
+    /// </remarks>
+    public async Task<String> StatisticsAsync(CancellationToken cancellationToken = default)
+    {
+        await SendCommandAsync(DbCmd.STATISTICS, cancellationToken).ConfigureAwait(false);
+        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+
+        // COM_STATISTICS 返回的是纯文本字符串，不是标准的 OK/ERR/EOF 包
+        return Encoding.GetString(rs.Data.GetSpan());
+    }
+
+    /// <summary>异步获取当前活动线程的进程列表。使用 COM_PROCESS_INFO 二进制命令</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>查询结果对象，包含列数信息用于后续读取结果集</returns>
+    /// <remarks>
+    /// COM_PROCESS_INFO 协议格式：
+    /// 请求：command(1)
+    /// 响应：与 SELECT 查询相同的结果集格式（列数 + 列定义 + 行数据 + EOF）
+    /// 返回的列包含：Id, User, Host, db, Command, Time, State, Info
+    /// 注意：此命令已被弃用，建议使用 SHOW PROCESSLIST 语句替代
+    /// </remarks>
+    public async Task<QueryResult> ProcessInfoAsync(CancellationToken cancellationToken = default)
+    {
+        await SendCommandAsync(DbCmd.PROCESS_INFO, cancellationToken).ConfigureAwait(false);
+        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+
+        return GetResult(rs);
+    }
+
+    /// <summary>异步终止指定的服务器线程。使用 COM_PROCESS_KILL 二进制命令</summary>
+    /// <param name="processId">要终止的线程 ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    /// <remarks>
+    /// COM_PROCESS_KILL 协议格式：
+    /// 请求：command(1) + connection_id(4, little-endian)
+    /// 响应：OK 包或 ERR 包
+    /// 注意：此命令已被弃用，建议使用 KILL 语句替代
+    /// </remarks>
+    public async Task ProcessKillAsync(Int32 processId, CancellationToken cancellationToken = default)
+    {
+        var buf = Pool.Shared.Rent(4 + 1 + 4);
+        try
+        {
+            buf[4] = (Byte)DbCmd.PROCESS_KILL;
+            buf[5] = (Byte)(processId & 0xFF);
+            buf[6] = (Byte)((processId >> 8) & 0xFF);
+            buf[7] = (Byte)((processId >> 16) & 0xFF);
+            buf[8] = (Byte)((processId >> 24) & 0xFF);
+
+            _seq = 0;
+            await SendPacketAsync(new ArrayPacket(buf, 4, 5), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Pool.Shared.Return(buf);
+        }
+
+        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        if (!rs.IsOK)
+            throw new MySqlException("终止线程失败");
+    }
+
+    /// <summary>异步设置连接选项。使用 COM_SET_OPTION 二进制命令</summary>
+    /// <param name="option">选项值。0 = MYSQL_OPTION_MULTI_STATEMENTS_ON，1 = MYSQL_OPTION_MULTI_STATEMENTS_OFF</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    /// <remarks>
+    /// COM_SET_OPTION 协议格式：
+    /// 请求：command(1) + option(2, little-endian)
+    /// 响应：EOF 包（成功）或 ERR 包
+    /// 选项值：
+    ///   0 = MYSQL_OPTION_MULTI_STATEMENTS_ON  - 启用多语句支持
+    ///   1 = MYSQL_OPTION_MULTI_STATEMENTS_OFF - 禁用多语句支持
+    /// </remarks>
+    public async Task SetOptionAsync(Int16 option, CancellationToken cancellationToken = default)
+    {
+        var buf = Pool.Shared.Rent(4 + 1 + 2);
+        try
+        {
+            buf[4] = (Byte)DbCmd.SET_OPTION;
+            buf[5] = (Byte)(option & 0xFF);
+            buf[6] = (Byte)((option >> 8) & 0xFF);
+
+            _seq = 0;
+            await SendPacketAsync(new ArrayPacket(buf, 4, 3), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Pool.Shared.Return(buf);
+        }
+
+        // COM_SET_OPTION 返回 EOF 包表示成功
+        using var _ = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>异步获取服务器时间戳。使用 COM_TIME 二进制命令</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    /// <remarks>
+    /// COM_TIME 协议格式：
+    /// 请求：command(1)
+    /// 响应：时间字符串或 ERR 包
+    /// 注意：此命令在 MySQL 协议中已不推荐使用，服务器可能返回错误
+    /// </remarks>
+    public async Task TimeAsync(CancellationToken cancellationToken = default)
+    {
+        await SendCommandAsync(DbCmd.TIME, cancellationToken).ConfigureAwait(false);
+        using var _ = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>异步注册从属服务器。使用 COM_REGISTER_SLAVE 二进制命令</summary>
+    /// <param name="serverId">从属服务器 ID</param>
+    /// <param name="host">从属服务器主机名</param>
+    /// <param name="user">复制用户名</param>
+    /// <param name="password">复制密码</param>
+    /// <param name="port">从属服务器端口</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    /// <remarks>
+    /// COM_REGISTER_SLAVE 协议格式：
+    /// 请求：command(1) + server_id(4) + hostname_length(1) + hostname + user_length(1) + user
+    ///       + password_length(1) + password + port(2) + replication_rank(4) + master_id(4)
+    /// 响应：OK 包或 ERR 包
+    /// 用途：将当前连接注册为 MySQL 复制的从属节点，配合 COM_BINLOG_DUMP 使用
+    /// </remarks>
+    public async Task RegisterSlaveAsync(Int32 serverId, String host, String user, String password, Int16 port, CancellationToken cancellationToken = default)
+    {
+        var hostBytes = Encoding.GetBytes(host ?? "");
+        var userBytes = Encoding.GetBytes(user ?? "");
+        var pwdBytes = Encoding.GetBytes(password ?? "");
+
+        // command(1) + server_id(4) + hostname_len(1) + hostname + user_len(1) + user
+        // + password_len(1) + password + port(2) + replication_rank(4) + master_id(4)
+        var len = 1 + 4 + 1 + hostBytes.Length + 1 + userBytes.Length + 1 + pwdBytes.Length + 2 + 4 + 4;
+        var buf = Pool.Shared.Rent(4 + len);
+
+        try
+        {
+            var offset = 4;
+            buf[offset++] = (Byte)DbCmd.REGISTER_SLAVE;
+
+            // server_id (4 bytes LE)
+            buf[offset++] = (Byte)(serverId & 0xFF);
+            buf[offset++] = (Byte)((serverId >> 8) & 0xFF);
+            buf[offset++] = (Byte)((serverId >> 16) & 0xFF);
+            buf[offset++] = (Byte)((serverId >> 24) & 0xFF);
+
+            // hostname
+            buf[offset++] = (Byte)hostBytes.Length;
+            Array.Copy(hostBytes, 0, buf, offset, hostBytes.Length);
+            offset += hostBytes.Length;
+
+            // user
+            buf[offset++] = (Byte)userBytes.Length;
+            Array.Copy(userBytes, 0, buf, offset, userBytes.Length);
+            offset += userBytes.Length;
+
+            // password
+            buf[offset++] = (Byte)pwdBytes.Length;
+            Array.Copy(pwdBytes, 0, buf, offset, pwdBytes.Length);
+            offset += pwdBytes.Length;
+
+            // port (2 bytes LE)
+            buf[offset++] = (Byte)(port & 0xFF);
+            buf[offset++] = (Byte)((port >> 8) & 0xFF);
+
+            // replication_rank (4 bytes, 通常为 0)
+            buf[offset++] = 0;
+            buf[offset++] = 0;
+            buf[offset++] = 0;
+            buf[offset++] = 0;
+
+            // master_id (4 bytes, 通常为 0)
+            buf[offset++] = 0;
+            buf[offset++] = 0;
+            buf[offset++] = 0;
+            buf[offset++] = 0;
+
+            _seq = 0;
+            await SendPacketAsync(new ArrayPacket(buf, 4, len), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Pool.Shared.Return(buf);
+        }
+
+        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        if (!rs.IsOK)
+            throw new MySqlException("注册从属服务器失败");
     }
     #endregion
 }
