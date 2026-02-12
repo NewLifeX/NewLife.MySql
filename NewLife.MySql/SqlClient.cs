@@ -6,6 +6,7 @@ using NewLife.Buffers;
 using NewLife.Collections;
 using NewLife.Data;
 using NewLife.Log;
+using NewLife.MySql.Binlog;
 using NewLife.MySql.Common;
 using NewLife.MySql.Messages;
 using NewLife.Threading;
@@ -468,6 +469,66 @@ public class SqlClient : DisposeBase
             Pool.Shared.Return(buf);
         }
     }
+
+    /// <summary>异步发送带 Int32 参数的命令请求。适用于 command(1) + value(4) 格式的协议命令</summary>
+    /// <param name="command">命令类型</param>
+    /// <param name="value">命令参数值（如 statement_id、connection_id 等）</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    public async Task SendCommandAsync(DbCmd command, Int32 value, CancellationToken cancellationToken = default)
+    {
+        var buf = Pool.Shared.Rent(4 + 5);
+        try
+        {
+            var writer = new SpanWriter(buf);
+            writer.Advance(4);
+            writer.Write((Byte)command);
+            writer.Write(value);
+
+            _seq = 0;
+            await SendPacketAsync(new ArrayPacket(buf, 4, 5), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Pool.Shared.Return(buf);
+        }
+    }
+
+    /// <summary>异步发送带字符串参数的命令请求。适用于 command(1) + string_payload 格式的协议命令</summary>
+    /// <param name="command">命令类型</param>
+    /// <param name="payload">字符串负载（按当前 Encoding 编码）</param>
+    /// <param name="nulTerminated">是否在字符串末尾添加 NUL 终止符（用于 COM_FIELD_LIST 等需要分隔多段数据的命令）</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    public async Task SendCommandAsync(DbCmd command, String payload, Boolean nulTerminated = false, CancellationToken cancellationToken = default)
+    {
+        if (payload == null) throw new ArgumentNullException(nameof(payload));
+
+        var byteCount = Encoding.GetByteCount(payload);
+        var extra = nulTerminated ? 1 : 0;
+        var len = 1 + byteCount + extra;
+        var buf = Pool.Shared.Rent(4 + len);
+
+        try
+        {
+            // 写命令字节
+            buf[4] = (Byte)command;
+
+            // 直接编码到租借缓冲，避免中间分配。payload 从 offset 5 开始
+            if (byteCount > 0)
+                Encoding.GetBytes(payload, 0, payload.Length, buf, 5);
+
+            if (nulTerminated)
+                buf[5 + byteCount] = 0;
+
+            _seq = 0;
+            await SendPacketAsync(new ArrayPacket(buf, 4, len), cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            Pool.Shared.Return(buf);
+        }
+    }
     #endregion
 
     #region 基础命令
@@ -533,34 +594,14 @@ public class SqlClient : DisposeBase
     {
         if (databaseName.IsNullOrEmpty())
             throw new ArgumentNullException(nameof(databaseName));
+        await SendCommandAsync(DbCmd.INIT_DB, databaseName, false, cancellationToken).ConfigureAwait(false);
 
-        var bytes = Encoding.GetBytes(databaseName);
-        var len = 1 + bytes.Length;
-        var buf = Pool.Shared.Rent(4 + len);
+        // 读取 OK 响应
+        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        if (!rs.IsOK) throw new MySqlException("切换数据库失败");
 
-        try
-        {
-            // 预留4字节帧头
-            buf[4] = (Byte)DbCmd.INIT_DB;
-            Array.Copy(bytes, 0, buf, 5, bytes.Length);
-
-            // 每一次命令请求，序列号都要重置为0
-            _seq = 0;
-
-            await SendPacketAsync(new ArrayPacket(buf, 4, len), cancellationToken).ConfigureAwait(false);
-
-            // 读取 OK 响应
-            using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-            if (!rs.IsOK)
-                throw new MySqlException("切换数据库失败");
-
-            // 更新当前数据库名
-            Database = databaseName;
-        }
-        finally
-        {
-            Pool.Shared.Return(buf);
-        }
+        // 更新当前数据库名
+        Database = databaseName;
     }
 
     /// <summary>异步创建数据库。使用 COM_CREATE_DB 二进制命令</summary>
@@ -577,27 +618,10 @@ public class SqlClient : DisposeBase
     {
         if (databaseName.IsNullOrEmpty())
             throw new ArgumentNullException(nameof(databaseName));
+        await SendCommandAsync(DbCmd.CREATE_DB, databaseName, false, cancellationToken).ConfigureAwait(false);
 
-        var bytes = Encoding.GetBytes(databaseName);
-        var len = 1 + bytes.Length;
-        var buf = Pool.Shared.Rent(4 + len);
-
-        try
-        {
-            buf[4] = (Byte)DbCmd.CREATE_DB;
-            Array.Copy(bytes, 0, buf, 5, bytes.Length);
-
-            _seq = 0;
-            await SendPacketAsync(new ArrayPacket(buf, 4, len), cancellationToken).ConfigureAwait(false);
-
-            using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-            if (!rs.IsOK)
-                throw new MySqlException("创建数据库失败");
-        }
-        finally
-        {
-            Pool.Shared.Return(buf);
-        }
+        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        if (!rs.IsOK) throw new MySqlException("创建数据库失败");
     }
 
     /// <summary>异步删除数据库。使用 COM_DROP_DB 二进制命令</summary>
@@ -614,27 +638,10 @@ public class SqlClient : DisposeBase
     {
         if (databaseName.IsNullOrEmpty())
             throw new ArgumentNullException(nameof(databaseName));
+        await SendCommandAsync(DbCmd.DROP_DB, databaseName, false, cancellationToken).ConfigureAwait(false);
 
-        var bytes = Encoding.GetBytes(databaseName);
-        var len = 1 + bytes.Length;
-        var buf = Pool.Shared.Rent(4 + len);
-
-        try
-        {
-            buf[4] = (Byte)DbCmd.DROP_DB;
-            Array.Copy(bytes, 0, buf, 5, bytes.Length);
-
-            _seq = 0;
-            await SendPacketAsync(new ArrayPacket(buf, 4, len), cancellationToken).ConfigureAwait(false);
-
-            using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-            if (!rs.IsOK)
-                throw new MySqlException("删除数据库失败");
-        }
-        finally
-        {
-            Pool.Shared.Return(buf);
-        }
+        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        if (!rs.IsOK) throw new MySqlException("删除数据库失败");
     }
 
     #endregion
@@ -812,19 +819,19 @@ public class SqlClient : DisposeBase
         if (table.IsNullOrEmpty())
             throw new ArgumentNullException(nameof(table));
 
-        var tableBytes = Encoding.GetBytes(table);
-        var wildcardBytes = wildcard.IsNullOrEmpty() ? new Byte[0] : Encoding.GetBytes(wildcard);
+        var tableByteCount = Encoding.GetByteCount(table);
+        var wildcardByteCount = wildcard.IsNullOrEmpty() ? 0 : Encoding.GetByteCount(wildcard);
         // command(1) + table + NUL(1) + wildcard
-        var len = 1 + tableBytes.Length + 1 + wildcardBytes.Length;
+        var len = 1 + tableByteCount + 1 + wildcardByteCount;
         var buf = Pool.Shared.Rent(4 + len);
 
         try
         {
             buf[4] = (Byte)DbCmd.FIELD_LIST;
-            Array.Copy(tableBytes, 0, buf, 5, tableBytes.Length);
-            buf[5 + tableBytes.Length] = 0; // NUL 终止符
-            if (wildcardBytes.Length > 0)
-                Array.Copy(wildcardBytes, 0, buf, 6 + tableBytes.Length, wildcardBytes.Length);
+            Encoding.GetBytes(table, 0, table.Length, buf, 5);
+            buf[5 + tableByteCount] = 0; // NUL 终止符
+            if (wildcardByteCount > 0)
+                Encoding.GetBytes(wildcard!, 0, wildcard!.Length, buf, 6 + tableByteCount);
 
             _seq = 0;
             await SendPacketAsync(new ArrayPacket(buf, 4, len), cancellationToken).ConfigureAwait(false);
@@ -981,23 +988,7 @@ public class SqlClient : DisposeBase
     /// <returns>异步任务</returns>
     public async Task CloseStatementAsync(Int32 statementId, CancellationToken cancellationToken = default)
     {
-        var buf = Pool.Shared.Rent(4 + 1 + 4);
-        try
-        {
-            // 预留4字节帧头
-            buf[4] = (Byte)DbCmd.CLOSE_STMT;
-            buf[5] = (Byte)(statementId & 0xFF);
-            buf[6] = (Byte)((statementId >> 8) & 0xFF);
-            buf[7] = (Byte)((statementId >> 16) & 0xFF);
-            buf[8] = (Byte)((statementId >> 24) & 0xFF);
-
-            _seq = 0;
-            await SendPacketAsync(new ArrayPacket(buf, 4, 5), cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            Pool.Shared.Return(buf);
-        }
+        await SendCommandAsync(DbCmd.CLOSE_STMT, statementId, cancellationToken).ConfigureAwait(false);
         // COM_STMT_CLOSE 不会返回响应包
     }
 
@@ -1007,22 +998,7 @@ public class SqlClient : DisposeBase
     /// <returns>异步任务</returns>
     public async Task ResetStatementAsync(Int32 statementId, CancellationToken cancellationToken = default)
     {
-        var buf = Pool.Shared.Rent(4 + 1 + 4);
-        try
-        {
-            buf[4] = (Byte)DbCmd.RESET_STMT;
-            buf[5] = (Byte)(statementId & 0xFF);
-            buf[6] = (Byte)((statementId >> 8) & 0xFF);
-            buf[7] = (Byte)((statementId >> 16) & 0xFF);
-            buf[8] = (Byte)((statementId >> 24) & 0xFF);
-
-            _seq = 0;
-            await SendPacketAsync(new ArrayPacket(buf, 4, 5), cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            Pool.Shared.Return(buf);
-        }
+        await SendCommandAsync(DbCmd.RESET_STMT, statementId, cancellationToken).ConfigureAwait(false);
 
         // COM_STMT_RESET 返回 OK 包
         using var _ = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
@@ -1051,14 +1027,12 @@ public class SqlClient : DisposeBase
 
         try
         {
-            buf[4] = (Byte)DbCmd.LONG_DATA;
-            buf[5] = (Byte)(statementId & 0xFF);
-            buf[6] = (Byte)((statementId >> 8) & 0xFF);
-            buf[7] = (Byte)((statementId >> 16) & 0xFF);
-            buf[8] = (Byte)((statementId >> 24) & 0xFF);
-            buf[9] = (Byte)(paramIndex & 0xFF);
-            buf[10] = (Byte)((paramIndex >> 8) & 0xFF);
-            Array.Copy(data, 0, buf, 11, data.Length);
+            var writer = new SpanWriter(buf);
+            writer.Advance(4);
+            writer.Write((Byte)DbCmd.LONG_DATA);
+            writer.Write(statementId);
+            writer.Write(paramIndex);
+            writer.Write(data);
 
             _seq = 0;
             await SendPacketAsync(new ArrayPacket(buf, 4, len), cancellationToken).ConfigureAwait(false);
@@ -1088,15 +1062,11 @@ public class SqlClient : DisposeBase
         var buf = Pool.Shared.Rent(4 + 1 + 4 + 4);
         try
         {
-            buf[4] = (Byte)DbCmd.FETCH;
-            buf[5] = (Byte)(statementId & 0xFF);
-            buf[6] = (Byte)((statementId >> 8) & 0xFF);
-            buf[7] = (Byte)((statementId >> 16) & 0xFF);
-            buf[8] = (Byte)((statementId >> 24) & 0xFF);
-            buf[9] = (Byte)(numRows & 0xFF);
-            buf[10] = (Byte)((numRows >> 8) & 0xFF);
-            buf[11] = (Byte)((numRows >> 16) & 0xFF);
-            buf[12] = (Byte)((numRows >> 24) & 0xFF);
+            var writer = new SpanWriter(buf);
+            writer.Advance(4);
+            writer.Write((Byte)DbCmd.FETCH);
+            writer.Write(statementId);
+            writer.Write(numRows);
 
             _seq = 0;
             await SendPacketAsync(new ArrayPacket(buf, 4, 9), cancellationToken).ConfigureAwait(false);
@@ -1218,7 +1188,7 @@ public class SqlClient : DisposeBase
     }
     #endregion
 
-    #region 扩展命令
+    #region 服务器管理
     /// <summary>异步获取服务器统计信息。使用 COM_STATISTICS 二进制命令</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>服务器统计信息字符串，包含 Uptime、Threads、Queries 等</returns>
@@ -1267,22 +1237,7 @@ public class SqlClient : DisposeBase
     /// </remarks>
     public async Task ProcessKillAsync(Int32 processId, CancellationToken cancellationToken = default)
     {
-        var buf = Pool.Shared.Rent(4 + 1 + 4);
-        try
-        {
-            buf[4] = (Byte)DbCmd.PROCESS_KILL;
-            buf[5] = (Byte)(processId & 0xFF);
-            buf[6] = (Byte)((processId >> 8) & 0xFF);
-            buf[7] = (Byte)((processId >> 16) & 0xFF);
-            buf[8] = (Byte)((processId >> 24) & 0xFF);
-
-            _seq = 0;
-            await SendPacketAsync(new ArrayPacket(buf, 4, 5), cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            Pool.Shared.Return(buf);
-        }
+        await SendCommandAsync(DbCmd.PROCESS_KILL, processId, cancellationToken).ConfigureAwait(false);
 
         using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         if (!rs.IsOK)
@@ -1306,9 +1261,10 @@ public class SqlClient : DisposeBase
         var buf = Pool.Shared.Rent(4 + 1 + 2);
         try
         {
-            buf[4] = (Byte)DbCmd.SET_OPTION;
-            buf[5] = (Byte)(option & 0xFF);
-            buf[6] = (Byte)((option >> 8) & 0xFF);
+            var writer = new SpanWriter(buf);
+            writer.Advance(4);
+            writer.Write((Byte)DbCmd.SET_OPTION);
+            writer.Write(option);
 
             _seq = 0;
             await SendPacketAsync(new ArrayPacket(buf, 4, 3), cancellationToken).ConfigureAwait(false);
@@ -1336,7 +1292,9 @@ public class SqlClient : DisposeBase
         await SendCommandAsync(DbCmd.TIME, cancellationToken).ConfigureAwait(false);
         using var _ = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
     }
+    #endregion
 
+    #region Binlog 复制
     /// <summary>异步注册从属服务器。使用 COM_REGISTER_SLAVE 二进制命令</summary>
     /// <param name="serverId">从属服务器 ID</param>
     /// <param name="host">从属服务器主机名</param>
@@ -1354,56 +1312,33 @@ public class SqlClient : DisposeBase
     /// </remarks>
     public async Task RegisterSlaveAsync(Int32 serverId, String host, String user, String password, Int16 port, CancellationToken cancellationToken = default)
     {
-        var hostBytes = Encoding.GetBytes(host ?? "");
-        var userBytes = Encoding.GetBytes(user ?? "");
-        var pwdBytes = Encoding.GetBytes(password ?? "");
+        var hostStr = host ?? "";
+        var userStr = user ?? "";
+        var pwdStr = password ?? "";
+        var hostByteCount = Encoding.GetByteCount(hostStr);
+        var userByteCount = Encoding.GetByteCount(userStr);
+        var pwdByteCount = Encoding.GetByteCount(pwdStr);
 
         // command(1) + server_id(4) + hostname_len(1) + hostname + user_len(1) + user
         // + password_len(1) + password + port(2) + replication_rank(4) + master_id(4)
-        var len = 1 + 4 + 1 + hostBytes.Length + 1 + userBytes.Length + 1 + pwdBytes.Length + 2 + 4 + 4;
+        var len = 1 + 4 + 1 + hostByteCount + 1 + userByteCount + 1 + pwdByteCount + 2 + 4 + 4;
         var buf = Pool.Shared.Rent(4 + len);
 
         try
         {
-            var offset = 4;
-            buf[offset++] = (Byte)DbCmd.REGISTER_SLAVE;
+            var writer = new SpanWriter(buf);
+            writer.Advance(4);
+            writer.Write((Byte)DbCmd.REGISTER_SLAVE);
+            writer.Write(serverId);
 
-            // server_id (4 bytes LE)
-            buf[offset++] = (Byte)(serverId & 0xFF);
-            buf[offset++] = (Byte)((serverId >> 8) & 0xFF);
-            buf[offset++] = (Byte)((serverId >> 16) & 0xFF);
-            buf[offset++] = (Byte)((serverId >> 24) & 0xFF);
+            // hostname（长度前缀 + 内容直接编码到缓冲区）
+            writer.Write(hostStr, 0, Encoding);
+            writer.Write(userStr, 0, Encoding);
+            writer.Write(pwdStr, 0, Encoding);
 
-            // hostname
-            buf[offset++] = (Byte)hostBytes.Length;
-            Array.Copy(hostBytes, 0, buf, offset, hostBytes.Length);
-            offset += hostBytes.Length;
-
-            // user
-            buf[offset++] = (Byte)userBytes.Length;
-            Array.Copy(userBytes, 0, buf, offset, userBytes.Length);
-            offset += userBytes.Length;
-
-            // password
-            buf[offset++] = (Byte)pwdBytes.Length;
-            Array.Copy(pwdBytes, 0, buf, offset, pwdBytes.Length);
-            offset += pwdBytes.Length;
-
-            // port (2 bytes LE)
-            buf[offset++] = (Byte)(port & 0xFF);
-            buf[offset++] = (Byte)((port >> 8) & 0xFF);
-
-            // replication_rank (4 bytes, 通常为 0)
-            buf[offset++] = 0;
-            buf[offset++] = 0;
-            buf[offset++] = 0;
-            buf[offset++] = 0;
-
-            // master_id (4 bytes, 通常为 0)
-            buf[offset++] = 0;
-            buf[offset++] = 0;
-            buf[offset++] = 0;
-            buf[offset++] = 0;
+            writer.Write(port);
+            writer.Write((Int32)0); // replication_rank
+            writer.Write((Int32)0); // master_id
 
             _seq = 0;
             await SendPacketAsync(new ArrayPacket(buf, 4, len), cancellationToken).ConfigureAwait(false);
@@ -1416,6 +1351,106 @@ public class SqlClient : DisposeBase
         using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         if (!rs.IsOK)
             throw new MySqlException("注册从属服务器失败");
+    }
+
+    /// <summary>异步停止 Binlog 转储并注销从属服务器。使用 COM_QUIT 关闭连接</summary>
+    /// <remarks>
+    /// MySQL 协议没有专门的"注销从属"命令。停止 binlog 订阅的标准方式是：
+    /// 1. 发送 COM_QUIT 关闭连接，服务器会自动清除从属注册信息
+    /// 2. 或者通过 KILL 命令终止 binlog dump 线程
+    /// 连接关闭后，服务器端会自动释放该 slave 的注册记录和 binlog 读取线程。
+    /// </remarks>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    public async Task StopBinlogDumpAsync(CancellationToken cancellationToken = default)
+    {
+        if (!Active || _stream == null) return;
+
+        try
+        {
+            await SendCommandAsync(DbCmd.QUIT, cancellationToken).ConfigureAwait(false);
+        }
+        catch { /* 忽略退出过程中的异常 */ }
+
+        // 释放网络资源
+        _client.TryDispose();
+        _client = null;
+        _stream = null;
+        Active = false;
+    }
+
+    /// <summary>异步发送 Binlog 转储请求。使用 COM_BINLOG_DUMP 二进制命令，开始接收 binlog 事件流</summary>
+    /// <param name="position">Binlog 起始位置（文件名+偏移）</param>
+    /// <param name="serverId">从属服务器 ID，需唯一</param>
+    /// <param name="flags">转储标志。1 = BINLOG_DUMP_NON_BLOCK（非阻塞模式，到达末尾立即返回 EOF）</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    /// <remarks>
+    /// COM_BINLOG_DUMP 协议格式：
+    /// 请求：command(1) + binlog_pos(4) + flags(2) + server_id(4) + binlog_filename(EOF)
+    /// 响应：持续发送 binlog 事件包，每个包以 0x00 状态字节开头，后跟完整的事件数据
+    /// 用途：将当前连接变为 binlog 监听模式，持续接收 MySQL 主库的 binlog 事件流
+    /// </remarks>
+    public async Task BinlogDumpAsync(BinlogPosition position, Int32 serverId, UInt16 flags = 0, CancellationToken cancellationToken = default)
+    {
+        if (position == null) throw new ArgumentNullException(nameof(position));
+
+        var fileName = position.FileName ?? "";
+        var fileBytes = Encoding.GetBytes(fileName);
+
+        // command(1) + binlog_pos(4) + flags(2) + server_id(4) + binlog_filename
+        var len = 1 + 4 + 2 + 4 + fileBytes.Length;
+        using var pk = new OwnerPacket(4 + len);
+        var writer = new SpanWriter(pk);
+        writer.Advance(4); // 预留帧头
+
+        writer.Write((Byte)DbCmd.BINLOG_DUMP);
+        writer.Write(position.Position);
+        writer.Write(flags);
+        writer.Write(serverId);
+        writer.Write(fileBytes);
+
+        _seq = 0;
+        await SendPacketAsync(pk.Slice(4, len), cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>异步读取下一个 Binlog 事件。在 BinlogDumpAsync 之后持续调用以接收事件流</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>Binlog 事件，EOF 时返回 null</returns>
+    /// <remarks>
+    /// Binlog 事件包格式：
+    /// OK 标志(1字节, 0x00) + 事件头(19字节) + 事件数据体
+    /// 事件头：timestamp(4) + type_code(1) + server_id(4) + event_length(4) + next_position(4) + flags(2)
+    /// 当收到 EOF 包（0xFE）或 ERR 包（0xFF）时表示流结束
+    /// </remarks>
+    public async Task<BinlogEvent?> ReadBinlogEventAsync(CancellationToken cancellationToken = default)
+    {
+        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+
+        // EOF 表示 binlog 流结束（非阻塞模式）
+        if (rs.IsEOF) return null;
+
+        var span = rs.Data.GetSpan();
+
+        // 第一个字节是 OK 标志 0x00，跳过；至少需要 1 + 19 字节
+        if (span.Length < 20) return null;
+
+        var reader = new SpanReader(span[1..]) { IsLittleEndian = true };
+        var ev = new BinlogEvent
+        {
+            Timestamp = reader.ReadUInt32(),
+            EventType = (BinlogEventType)reader.ReadByte(),
+            ServerId = reader.ReadUInt32(),
+            EventLength = reader.ReadUInt32(),
+            NextPosition = reader.ReadUInt32(),
+            Flags = reader.ReadUInt16(),
+        };
+
+        // 事件数据体（跳过 1 字节 OK 标志 + 19 字节事件头）
+        if (span.Length > 20)
+            ev.Data = span[20..].ToArray();
+
+        return ev;
     }
     #endregion
 }
