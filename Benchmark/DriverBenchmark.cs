@@ -49,7 +49,7 @@ public static class DriverBenchmark
         }
 
         Console.WriteLine();
-        var rowCounts = new[] { 100, 1000, 10000, 100000 };
+        var rowCounts = new[] { 100, 1000, 10000 };
         var all = new List<R>();
 
         foreach (var n in rowCounts)

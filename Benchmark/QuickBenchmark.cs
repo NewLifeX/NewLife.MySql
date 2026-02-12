@@ -44,7 +44,7 @@ public static class QuickBenchmark
         }
 
         Console.WriteLine();
-        var rowCounts = new[] { 100, 1000, 10000, 100000 };
+        var rowCounts = new[] { 100, 1000, 10000 };
 
         // ========== INSERT ==========
         Console.WriteLine("========== INSERT ==========");
