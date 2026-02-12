@@ -61,8 +61,7 @@ class Authentication(SqlClient client)
         await client.SendPacketAsync(pk2, cancellationToken).ConfigureAwait(false);
 
         // 读取响应
-        var rs = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-
+        using var rs = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         // 如果返回0xFE，表示需要继续验证。例如 caching_sha2_password 验证降级为 mysql_native_password 验证
         if (rs.IsEOF)
             await ToNativePasswordAsync(rs, set.Password!, cancellationToken).ConfigureAwait(false);
@@ -80,7 +79,7 @@ class Authentication(SqlClient client)
             var pass = Get411Password(password, authData.ToArray());
             await client.SendPacketAsync((ArrayPacket)pass, cancellationToken).ConfigureAwait(false);
 
-            var rs2 = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+            using var rs2 = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
             if (!rs2.IsOK)
                 throw new InvalidOperationException("验证失败");
         }
@@ -95,7 +94,7 @@ class Authentication(SqlClient client)
         await client.SendPacketAsync((ArrayPacket)buf, cancellationToken).ConfigureAwait(false);
 
         // 读取响应
-        var rs = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        using var rs = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         var reader = new SpanReader(rs.Data);
         if (reader.ReadByte() != 0x01) return;
 
@@ -111,7 +110,7 @@ class Authentication(SqlClient client)
         await client.SendPacketAsync((ArrayPacket)encryptedPassword, cancellationToken).ConfigureAwait(false);
 
         // 读取响应
-        var rs2 = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        using var rs2 = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         if (!rs2.IsOK)
             throw new InvalidOperationException("验证失败");
     }

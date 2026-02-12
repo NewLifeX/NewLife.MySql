@@ -275,7 +275,7 @@ public class SqlClient : DisposeBase
     /// <returns>欢迎消息对象</returns>
     private async Task<WelcomeMessage> GetWelcomeAsync(CancellationToken cancellationToken)
     {
-        var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
 
         var msg = new WelcomeMessage();
         msg.Read(rs.Data.GetSpan());
@@ -502,7 +502,7 @@ public class SqlClient : DisposeBase
             await SendPacketAsync(new ArrayPacket(buf, 4, len), cancellationToken).ConfigureAwait(false);
 
             // 读取 OK 响应
-            var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+            using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
             if (!rs.IsOK)
                 throw new MySqlException("切换数据库失败");
 
@@ -570,7 +570,7 @@ public class SqlClient : DisposeBase
         var list = new List<MySqlColumn>(count);
         for (var i = 0; i < count; i++)
         {
-            var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+            using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
             if (rs.IsEOF) break;
 
             var reader = new SpanReader(rs.Data);
@@ -583,7 +583,7 @@ public class SqlClient : DisposeBase
         }
 
         // 读取 EOF 包
-        var pk = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        using var pk = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         if (pk.IsEOF) { }
 
         return [.. list];
@@ -596,7 +596,7 @@ public class SqlClient : DisposeBase
     /// <returns>行读取结果，包含是否成功及状态信息</returns>
     public async Task<RowResult> NextRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken = default)
     {
-        var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         if (rs.IsEOF)
         {
             // EOF_Packet: header(0xFE) + warnings(2) + status_flags(2)
@@ -635,7 +635,7 @@ public class SqlClient : DisposeBase
     /// <returns>行读取结果，包含是否成功及状态信息</returns>
     public async Task<RowResult> NextBinaryRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken = default)
     {
-        var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         if (rs.IsEOF)
         {
             var eofReader = new SpanReader(rs.Data.Slice(1));
@@ -692,8 +692,7 @@ public class SqlClient : DisposeBase
 
         await SendPacketAsync(pk, cancellationToken).ConfigureAwait(false);
 
-        var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-
+        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         // COM_STMT_PREPARE_OK: status(1) + statement_id(4) + num_columns(2) + num_params(2) + filler(1) + warning_count(2)
         // 跳过 status byte (0x00)
         var reader = rs.CreateReader(1);
@@ -712,9 +711,9 @@ public class SqlClient : DisposeBase
         {
             while (numCols-- > 0)
             {
-                await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+                using var _ = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
             }
-            await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+            using var __ = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         }
         return new PrepareResult(statementId, columns!);
     }
@@ -729,7 +728,7 @@ public class SqlClient : DisposeBase
         try
         {
             await SendCommandAsync(DbCmd.PING, cancellationToken).ConfigureAwait(false);
-            await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+            using var _ = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
 
             return true;
         }
@@ -875,7 +874,7 @@ public class SqlClient : DisposeBase
         }
 
         // COM_STMT_RESET 返回 OK 包
-        await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        using var _ = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>管道化批量执行预编译语句。根据 Pipeline 设置选择真管道化或串行模式</summary>
@@ -902,7 +901,7 @@ public class SqlClient : DisposeBase
         for (var i = 0; i < parameterSets.Count; i++)
         {
             await ExecuteStatementAsync(statementId, parameterSets[i], paramColumns, cancellationToken).ConfigureAwait(false);
-            var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+            using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
             var qr = GetResult(rs);
             totalAffected += qr.AffectedRows;
         }
@@ -966,7 +965,7 @@ public class SqlClient : DisposeBase
         {
             try
             {
-                var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+                using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
                 var qr = GetResult(rs);
                 totalAffected += qr.AffectedRows;
             }

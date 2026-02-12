@@ -5,7 +5,7 @@ namespace NewLife.MySql.Messages;
 
 /// <summary>服务器数据包。MySQL 协议层从服务器收到的数据包，包含 OK/Error/EOF 判断</summary>
 /// <remarks>实例化服务器数据包</remarks>
-public class ServerPacket(Stream stream)
+public class ServerPacket(Stream stream) : IDisposable
 {
     #region 属性
     /// <summary>数据包</summary>
@@ -44,5 +44,14 @@ public class ServerPacket(Stream stream)
 
     /// <summary>获取缓存读取器，数据不足时自动从网络流读取</summary>
     public SpanReader CreateReader(Int32 offset) => new(_stream, Data.Slice(offset, -1), 8192) { MaxCapacity = Length, IsLittleEndian = true };
+    #endregion
+
+    #region 释放资源
+    /// <summary>释放资源，归还缓冲区到池</summary>
+    public void Dispose()
+    {
+        if (Data is IOwnerPacket owner)
+            owner.Dispose();
+    }
     #endregion
 }

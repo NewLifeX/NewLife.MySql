@@ -353,7 +353,7 @@ public class MySqlDataReader : DbDataReader
         }
 
         // 读取下一个结果（第一次或后续）
-        var response = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        using var response = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         var qr = client.GetResult(response);
 
         _hasReadResult = true;
