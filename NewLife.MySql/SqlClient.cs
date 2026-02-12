@@ -5,6 +5,7 @@ using System.Text;
 using NewLife.Buffers;
 using NewLife.Collections;
 using NewLife.Data;
+using NewLife.Log;
 using NewLife.MySql.Common;
 using NewLife.MySql.Messages;
 using NewLife.Threading;
@@ -47,7 +48,10 @@ public class SqlClient : DisposeBase
     public DateTime LastActive { get; set; }
 
     /// <summary>当前数据库名。记录正在使用的数据库，首次打开连接时赋值，调用 SetDatabaseAsync 后会更新</summary>
-    internal String Database { get; set; } = null!;
+    public String Database { get; set; } = null!;
+
+    /// <summary>性能跟踪器</summary>
+    public ITracer? Tracer { get; set; } = MySqlClientFactory.Instance.Tracer;
 
     private TcpClient? _client;
     private Byte _seq = 1;
@@ -93,6 +97,8 @@ public class SqlClient : DisposeBase
         var msTimeout = set.ConnectionTimeout * 1000;
         if (msTimeout <= 0) msTimeout = 15000;
 
+        using var span = Tracer?.NewSpan($"db:{set.Database}:Open", new { server, port, set.UserID, set.SslMode, set.UseServerPrepare, set.Pipeline });
+
         // 异步连接网络
         var client = new TcpClient();
 
@@ -115,13 +121,15 @@ public class SqlClient : DisposeBase
             await connectTask.ConfigureAwait(false);
 #endif
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
         {
+            span?.SetError(ex);
             client.Close();
             throw new TimeoutException($"连接 {server}:{port} 超时({msTimeout}ms)");
         }
-        catch
+        catch (Exception ex)
         {
+            span?.SetError(ex);
             client.Close();
             throw;
         }
@@ -163,13 +171,15 @@ public class SqlClient : DisposeBase
             Capability = auth.GetFlags(welcome.Capability);
 
             // 记录当前使用的数据库
-            Database = Setting.Database ?? "";
+            Database = set.Database ?? "";
 
             // 认证成功后才标记为活动状态
             Active = true;
         }
-        catch
+        catch (Exception ex)
         {
+            span?.SetError(ex);
+
             // 认证/握手失败时清理资源，避免半初始化状态
             _client.TryDispose();
             _client = null;
@@ -226,11 +236,16 @@ public class SqlClient : DisposeBase
         {
             _seq = 0;
 
+            using var span = Tracer?.NewSpan($"db:{Database}:Close");
             try
             {
                 SendCommandAsync(DbCmd.QUIT).ConfigureAwait(false).GetAwaiter().GetResult();
             }
-            catch { /* 忽略关闭过程中的异常 */ }
+            catch (Exception ex)
+            {
+                span?.SetError(ex);
+                /* 忽略关闭过程中的异常 */
+            }
         }
 
         // 释放网络资源
@@ -304,7 +319,7 @@ public class SqlClient : DisposeBase
             // 清除网络流中的残留数据
             if (ns is NetworkStream { DataAvailable: true } nss)
             {
-                var buf = Pool.Shared.Rent(1024);
+                var buf = Pool.Shared.Rent(8192);
                 try
                 {
                     while (nss.DataAvailable && ns.Read(buf, 0, buf.Length) > 0)

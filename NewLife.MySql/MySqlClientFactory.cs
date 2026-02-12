@@ -1,4 +1,5 @@
 ﻿using System.Data.Common;
+using NewLife.Log;
 
 namespace NewLife.MySql;
 
@@ -34,6 +35,9 @@ public sealed partial class MySqlClientFactory : DbProviderFactory
 
     /// <summary>连接池管理器</summary>
     public MySqlPoolManager PoolManager { get; set; } = new();
+
+    /// <summary>性能跟踪器</summary>
+    public ITracer? Tracer { get; set; }
     #endregion
 
     #region 方法

@@ -237,7 +237,7 @@ class Authentication(SqlClient client)
             if (dis.Length > 0)
                 name = (dis[0] as DisplayNameAttribute)!.DisplayName;
 
-            var value = (String)pi.GetValue(att, null);
+            var value = (String?)pi.GetValue(att, null) ?? String.Empty;
             sb.AppendFormat("{0}{1}", (Char)name.Length, name);
             sb.AppendFormat("{0}{1}", (Char)Encoding.UTF8.GetByteCount(value), value);
         }
