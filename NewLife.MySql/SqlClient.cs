@@ -350,6 +350,11 @@ public class SqlClient : DisposeBase
     /// <summary>异步从网络流读取一个完整的 MySQL 协议数据包</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>服务器数据包</returns>
+    /// <remarks>
+    /// 读取流程：先读取固定的 4 字节帧头（3 字节长度 + 1 字节序列号），从中解析出后续数据体的长度；
+    /// 然后精确读取该长度的数据体，既不能多读也不能少读。MySQL 协议可能会在网络流中连续发送多个响应包（例如在 GetColumns 场景中每个列定义对应一个包），
+    /// 如果在读取当前包时多读到下一个包的数据，将导致下一个包解包失败或数据错位。因此必须严格按照帧头给出的长度逐包读取。
+    /// </remarks>
     public async Task<ServerPacket> ReadPacketAsync(CancellationToken cancellationToken = default)
     {
         var ms = _stream ?? throw new InvalidOperationException("未打开连接");
@@ -388,7 +393,7 @@ public class SqlClient : DisposeBase
             // 错误包
             if (rs.IsError)
             {
-                var reader = new SpanReader(pk.Slice(1, -1));
+                var reader = new SpanReader(pk.Slice(1));
                 var code = reader.ReadUInt16();
                 var msg = reader.ReadZeroString();
 
@@ -466,6 +471,49 @@ public class SqlClient : DisposeBase
     #endregion
 
     #region 逻辑命令
+    /// <summary>异步发送心跳检测连接可用性</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>连接是否正常</returns>
+    public async Task<Boolean> PingAsync(CancellationToken cancellationToken = default)
+    {
+        if (!Active || _stream == null) return false;
+
+        /*
+         PING 协议格式（文本/二进制命令都使用 COM_PING）
+         请求（客户端 -> 服务端）:
+           COM_PING (1) : 单字节命令，命令码为 0x0E（DbCmd.PING）
+           MySQL 协议帧：4 字节帧头(3 bytes length + 1 byte sequence) + payload
+           payload[0] = 0x0E
+
+         响应（服务端 -> 客户端）:
+           OK_Packet: header(0x00) + affected_rows(length-encoded) + last_insert_id(length-encoded) + status(2) + warnings(2)
+           或者可能出现 ERR_Packet 描述错误
+
+         实现要点：
+         - 每次发送命令前将内部序列号 _seq 重置为 0，以确保帧序号正确
+         - 发送后读取一个完整的响应包并检查是否为 OK 或 Error
+         - 使用 Tracer 记录埋点，尊重传入的 CancellationToken 和 Timeout 属性
+        */
+
+        try
+        {
+            // 发送 PING 命令
+            await SendCommandAsync(DbCmd.PING, cancellationToken).ConfigureAwait(false);
+            using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+
+            // 如果是错误包，ReadPacketAsync 会抛出 MySqlException；到这里代表收到 OK 或其他合法包
+            return rs.IsOK || !rs.IsError;
+        }
+        catch
+        {
+            // 心跳失败，标记为不可用，停止定时器
+            Active = false;
+            _timer.TryDispose();
+            _timer = null;
+            return false;
+        }
+    }
+
     /// <summary>异步切换当前数据库。使用 COM_INIT_DB 二进制命令</summary>
     /// <param name="databaseName">目标数据库名</param>
     /// <param name="cancellationToken">取消令牌</param>
@@ -515,8 +563,9 @@ public class SqlClient : DisposeBase
         }
     }
 
-    /// <summary>异步发送 SQL 查询请求到服务器</summary>
-    /// <param name="pk">包含查询语句的数据包</param>
+    /// <summary>异步发送 SQL 查询请求到服务器。</summary>
+    /// <remarks>构造查询包时通常应预留帧头或使用 `ExpandHeader(4)`/在偏移 4 处写入命令字节，以便本方法把 `DbCmd.QUERY` 写入第一字节。</remarks>
+    /// <param name="pk">包含查询语句的数据包。注意：数据包的第一个字节必须留作命令字节（DbCmd），构造查询数据包时不要占用该字节。</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>异步任务</returns>
     public async Task SendQueryAsync(IPacket pk, CancellationToken cancellationToken = default)
@@ -530,13 +579,13 @@ public class SqlClient : DisposeBase
     }
 
     /// <summary>解析服务器响应获取查询结果。解析 OK 包获取影响行数和最后插入ID，或返回结果集列数</summary>
-    /// <param name="rs">服务器数据包</param>
+    /// <param name="response">服务器数据包</param>
     /// <returns>查询结果对象</returns>
-    public QueryResult GetResult(ServerPacket rs)
+    public QueryResult GetResult(ServerPacket response)
     {
-        var reader = rs.CreateReader(0);
+        var reader = response.CreateReader(0);
 
-        if (rs.IsOK)
+        if (response.IsOK)
         {
             // OK_Packet: header(0x00) + affected_rows(length-encoded) + last_insert_id(length-encoded) + status(2) + warnings(2)
             reader.Advance(1);
@@ -583,8 +632,8 @@ public class SqlClient : DisposeBase
         }
 
         // 读取 EOF 包
-        using var pk = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-        if (pk.IsEOF) { }
+        using var rs2 = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        if (rs2.IsEOF) { }
 
         return [.. list];
     }
@@ -597,19 +646,7 @@ public class SqlClient : DisposeBase
     public async Task<RowResult> NextRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken = default)
     {
         using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-        if (rs.IsEOF)
-        {
-            // EOF_Packet: header(0xFE) + warnings(2) + status_flags(2)
-            var eofReader = rs.CreateReader(1);
-            ServerStatusFlags statusFlags = 0;
-            UInt16 warnings = 0;
-            if (Capability.Has(ClientFlags.PROTOCOL_41) && eofReader.Available >= 4)
-            {
-                warnings = eofReader.ReadUInt16();
-                statusFlags = (ServerStatusFlags)eofReader.ReadUInt16();
-            }
-            return new RowResult(false, statusFlags, warnings);
-        }
+        if (rs.IsEOF) return ReadEofRowResult(rs);
 
         // 读取行数据（文本协议：所有值以 UTF-8 字符串传输）
         var reader = rs.CreateReader(0);
@@ -636,18 +673,7 @@ public class SqlClient : DisposeBase
     public async Task<RowResult> NextBinaryRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken = default)
     {
         using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-        if (rs.IsEOF)
-        {
-            var eofReader = new SpanReader(rs.Data.Slice(1));
-            ServerStatusFlags statusFlags = 0;
-            UInt16 warnings = 0;
-            if (Capability.Has(ClientFlags.PROTOCOL_41) && eofReader.Available >= 4)
-            {
-                warnings = eofReader.ReadUInt16();
-                statusFlags = (ServerStatusFlags)eofReader.ReadUInt16();
-            }
-            return new RowResult(false, statusFlags, warnings);
-        }
+        if (rs.IsEOF) return ReadEofRowResult(rs);
 
         var numCols = columns.Length;
         var reader = rs.CreateReader(0);
@@ -674,6 +700,23 @@ public class SqlClient : DisposeBase
         }
 
         return new RowResult(true, 0, 0);
+    }
+
+    /// <summary>读取 EOF 包并返回行结束结果</summary>
+    /// <param name="rs">服务器包</param>
+    /// <returns>行读取结果</returns>
+    private RowResult ReadEofRowResult(ServerPacket rs)
+    {
+        // EOF_Packet: header(0xFE) + warnings(2) + status_flags(2)
+        var eofReader = rs.CreateReader(1);
+        ServerStatusFlags statusFlags = 0;
+        UInt16 warnings = 0;
+        if (Capability.Has(ClientFlags.PROTOCOL_41) && eofReader.Available >= 4)
+        {
+            warnings = eofReader.ReadUInt16();
+            statusFlags = (ServerStatusFlags)eofReader.ReadUInt16();
+        }
+        return new RowResult(false, statusFlags, warnings);
     }
 
     /// <summary>异步准备预编译语句</summary>
@@ -709,39 +752,13 @@ public class SqlClient : DisposeBase
         }
         if (numCols > 0)
         {
-            while (numCols-- > 0)
+            // 读取列定义包 + EOF 包
+            for (var j = 0; j <= numCols; j++)
             {
                 using var _ = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
             }
-            using var __ = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         }
         return new PrepareResult(statementId, columns!);
-    }
-
-    /// <summary>异步发送心跳检测连接可用性</summary>
-    /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>连接是否正常</returns>
-    public async Task<Boolean> PingAsync(CancellationToken cancellationToken = default)
-    {
-        if (!Active || _stream == null) return false;
-
-        try
-        {
-            await SendCommandAsync(DbCmd.PING, cancellationToken).ConfigureAwait(false);
-            using var _ = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-
-            return true;
-        }
-        catch
-        {
-            // 心跳失败，标记为不可用，停止定时器
-            Active = false;
-
-            _timer.TryDispose();
-            _timer = null;
-
-            return false;
-        }
     }
 
     /// <summary>异步执行已准备的预编译语句，支持二进制参数绑定</summary>
