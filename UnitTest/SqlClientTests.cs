@@ -290,6 +290,70 @@ public class SqlClientTests
     }
 
     [Fact]
+    public async Task TestSelectVersion()
+    {
+        // 通过 select @@version 验证完整的查询-读取流程
+        var setting = new MySqlConnectionStringBuilder
+        {
+            Server = "127.0.0.2",
+            Port = 3306,
+            UserID = "root",
+            Password = "root",
+            Database = "sys",
+            ConnectionTimeout = 15
+        };
+        var set = new MySqlConnectionStringBuilder(DALTests.GetConnStr());
+        setting.Password = set.Password;
+
+        using var client = new SqlClient(setting);
+        await client.OpenAsync();
+
+        // 构造查询包，格式参考 BindParameter：command(1) + [query_attrs(2)] + sql
+        var sql = "select @@version";
+        var sqlBytes = sql.GetBytes();
+        var hasQueryAttrs = client.Capability.Has(ClientFlags.CLIENT_QUERY_ATTRIBUTES);
+        var extraLen = hasQueryAttrs ? 2 : 0;
+        var totalLen = 1 + extraLen + sqlBytes.Length;
+        using var pk = new OwnerPacket(4 + totalLen);
+        var writer = new SpanWriter(pk);
+        writer.Advance(4); // 帧头预留
+        writer.WriteByte(0); // 命令占位符，SendQueryAsync 会覆盖为 QUERY
+        if (hasQueryAttrs)
+        {
+            writer.WriteByte(0); // parameters_count
+            writer.WriteByte(1); // parameter_set_count
+        }
+        writer.Write(sqlBytes);
+
+        await client.SendQueryAsync(pk.Slice(4, totalLen));
+
+        // 读取结果集头部，获取列数
+        using var response = await client.ReadPacketAsync();
+        var result = client.GetResult(response);
+        Assert.Equal(1, result.FieldCount);
+
+        // 读取列定义
+        var columns = await client.GetColumnsAsync(result.FieldCount);
+        Assert.Single(columns);
+        Assert.Equal("@@version", columns[0].Name);
+
+        // 读取行数据
+        var values = new Object[1];
+        var row = await client.NextRowAsync(values, columns);
+        Assert.True(row.HasRow);
+
+        var version = values[0] as String;
+        Assert.NotNull(version);
+        Assert.NotEmpty(version);
+
+        // 读取 EOF 确认没有更多行
+        var row2 = await client.NextRowAsync(values, columns);
+        Assert.False(row2.HasRow);
+
+        client.Close();
+    }
+
+    [Fact]
     public async Task TestConfigure()
     {
         var setting = new MySqlConnectionStringBuilder

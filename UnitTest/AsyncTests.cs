@@ -1,15 +1,34 @@
 ﻿using System.ComponentModel;
 using System.Data;
+using NewLife;
 using NewLife.MySql;
+using NewLife.Security;
 
 namespace UnitTest;
 
 /// <summary>异步方法测试</summary>
 [Collection(TestCollections.ReadOnly)]
 [TestCaseOrderer("NewLife.UnitTest.DefaultOrderer", "NewLife.UnitTest")]
-public class AsyncTests
+public class AsyncTests : IDisposable
 {
     private static String _ConnStr = DALTests.GetConnStr();
+    private readonly String _table;
+    private readonly MySqlConnection _conn;
+
+    public AsyncTests()
+    {
+        _table = "async_test_" + Rand.Next(10000);
+        _conn = new MySqlConnection(_ConnStr);
+        _conn.Open();
+        var sql = $"CREATE TABLE IF NOT EXISTS `{_table}` (`variable` VARCHAR(128) NOT NULL PRIMARY KEY, `value` VARCHAR(1024) DEFAULT NULL, `set_time` DATETIME DEFAULT CURRENT_TIMESTAMP, `set_by` VARCHAR(128) DEFAULT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+        _conn.ExecuteNonQuery(sql);
+    }
+
+    public void Dispose()
+    {
+        _conn.ExecuteNonQuery($"DROP TABLE IF EXISTS `{_table}`");
+        _conn.Dispose();
+    }
 
     [Fact]
     [DisplayName("异步打开关闭连接")]
@@ -51,32 +70,29 @@ public class AsyncTests
     [DisplayName("异步执行NonQuery")]
     public async Task WhenExecuteNonQueryAsyncThenReturnsAffectedRows()
     {
-        using var conn = new MySqlConnection(_ConnStr);
-        await conn.OpenAsync();
-
         // 清理
         {
-            using var cmd = new MySqlCommand(conn, "delete from sys.sys_config where variable='async_test'");
+            using var cmd = new MySqlCommand(_conn, $"delete from `{_table}` where variable='async_test'");
             await cmd.ExecuteNonQueryAsync();
         }
 
         // 插入
         {
-            using var cmd = new MySqlCommand(conn, "insert into sys.sys_config(variable,value,set_time,set_by) values('async_test','abc',now(),'test')");
+            using var cmd = new MySqlCommand(_conn, $"insert into `{_table}`(variable,value,set_time,set_by) values('async_test','abc',now(),'test')");
             var rs = await cmd.ExecuteNonQueryAsync();
             Assert.Equal(1, rs);
         }
 
         // 验证
         {
-            using var cmd = new MySqlCommand(conn, "select value v from sys.sys_config where variable='async_test'");
+            using var cmd = new MySqlCommand(_conn, $"select value v from `{_table}` where variable='async_test'");
             var rs = await cmd.ExecuteScalarAsync();
             Assert.Equal("abc", rs);
         }
 
         // 清理
         {
-            using var cmd = new MySqlCommand(conn, "delete from sys.sys_config where variable='async_test'");
+            using var cmd = new MySqlCommand(_conn, $"delete from `{_table}` where variable='async_test'");
             var rs = await cmd.ExecuteNonQueryAsync();
             Assert.Equal(1, rs);
         }
