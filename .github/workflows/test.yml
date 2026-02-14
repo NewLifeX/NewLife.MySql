@@ -29,3 +29,5 @@ jobs:
     - name: Test
       run: |
         dotnet test -c Release UnitTest/UnitTest.csproj
+        dotnet test -c Release UnitTest.EntityFramework/UnitTest.EntityFramework.csproj
+        dotnet test -c Release UnitTest.EntityFrameworkCore/UnitTest.EntityFrameworkCore.csproj

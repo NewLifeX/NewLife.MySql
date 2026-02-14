@@ -24,6 +24,8 @@ jobs:
     - name: Build
       run: |
         dotnet pack --version-suffix $(date "+%Y.%m%d") -c Release -o out NewLife.MySql/NewLife.MySql.csproj
+        dotnet pack --version-suffix $(date "+%Y.%m%d") -c Release -o out NewLife.MySql.EntityFramework/NewLife.MySql.EntityFramework.csproj
+        dotnet pack --version-suffix $(date "+%Y.%m%d") -c Release -o out NewLife.MySql.EntityFrameworkCore/NewLife.MySql.EntityFrameworkCore.csproj
     - name: Publish
       run: |
         dotnet nuget push ./out/*.nupkg --skip-duplicate --source https://api.nuget.org/v3/index.json --api-key ${{ secrets.nugetKey }}
