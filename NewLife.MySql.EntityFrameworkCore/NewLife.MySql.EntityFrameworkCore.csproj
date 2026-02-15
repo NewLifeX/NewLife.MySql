@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk" ToolsVersion="Current">
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
-    <AssemblyTitle>������MySql EF Core����</AssemblyTitle>
-    <Description>����NewLife.MySql��Entity Framework Core���ݿ��ṩ����</Description>
-    <Company>�����������Ŷ�</Company>
+    <TargetFrameworks>net6.0;net8.0;net10.0</TargetFrameworks>
+    <AssemblyTitle>新生命MySql EF Core驱动</AssemblyTitle>
+    <Description>基于NewLife.MySql的Entity Framework Core数据库提供程序，纯国产高性能MySQL驱动</Description>
+    <Company>新生命开发团队</Company>
     <Copyright>?2002-2026 NewLife</Copyright>
     <VersionPrefix>1.0</VersionPrefix>
     <VersionSuffix>$([System.DateTime]::Now.ToString(`yyyy.MMdd`))</VersionSuffix>
@@ -27,7 +27,7 @@
     <PackageIcon>leaf.png</PackageIcon>
     <RepositoryUrl>https://github.com/NewLifeX/NewLife.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>�������Ŷ�;X���;NewLife;$(AssemblyName);EntityFrameworkCore;EFCore</PackageTags>
+    <PackageTags>新生命团队;X组件;NewLife;MySql;MySQL;ADO.NET;国产;EntityFrameworkCore;EFCore;$(AssemblyName)</PackageTags>
     <PackageReleaseNotes></PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>

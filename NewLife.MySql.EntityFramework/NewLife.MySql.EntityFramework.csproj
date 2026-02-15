@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk" ToolsVersion="Current">
   <PropertyGroup>
     <TargetFrameworks>net45;net461</TargetFrameworks>
-    <AssemblyTitle>新生命MySql EF驱动</AssemblyTitle>
-    <Description>基于NewLife.MySql的Entity Framework 6数据库提供程序</Description>
+    <AssemblyTitle>新生命MySql EF6驱动</AssemblyTitle>
+    <Description>基于NewLife.MySql的Entity Framework 6数据库提供程序，纯国产高性能MySQL驱动</Description>
     <Company>新生命开发团队</Company>
     <Copyright>?2002-2026 NewLife</Copyright>
     <VersionPrefix>1.0</VersionPrefix>
@@ -27,7 +27,7 @@
     <PackageIcon>leaf.png</PackageIcon>
     <RepositoryUrl>https://github.com/NewLifeX/NewLife.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>新生命团队;X组件;NewLife;$(AssemblyName);EntityFramework;EF6</PackageTags>
+    <PackageTags>新生命团队;X组件;NewLife;MySql;MySQL;ADO.NET;国产;EntityFramework;EF6;$(AssemblyName)</PackageTags>
     <PackageReleaseNotes></PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>

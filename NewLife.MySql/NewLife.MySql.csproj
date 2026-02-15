@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFrameworks>net45;net461;netstandard2.0;netstandard2.1;net6.0</TargetFrameworks>
     <AssemblyTitle>新生命MySql驱动</AssemblyTitle>
-    <Description>高性能MySql驱动</Description>
+    <Description>纯国产高性能MySQL驱动，零第三方依赖，支持管道化批量与真异步</Description>
     <Company>新生命开发团队</Company>
     <Copyright>©2002-2026 NewLife</Copyright>
     <VersionPrefix>1.0</VersionPrefix>
@@ -28,7 +28,7 @@
     <PackageIcon>leaf.png</PackageIcon>
     <RepositoryUrl>https://github.com/NewLifeX/NewLife.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>新生命团队;X组件;NewLife;$(AssemblyName)</PackageTags>
+    <PackageTags>新生命团队;X组件;NewLife;MySql;MySQL;ADO.NET;国产;高性能;批量;管道化;$(AssemblyName)</PackageTags>
     <PackageReleaseNotes></PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
