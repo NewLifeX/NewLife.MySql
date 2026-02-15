@@ -128,7 +128,7 @@
 | sha256_password | ❌ | ✅ | ✅ |
 | ed25519 (MariaDB) | ❌ | ✅ | ❌ |
 | DbDataSource (.NET 7+) | ❌ | ✅ | ❌ |
-| EF Core 支持 | ❌ (定位轻量) | ✅ (via Pomelo) | ✅ |
+| EF Core 支持 | ✅ NewLife.MySql.EntityFrameworkCore | ✅ (via Pomelo) | ✅ |
 | 压缩协议 | ❌ | ✅ | ✅ |
 | 负载均衡/故障转移 | ❌ | ✅ | ✅ |
 | LOAD DATA LOCAL | ❌ | ✅ | ✅ |
@@ -429,6 +429,57 @@ XCode 已支持的多行 INSERT 语法，直接通过文本协议发送：
 var sql = "INSERT INTO users(name, age) VALUES('Alice', 25), ('Bob', 30), ('Charlie', 22)";
 conn.ExecuteNonQuery(sql);
 ```
+
+## Entity Framework Core 支持
+
+`NewLife.MySql.EntityFrameworkCore` 包提供了基于 NewLife.MySql 驱动的 EF Core 数据库提供程序，支持 .NET 6 / .NET 8 / .NET 10。
+
+### 安装
+
+```
+dotnet add package NewLife.MySql.EntityFrameworkCore
+```
+
+### 基本使用
+
+```csharp
+// 定义 DbContext
+public class AppDbContext : DbContext
+{
+    public DbSet<User> Users { get; set; } = null!;
+
+    public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.ToTable("users");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).HasMaxLength(100).IsRequired();
+        });
+    }
+}
+
+// 配置使用 MySQL
+var options = new DbContextOptionsBuilder<AppDbContext>()
+    .UseMySql("Server=localhost;Database=mydb;User Id=root;Password=pass;")
+    .Options;
+
+using var context = new AppDbContext(options);
+```
+
+### 已支持功能
+
+| 功能 | 说明 |
+|------|------|
+| 类型映射 | Int / Long / String / DateTime / Decimal / Guid / Boolean / Byte[] 等常用类型 |
+| 查询翻译 | LINQ 查询生成 MySQL 语法的 SQL（反引号转义、LIMIT/OFFSET） |
+| 方法翻译 | String.Contains/StartsWith/EndsWith/ToUpper/ToLower/Trim/Replace/Substring/Length |
+| 成员翻译 | DateTime.Year/Month/Day/Hour/Minute/Second |
+| 迁移支持 | CreateTable/AlterColumn/AddColumn/DropColumn/RenameTable/CreateIndex/DropIndex 等 |
+| 值生成策略 | AUTO_INCREMENT 自增主键 |
+| DbConnection 重载 | 支持传入已有的 DbConnection 实例 |
 
 ### DbBatch API（.NET 6+）
 

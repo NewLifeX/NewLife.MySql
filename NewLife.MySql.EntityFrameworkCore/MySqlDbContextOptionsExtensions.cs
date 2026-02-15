@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using System.Data.Common;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 
 namespace NewLife.MySql.EntityFrameworkCore;
@@ -40,6 +41,43 @@ public static class MySqlDbContextOptionsExtensions
         where TContext : DbContext
     {
         ((DbContextOptionsBuilder)optionsBuilder).UseMySql(connectionString, mySqlOptionsAction);
+        return optionsBuilder;
+    }
+
+    /// <summary>配置 DbContext 使用已有的 DbConnection 连接到 MySQL</summary>
+    /// <param name="optionsBuilder">选项构建器</param>
+    /// <param name="connection">已有的数据库连接</param>
+    /// <param name="mySqlOptionsAction">MySql 选项配置回调</param>
+    /// <returns></returns>
+    public static DbContextOptionsBuilder UseMySql(
+        this DbContextOptionsBuilder optionsBuilder,
+        DbConnection connection,
+        Action<MySqlDbContextOptionsBuilder>? mySqlOptionsAction = null)
+    {
+        if (optionsBuilder == null) throw new ArgumentNullException(nameof(optionsBuilder));
+        if (connection == null) throw new ArgumentNullException(nameof(connection));
+
+        var extension = (MySqlOptionsExtension)GetOrCreateExtension(optionsBuilder).WithConnection(connection);
+        ((IDbContextOptionsBuilderInfrastructure)optionsBuilder).AddOrUpdateExtension(extension);
+
+        mySqlOptionsAction?.Invoke(new MySqlDbContextOptionsBuilder(optionsBuilder));
+
+        return optionsBuilder;
+    }
+
+    /// <summary>配置 DbContext 使用已有的 DbConnection 连接到 MySQL（泛型版本）</summary>
+    /// <typeparam name="TContext">DbContext 类型</typeparam>
+    /// <param name="optionsBuilder">选项构建器</param>
+    /// <param name="connection">已有的数据库连接</param>
+    /// <param name="mySqlOptionsAction">MySql 选项配置回调</param>
+    /// <returns></returns>
+    public static DbContextOptionsBuilder<TContext> UseMySql<TContext>(
+        this DbContextOptionsBuilder<TContext> optionsBuilder,
+        DbConnection connection,
+        Action<MySqlDbContextOptionsBuilder>? mySqlOptionsAction = null)
+        where TContext : DbContext
+    {
+        ((DbContextOptionsBuilder)optionsBuilder).UseMySql(connection, mySqlOptionsAction);
         return optionsBuilder;
     }
 

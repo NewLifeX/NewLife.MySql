@@ -2,6 +2,8 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Metadata.Conventions.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Query;
 using Microsoft.EntityFrameworkCore.Storage;
@@ -37,11 +39,18 @@ public class MySqlOptionsExtension : RelationalOptionsExtension
 
         new EntityFrameworkRelationalServicesBuilder(services)
             .TryAdd<IDatabaseProvider, DatabaseProvider<MySqlOptionsExtension>>()
+            .TryAdd<LoggingDefinitions, MySqlLoggingDefinitions>()
             .TryAdd<IRelationalTypeMappingSource, MySqlTypeMappingSource>()
             .TryAdd<ISqlGenerationHelper, MySqlSqlGenerationHelper>()
             .TryAdd<IRelationalConnection, MySqlRelationalConnection>()
+            .TryAdd<IRelationalDatabaseCreator, MySqlDatabaseCreator>()
             .TryAdd<IQuerySqlGeneratorFactory, MySqlQuerySqlGeneratorFactory>()
+            .TryAdd<IMethodCallTranslatorProvider, MySqlMethodCallTranslatorProvider>()
+            .TryAdd<IMemberTranslatorProvider, MySqlMemberTranslatorProvider>()
+            .TryAdd<IRelationalAnnotationProvider, MySqlAnnotationProvider>()
+            .TryAdd<IProviderConventionSetBuilder, MySqlConventionSetBuilder>()
             .TryAdd<IUpdateSqlGenerator, MySqlUpdateSqlGenerator>()
+            .TryAdd<IModificationCommandBatchFactory, MySqlModificationCommandBatchFactory>()
             .TryAdd<IMigrationsSqlGenerator, MySqlMigrationsSqlGenerator>()
             .TryAdd<IHistoryRepository, MySqlHistoryRepository>()
             .TryAddCoreServices();

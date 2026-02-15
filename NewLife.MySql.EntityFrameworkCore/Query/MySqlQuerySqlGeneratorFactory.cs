@@ -14,7 +14,7 @@ public class MySqlQuerySqlGeneratorFactory : IQuerySqlGeneratorFactory
         _dependencies = dependencies;
     }
 
-    /// <summary>创建查询 SQL 生成器</summary>
+    /// <summary>创建 MySQL 查询 SQL 生成器</summary>
     /// <returns></returns>
-    public QuerySqlGenerator Create() => new QuerySqlGenerator(_dependencies);
+    public QuerySqlGenerator Create() => new MySqlQuerySqlGenerator(_dependencies);
 }

@@ -12,8 +12,10 @@ public class MySqlHistoryRepository : HistoryRepository
     /// <param name="dependencies">迁移历史仓储依赖</param>
     public MySqlHistoryRepository(HistoryRepositoryDependencies dependencies) : base(dependencies) { }
 
+#if NET10_0_OR_GREATER
     /// <summary>锁释放行为。MySQL 不使用显式锁</summary>
     public override LockReleaseBehavior LockReleaseBehavior => LockReleaseBehavior.Transaction;
+#endif
 
     /// <summary>检查历史表是否存在的 SQL</summary>
     protected override String ExistsSql
@@ -30,6 +32,7 @@ public class MySqlHistoryRepository : HistoryRepository
     /// <returns></returns>
     protected override Boolean InterpretExistsResult(Object? result) => result != null && result != DBNull.Value;
 
+#if NET10_0_OR_GREATER
     /// <summary>获取数据库锁（同步）</summary>
     /// <returns></returns>
     public override IMigrationsDatabaseLock AcquireDatabaseLock() => new MySqlMigrationsDatabaseLock(this);
@@ -39,6 +42,7 @@ public class MySqlHistoryRepository : HistoryRepository
     /// <returns></returns>
     public override Task<IMigrationsDatabaseLock> AcquireDatabaseLockAsync(CancellationToken cancellationToken = default) =>
         Task.FromResult<IMigrationsDatabaseLock>(new MySqlMigrationsDatabaseLock(this));
+#endif
 
 
     /// <summary>获取创建历史表的 SQL</summary>
@@ -67,6 +71,7 @@ public class MySqlHistoryRepository : HistoryRepository
     /// <returns></returns>
     public override String GetEndIfScript() => String.Empty;
 
+#if NET10_0_OR_GREATER
     /// <summary>MySQL 迁移数据库锁（空实现）</summary>
     private sealed class MySqlMigrationsDatabaseLock(MySqlHistoryRepository historyRepository) : IMigrationsDatabaseLock
     {
@@ -76,4 +81,5 @@ public class MySqlHistoryRepository : HistoryRepository
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
+#endif
 }

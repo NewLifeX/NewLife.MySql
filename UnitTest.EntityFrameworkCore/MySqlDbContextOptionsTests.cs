@@ -42,7 +42,7 @@ public class MySqlDbContextOptionsTests
     {
         var builder = new DbContextOptionsBuilder<TestDbContext>();
 
-        Assert.Throws<ArgumentNullException>(() => builder.UseMySql(null!));
+        Assert.Throws<ArgumentNullException>(() => builder.UseMySql((String)null!));
     }
 
     [Fact]
