@@ -30,7 +30,14 @@ public class MySqlEFConfigurationTests
 
         Assert.NotNull(conn);
         Assert.IsType<MySqlConnection>(conn);
-        Assert.Equal(connStr, conn.ConnectionString);
+
+        // 连接字符串经过 MySqlConnectionStringBuilder 标准化，键名可能变化，验证解析后的属性值
+        var builder = new MySqlConnectionStringBuilder(conn.ConnectionString);
+        Assert.Equal("localhost", builder.Server);
+        Assert.Equal(3306, builder.Port);
+        Assert.Equal("test", builder.Database);
+        Assert.Equal("root", builder.UserID);
+        Assert.Equal("pass", builder.Password);
     }
 
     [Fact]
