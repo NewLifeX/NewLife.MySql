@@ -1,5 +1,6 @@
 ﻿using System.Data;
 using System.Data.Common;
+using NewLife.MySql.Common;
 
 namespace NewLife.MySql;
 
@@ -25,6 +26,10 @@ public sealed partial class MySqlConnection : DbConnection
     private String _Version = null!;
     /// <summary>版本</summary>
     public override String ServerVersion => _Version;
+
+    private DatabaseType _DatabaseType;
+    /// <summary>数据库类型。根据服务器版本字符串自动检测（MySQL/OceanBase/TiDB）</summary>
+    public DatabaseType DatabaseType => _DatabaseType;
 
     private ConnectionState _State;
     /// <summary>连接状态</summary>
@@ -149,6 +154,7 @@ public sealed partial class MySqlConnection : DbConnection
                 if (welcome != null)
                 {
                     _Version = welcome.ServerVersion!;
+                    _DatabaseType = DetectDatabaseType(_Version);
                 }
 
                 Client = client;
@@ -278,6 +284,31 @@ public sealed partial class MySqlConnection : DbConnection
     {
         var provider = _schemaProvider ??= new SchemaProvider(this);
         return provider.GetSchema(collectionName, restrictionValues).AsDataTable();
+    }
+    #endregion
+
+    #region 辅助
+    /// <summary>根据服务器版本字符串检测数据库类型</summary>
+    /// <param name="serverVersion">服务器版本字符串，来自 HandshakeV10 握手包</param>
+    /// <returns>数据库类型（MySQL/OceanBase/TiDB）</returns>
+    /// <remarks>
+    /// OceanBase 版本格式：5.7.x-OceanBase... 或 8.0.x-OceanBase...
+    /// TiDB 版本格式：5.7.x-TiDB... 或类似格式
+    /// </remarks>
+    private static DatabaseType DetectDatabaseType(String serverVersion)
+    {
+        if (serverVersion.IsNullOrEmpty()) return DatabaseType.MySQL;
+
+        // OceanBase 检测（不区分大小写）
+        if (serverVersion.Contains("OceanBase", StringComparison.OrdinalIgnoreCase))
+            return DatabaseType.OceanBase;
+
+        // TiDB 检测（不区分大小写）
+        if (serverVersion.Contains("TiDB", StringComparison.OrdinalIgnoreCase))
+            return DatabaseType.TiDB;
+
+        // 默认为标准 MySQL
+        return DatabaseType.MySQL;
     }
     #endregion
 }

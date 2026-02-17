@@ -13,7 +13,7 @@
 - **高性能**：零额外内存分配（`ArrayPool` / `OwnerPacket`）、真异步 IO、管道化批量执行
 - **纯国产**：核心代码完全自主可控，无 GPL 许可风险，适合国产化替代场景
 - **大数据友好**：内置多种批量操作方案（字典参数集 / 数组绑定 / 管道化 / 多行 VALUES / DbBatch），覆盖万级到百万级行操作
-- **广泛兼容**：支持 `net45` ~ `net10` 全版本，MySQL 5.x ~ 9.0+ 全系列
+- **广泛兼容**：支持 `net45` ~ `net10` 全版本，MySQL 5.x ~ 9.0+ 全系列，兼容 OceanBase 和 TiDB 分布式数据库
 
 ## 核心功能
 
@@ -94,6 +94,7 @@
 
 - **目标框架**：`net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net10.0`
 - **MySQL 版本**：5.5 ~ 9.0+，支持 `mysql_native_password` 和 `caching_sha2_password`
+- **兼容数据库**：MySQL、OceanBase（分布式数据库）、TiDB（分布式数据库）
 - **条件编译**：针对不同框架自动选择最优实现（如 TLS 1.3 仅 .NET 5.0+）
 
 ## 与主流 MySQL 驱动对比
@@ -124,6 +125,8 @@
 | **XCode ORM 集成** | ✅ 原生支持 | ❌ | ❌ |
 | **多目标框架** | net45~net10 | netstandard2.0+ | net462+ |
 | **MySQL 5.x~9.0** | ✅ | ✅ | ✅ |
+| **OceanBase** | ✅ 自动检测 | ❌ | ❌ |
+| **TiDB** | ✅ 自动检测 | ❌ | ❌ |
 | **MariaDB** | ✅ 基础 | ✅ | ❌ |
 | sha256_password | ❌ | ✅ | ✅ |
 | ed25519 (MariaDB) | ❌ | ✅ | ❌ |
@@ -559,6 +562,54 @@ var tables = dal.Tables;
 | `netstandard2.0` / `netstandard2.1` | 跨平台兼容，支持异步 Dispose |
 | `net6.0` | 额外支持 `DbBatch` API |
 | `net10.0` | 最新 .NET，享受最优性能 |
+
+## OceanBase 和 TiDB 支持
+
+NewLife.MySql 原生支持 **OceanBase** 和 **TiDB** 分布式数据库。这两个数据库均使用 MySQL 协议，无需额外配置即可使用。
+
+### 自动检测
+
+驱动会根据服务器握手包中的版本字符串自动检测数据库类型：
+
+- **OceanBase**：版本字符串包含 `OceanBase` 关键字（如 `5.7.25-OceanBase-v4.0.0`）
+- **TiDB**：版本字符串包含 `TiDB` 关键字（如 `5.7.25-TiDB-v6.5.2`）
+- **MySQL**：标准 MySQL 版本字符串（如 `8.0.26`）
+
+### 使用方式
+
+连接方式与 MySQL 完全相同，只需修改连接字符串中的服务器地址和端口：
+
+```csharp
+// OceanBase 连接示例
+var oceanBaseConnStr = "Server=oceanbase-host;Port=2881;Database=test;User Id=root;Password=pass;";
+using var conn = new MySqlConnection(oceanBaseConnStr);
+conn.Open();
+Console.WriteLine($"数据库类型: {conn.DatabaseType}");  // 输出: OceanBase
+
+// TiDB 连接示例
+var tidbConnStr = "Server=tidb-host;Port=4000;Database=test;User Id=root;Password=pass;";
+using var conn2 = new MySqlConnection(tidbConnStr);
+conn2.Open();
+Console.WriteLine($"数据库类型: {conn2.DatabaseType}");  // 输出: TiDB
+```
+
+### Schema 信息
+
+通过 `GetSchema("DataSourceInformation")` 可以获取正确的数据库产品名称：
+
+```csharp
+var schema = conn.GetSchema("DataSourceInformation");
+var productName = schema.Rows[0]["DataSourceProductName"];  // "OceanBase" 或 "TiDB" 或 "MySQL"
+```
+
+### 兼容性说明
+
+- **连接认证**：支持 `mysql_native_password` 和 `caching_sha2_password`
+- **基础 SQL**：SELECT、INSERT、UPDATE、DELETE 等标准 SQL 完全兼容
+- **事务**：支持事务提交和回滚
+- **参数化查询**：完全支持
+- **批量操作**：管道化批量执行在 OceanBase 和 TiDB 上同样有效
+- **存储过程**：取决于数据库版本，建议参考各自官方文档
 
 ## 注意事项
 

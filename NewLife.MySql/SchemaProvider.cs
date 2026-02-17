@@ -96,7 +96,7 @@ internal class SchemaProvider(MySqlConnection connection)
         var version = Assembly.GetExecutingAssembly().GetName().Version;
         var row = collection.AddRow();
         row["CompositeIdentifierSeparatorPattern"] = "\\.";
-        row["DataSourceProductName"] = "MySQL";
+        row["DataSourceProductName"] = GetProductName();
         row["DataSourceProductVersion"] = connection.ServerVersion;
         row["DataSourceProductVersionNormalized"] = version + "";
         row["GroupByBehavior"] = GroupByBehavior.Unrelated;
@@ -737,6 +737,15 @@ internal class SchemaProvider(MySqlConnection connection)
 
         return collection;
     }
+
+    /// <summary>根据连接的数据库类型返回产品名称</summary>
+    /// <returns>产品名称字符串（MySQL/OceanBase/TiDB）</returns>
+    private String GetProductName() => connection.DatabaseType switch
+    {
+        Common.DatabaseType.OceanBase => "OceanBase",
+        Common.DatabaseType.TiDB => "TiDB",
+        _ => "MySQL",
+    };
 }
 
 class SchemaCollection
