@@ -25,6 +25,15 @@ class Program
         var conn = new MySqlConnection(connStr);
         conn.Open();
 
+        // 显示数据库类型信息
+        Console.WriteLine($"数据库类型: {conn.DatabaseType}");
+        Console.WriteLine($"服务器版本: {conn.ServerVersion}");
+        
+        // 获取 Schema 信息查看产品名称
+        var schema = conn.GetSchema("DataSourceInformation");
+        Console.WriteLine($"产品名称: {schema.Rows[0]["DataSourceProductName"]}");
+        Console.WriteLine();
+
         using var cmd = new MySqlCommand(conn, "select * from `user`");
         using var dr = cmd.ExecuteReader();
 
@@ -73,5 +82,50 @@ class Program
         }
 
         var list = Role.FindAll();
+    }
+
+    /// <summary>测试 OceanBase/TiDB 数据库连接和类型检测</summary>
+    static void TestDistributedDatabases()
+    {
+        // OceanBase 示例（默认端口 2881）
+        var oceanBaseConnStr = "Server=oceanbase-host;Port=2881;Database=test;User Id=root;Password=pass;";
+        
+        // TiDB 示例（默认端口 4000）
+        var tidbConnStr = "Server=tidb-host;Port=4000;Database=test;User Id=root;Password=pass;";
+
+        // 测试 OceanBase
+        Console.WriteLine("=== OceanBase 连接测试 ===");
+        try
+        {
+            using var oceanConn = new MySqlConnection(oceanBaseConnStr);
+            oceanConn.Open();
+            Console.WriteLine($"数据库类型: {oceanConn.DatabaseType}");  // 应输出: OceanBase
+            Console.WriteLine($"服务器版本: {oceanConn.ServerVersion}");
+            
+            var schema = oceanConn.GetSchema("DataSourceInformation");
+            Console.WriteLine($"产品名称: {schema.Rows[0]["DataSourceProductName"]}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"连接失败: {ex.Message}");
+        }
+        Console.WriteLine();
+
+        // 测试 TiDB
+        Console.WriteLine("=== TiDB 连接测试 ===");
+        try
+        {
+            using var tidbConn = new MySqlConnection(tidbConnStr);
+            tidbConn.Open();
+            Console.WriteLine($"数据库类型: {tidbConn.DatabaseType}");  // 应输出: TiDB
+            Console.WriteLine($"服务器版本: {tidbConn.ServerVersion}");
+            
+            var schema = tidbConn.GetSchema("DataSourceInformation");
+            Console.WriteLine($"产品名称: {schema.Rows[0]["DataSourceProductName"]}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"连接失败: {ex.Message}");
+        }
     }
 }
