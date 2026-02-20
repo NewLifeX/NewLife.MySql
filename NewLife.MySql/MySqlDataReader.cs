@@ -169,12 +169,12 @@ public class MySqlDataReader : DbDataReader
     /// <summary>获取指定列的布尔值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Boolean GetBoolean(Int32 ordinal) => (Boolean)_Values![ordinal];
+    public override Boolean GetBoolean(Int32 ordinal) => Convert.ToBoolean(_Values![ordinal]);
 
     /// <summary>获取指定列的字节值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Byte GetByte(Int32 ordinal) => (Byte)_Values![ordinal];
+    public override Byte GetByte(Int32 ordinal) => Convert.ToByte(_Values![ordinal]);
 
     /// <summary>从指定列读取字节流到缓冲区</summary>
     /// <param name="ordinal">从零开始的列序号</param>
@@ -240,42 +240,49 @@ public class MySqlDataReader : DbDataReader
     /// <summary>获取指定列的日期时间值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override DateTime GetDateTime(Int32 ordinal) => (DateTime)_Values![ordinal];
+    public override DateTime GetDateTime(Int32 ordinal) => Convert.ToDateTime(_Values![ordinal]);
 
     /// <summary>获取指定列的Decimal值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Decimal GetDecimal(Int32 ordinal) => (Decimal)_Values![ordinal];
+    public override Decimal GetDecimal(Int32 ordinal) => Convert.ToDecimal(_Values![ordinal]);
 
     /// <summary>获取指定列的双精度浮点值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Double GetDouble(Int32 ordinal) => (Double)_Values![ordinal];
+    public override Double GetDouble(Int32 ordinal) => Convert.ToDouble(_Values![ordinal]);
 
     /// <summary>获取指定列的单精度浮点值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Single GetFloat(Int32 ordinal) => (Single)_Values![ordinal];
+    public override Single GetFloat(Int32 ordinal) => Convert.ToSingle(_Values![ordinal]);
 
     /// <summary>获取指定列的GUID值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Guid GetGuid(Int32 ordinal) => (Guid)_Values![ordinal];
+    public override Guid GetGuid(Int32 ordinal)
+    {
+        var val = _Values![ordinal];
+        if (val is Guid g) return g;
+        if (val is String s) return Guid.Parse(s);
+        if (val is Byte[] buf) return new Guid(buf);
+        return (Guid)val;
+    }
 
     /// <summary>获取指定列的16位有符号整数值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Int16 GetInt16(Int32 ordinal) => (Int16)_Values![ordinal];
+    public override Int16 GetInt16(Int32 ordinal) => Convert.ToInt16(_Values![ordinal]);
 
     /// <summary>获取指定列的32位有符号整数值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Int32 GetInt32(Int32 ordinal) => (Int32)_Values![ordinal];
+    public override Int32 GetInt32(Int32 ordinal) => Convert.ToInt32(_Values![ordinal]);
 
     /// <summary>获取指定列的64位有符号整数值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Int64 GetInt64(Int32 ordinal) => (Int64)_Values![ordinal];
+    public override Int64 GetInt64(Int32 ordinal) => Convert.ToInt64(_Values![ordinal]);
 
     /// <summary>以 System.String 实例的形式获取指定列的值</summary>
     /// <param name="ordinal">从零开始的列序号。</param>
