@@ -33,7 +33,7 @@ public static class MySqlFieldCodec
     public static Object ReadTextValue(ref SpanReader reader, MySqlColumn column, Int32 len)
     {
         var span = reader.ReadBytes(len);
-        var reader2 = new SpanReader(span);
+        //var reader2 = new SpanReader(span);
 
         return column.Type switch
         {

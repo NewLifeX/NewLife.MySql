@@ -565,7 +565,7 @@ public class BinlogClient : DisposeBase
     /// <summary>读取 6 字节小端 table_id</summary>
     private static UInt64 ReadTableId(ref SpanReader reader)
     {
-        ReadOnlySpan<Byte> bytes = reader.ReadBytes(6);
+        var bytes = reader.ReadBytes(6);
         return (UInt64)bytes[0] | ((UInt64)bytes[1] << 8) | ((UInt64)bytes[2] << 16) |
                ((UInt64)bytes[3] << 24) | ((UInt64)bytes[4] << 32) | ((UInt64)bytes[5] << 40);
     }

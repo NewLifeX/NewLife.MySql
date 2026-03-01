@@ -1,4 +1,5 @@
 ﻿using System.Data.Common;
+using NewLife.MySql.Common;
 
 namespace NewLife.MySql;
 
@@ -35,6 +36,21 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
 
     /// <summary>是否启用管道化执行。批量操作时连续发送多个 EXECUTE 包再批量读取响应，默认false</summary>
     public Boolean Pipeline { get => this[nameof(Pipeline)].ToBoolean(); set => this[nameof(Pipeline)] = value; }
+
+    /// <summary>字符集。默认Utf8Mb4，支持4字节Unicode（含emoji）。握手时写入协议编号，等效于SET NAMES</summary>
+    public MySqlCharSet CharSet
+    {
+        get
+        {
+            var v = this[nameof(CharSet)];
+            if (v is MySqlCharSet cs) return cs;
+            // 连接字符串传入的是字符串，尝试解析
+            if (v is String s && !s.IsNullOrEmpty())
+                return ParseCharSet(s);
+            return MySqlCharSet.Utf8Mb4;
+        }
+        set => this[nameof(CharSet)] = value;
+    }
     #endregion
 
     #region 构造
@@ -53,6 +69,7 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
             [nameof(SslMode)] = ["sslmode", "ssl mode", "ssl-mode"],
             [nameof(UseServerPrepare)] = ["useserverprepare", "use server prepare", "use_server_prepare"],
             [nameof(Pipeline)] = ["pipeline", "pipelining"],
+            [nameof(CharSet)] = ["charset", "character set", "characterset", "char set"],
         };
 
         _options = dic;
@@ -64,6 +81,7 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
         Port = 3306;
         ConnectionTimeout = 15;
         CommandTimeout = 30;
+        CharSet = MySqlCharSet.Utf8Mb4;
     }
 
     /// <summary>使用连接字符串实例化</summary>
@@ -77,7 +95,7 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// <returns></returns>
     public override Object? this[String keyword]
     {
-        get { return TryGetValue(keyword, out var value) ? value : null; }
+        get => TryGetValue(keyword, out var value) ? value : null;
         set
         {
             // 替换为标准Key
@@ -94,5 +112,25 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
             base[keyword] = value;
         }
     }
+
+    /// <summary>获取字符集对应的 MySQL 协议编号。用于握手包中的 charset 字段</summary>
+    /// <returns>MySQL 字符集编号</returns>
+    public Byte GetCharSetNumber() => (Byte)CharSet;
+
+    /// <summary>将字符串解析为 MySqlCharSet 枚举。连接字符串中指定字符集名称时使用</summary>
+    /// <param name="name">字符集名称，不区分大小写</param>
+    /// <returns>对应的枚举值，未识别时返回 Utf8Mb4</returns>
+    public static MySqlCharSet ParseCharSet(String name) => name.ToLower() switch
+    {
+        "utf8mb4" or "utf8mb4_general_ci" => MySqlCharSet.Utf8Mb4,
+        "utf8mb4_unicode_ci" => MySqlCharSet.Utf8Mb4Unicode,
+        "utf8" or "utf8_general_ci" => MySqlCharSet.Utf8,
+        "binary" => MySqlCharSet.Binary,
+        "latin1" or "latin1_swedish_ci" => MySqlCharSet.Latin1,
+        "gbk" or "gbk_chinese_ci" => MySqlCharSet.Gbk,
+        "gb2312" or "gb2312_chinese_ci" => MySqlCharSet.Gb2312,
+        "ascii" or "ascii_general_ci" => MySqlCharSet.Ascii,
+        _ => MySqlCharSet.Utf8Mb4,
+    };
     #endregion
 }

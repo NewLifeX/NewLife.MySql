@@ -205,7 +205,7 @@ public class SqlClient : DisposeBase
         var writer = new SpanWriter(buf);
         writer.Write((UInt32)flags);
         writer.Write(0xFF_FFFF); // MaxPacket
-        writer.Write((Byte)33); // UTF-8
+        writer.Write(Setting.GetCharSetNumber()); // 字符集编号，默认utf8mb4
         writer.Write(new Byte[23]);
 
         _seq = 1;

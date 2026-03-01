@@ -29,7 +29,7 @@ class Authentication(SqlClient client)
         var flags2 = GetFlags(welcome.Capability);
         writer.Write((UInt32)flags2);
         writer.Write(0xFF_FFFF); // MaxPacket
-        writer.Write((Byte)33); // UTF-8
+        writer.Write(set.GetCharSetNumber()); // 字符集编号，默认utf8mb4
         writer.Write(new Byte[23]);
 
         var method = welcome.AuthMethod!;

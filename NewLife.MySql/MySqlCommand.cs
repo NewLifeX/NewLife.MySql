@@ -499,13 +499,14 @@ public class MySqlCommand : DbCommand
         ms.Write(sql.GetBytes());
     }
 
-    /// <summary>构建存储过程调用的多语句SQL。
-    /// 输入参数通过 SET @p=value 设置为用户变量，
-    /// 输出参数通过 CALL 后的 SELECT @p 读取。</summary>
-    /// <returns>完整的多语句SQL</returns>
+    /// <summary>构建存储过程调用的SQL。
+    /// IN 参数直接嵌入值，避免 SET 用户变量产生额外的 OK 结果集干扰 reader 定位；
+    /// OUT 参数通过用户变量传递，CALL 后追加 SELECT 读回；
+    /// INOUT 参数先 SET 用户变量，再传递并 SELECT 读回。</summary>
+    /// <returns>完整的存储过程调用SQL</returns>
     private String BuildStoredProcedureCall()
     {
-        var sb = new StringBuilder();
+        var sb = Pool.StringBuilder.Get();
         var callArgs = new List<String>();
         var outParams = new List<String>();
 
@@ -518,23 +519,33 @@ public class MySqlCommand : DbCommand
             var cleanName = name.StartsWith("@") ? name[1..] : name;
             var userVar = "@" + cleanName;
 
-            if (p.Direction == ParameterDirection.Input || p.Direction == ParameterDirection.InputOutput)
+            switch (p.Direction)
             {
-                // SET @param = value;
-                sb.Append("SET ");
-                sb.Append(userVar);
-                sb.Append('=');
-                sb.Append(SerializeValue(p.Value));
-                sb.Append(';');
+                case ParameterDirection.Output:
+                    // OUT 参数：传入用户变量，CALL 后 SELECT 读取输出值
+                    callArgs.Add(userVar);
+                    outParams.Add(userVar);
+                    break;
+
+                case ParameterDirection.InputOutput:
+                    // INOUT 参数：先 SET 用户变量传入值，再传递用户变量，CALL 后 SELECT 读取
+                    sb.Append("SET ");
+                    sb.Append(userVar);
+                    sb.Append('=');
+                    sb.Append(SerializeValue(p.Value));
+                    sb.Append(';');
+                    callArgs.Add(userVar);
+                    outParams.Add(userVar);
+                    break;
+
+                default: // Input
+                    // IN 参数：直接嵌入值，无需 SET 用户变量，避免额外的 OK 结果集
+                    callArgs.Add(SerializeValue(p.Value));
+                    break;
             }
-
-            callArgs.Add(userVar);
-
-            if (p.Direction == ParameterDirection.Output || p.Direction == ParameterDirection.InputOutput)
-                outParams.Add(userVar);
         }
 
-        // CALL proc_name(@p1, @p2, ...);
+        // CALL proc_name(val1, val2, @out1, ...)
         sb.Append("CALL ");
         sb.Append(CommandText);
         sb.Append('(');
@@ -545,7 +556,7 @@ public class MySqlCommand : DbCommand
         }
         sb.Append(')');
 
-        // 如果有输出参数，追加 SELECT 读取
+        // 有输出参数则追加 SELECT 读取输出值
         if (outParams.Count > 0)
         {
             sb.Append(";SELECT ");
@@ -556,7 +567,7 @@ public class MySqlCommand : DbCommand
             }
         }
 
-        return sb.ToString();
+        return sb.Return(true);
     }
 
     /// <summary>读取存储过程的输出参数值</summary>

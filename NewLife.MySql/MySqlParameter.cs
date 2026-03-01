@@ -17,7 +17,7 @@ public class MySqlParameter : DbParameter
     public override DbType DbType { get; set; }
 
     /// <summary>方向</summary>
-    public override ParameterDirection Direction { get; set; }
+    public override ParameterDirection Direction { get; set; } = ParameterDirection.Input;
 
     /// <summary>是否允许空</summary>
     public override Boolean IsNullable { get; set; }
