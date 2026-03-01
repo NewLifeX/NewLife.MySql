@@ -507,6 +507,37 @@ public class ParameterizedQueryTests : IDisposable
     }
     #endregion
 
+    #region SerializeValue String 转义测试
+    [Fact]
+    public void SerializeStringWithSpecialChars()
+    {
+        // 字符串参数序列化时自动转义
+        var result = CallSerialize("it's a \"test\"");
+        Assert.Equal("'it\\'s a \\\"test\\\"'", result);
+    }
+
+    [Fact]
+    public void SerializeEmptyString()
+    {
+        var result = CallSerialize("");
+        Assert.Equal("''", result);
+    }
+
+    [Fact]
+    public void SerializeStringWithNullChar()
+    {
+        var result = CallSerialize("a\0b");
+        Assert.Equal("'a\\0b'", result);
+    }
+
+    [Fact]
+    public void SerializeEmptyByteArray()
+    {
+        var result = CallSerialize(Array.Empty<Byte>());
+        Assert.Equal("X''", result);
+    }
+    #endregion
+
     #region SerializeValue 整数类型测试
     [Fact]
     public void SerializeInt32()
