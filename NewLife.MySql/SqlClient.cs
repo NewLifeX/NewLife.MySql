@@ -372,8 +372,7 @@ public class SqlClient : DisposeBase
         {
             // 3字节长度 + 1字节序列号
             var buf = Pool.Shared.Rent(4);
-            var count = await ms.ReadExactlyAsync(buf, 0, 4, token).ConfigureAwait(false);
-            if (count < 4) throw new InvalidDataException($"读取数据包头部失败，可用{count}字节");
+            await ms.ReadExactlyAsync(buf, 0, 4, token).ConfigureAwait(false);
 
             var rs = new ServerPacket(ms)
             {
@@ -386,9 +385,9 @@ public class SqlClient : DisposeBase
             // 读取数据。长度必须刚好，因为可能有多帧数据包
             var len = rs.Length;
             var pk = new OwnerPacket(len);
-            count = await ms.ReadExactlyAsync(pk.Buffer, pk.Offset, len, token).ConfigureAwait(false);
+            await ms.ReadExactlyAsync(pk.Buffer, pk.Offset, len, token).ConfigureAwait(false);
 
-            pk.Resize(count);
+            pk.Resize(len);
             rs.Set(pk);
 
             // 错误包
