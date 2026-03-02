@@ -29,7 +29,20 @@
     <RepositoryUrl>https://github.com/NewLifeX/NewLife.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>新生命团队;X组件;NewLife;MySql;MySQL;ADO.NET;国产;高性能;批量;管道化;$(AssemblyName)</PackageTags>
-    <PackageReleaseNotes></PackageReleaseNotes>
+    <PackageReleaseNotes>v1.0 正式版
+完整ADO.NET实现，支持MySqlConnection/Command/DataReader/Parameter/Transaction全套组件；
+支持SSL/TLS安全连接、参数化查询、事务自动回滚、多语句多结果集；
+支持.NET 6.0+ DbBatch批量命令与真管道化执行，大幅提升批量性能；
+支持MySQL服务端预编译语句与二进制参数绑定；
+支持GetSchema元数据查询、MySqlDataAdapter、存储过程参数；
+支持ChangeDatabase/SetDatabaseAsync、连接心跳检测、读取超时控制；
+支持MySQL Binlog订阅与事件解析；
+全面异步化，所有核心操作支持异步方法与CancellationToken；
+新增EF Core Provider与EF6适配层；
+兼容OceanBase和TiDB数据库自动识别；
+使用缓冲区与SpanReader优化协议解析，减少GC；
+修复密码登录、类型转换、Bit解析等问题；
+支持.NET Framework 4.5至.NET 10全版本，零第三方依赖</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
@@ -44,7 +57,7 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="NewLife.Core" Version="11.12.2026.301" />
+    <PackageReference Include="NewLife.Core" Version="11.13.2026.301" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="NewLife" />
