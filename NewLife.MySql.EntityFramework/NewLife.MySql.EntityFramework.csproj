@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk" ToolsVersion="Current">
   <PropertyGroup>
     <TargetFrameworks>net45;net461</TargetFrameworks>
-    <AssemblyTitle>ĞÂÉúÃüMySql EF6Çı¶¯</AssemblyTitle>
-    <Description>»ùÓÚNewLife.MySqlµÄEntity Framework 6Êı¾İ¿âÌá¹©³ÌĞò£¬´¿¹ú²ú¸ßĞÔÄÜMySQLÇı¶¯</Description>
-    <Company>ĞÂÉúÃü¿ª·¢ÍÅ¶Ó</Company>
+    <AssemblyTitle>æ–°ç”Ÿå‘½MySql EF6æä¾›ç¨‹åº</AssemblyTitle>
+    <Description>åŸºäºNewLife.MySqlçš„Entity Framework 6æ•°æ®åº“æä¾›ç¨‹åºï¼Œçº¯å›½äº§é›¶ä¾èµ–ï¼Œæ”¯æŒç®¡é“åŒ–æ‰¹é‡æ“ä½œ</Description>
+    <Company>æ–°ç”Ÿå‘½å¼€å‘å›¢é˜Ÿ</Company>
     <Copyright>?2002-2026 NewLife</Copyright>
     <VersionPrefix>1.0</VersionPrefix>
     <VersionSuffix>$([System.DateTime]::Now.ToString(`yyyy.MMdd`))</VersionSuffix>
@@ -27,7 +27,7 @@
     <PackageIcon>leaf.png</PackageIcon>
     <RepositoryUrl>https://github.com/NewLifeX/NewLife.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>ĞÂÉúÃüÍÅ¶Ó;X×é¼ş;NewLife;MySql;MySQL;ADO.NET;¹ú²ú;EntityFramework;EF6;$(AssemblyName)</PackageTags>
+    <PackageTags>æ–°ç”Ÿå‘½å›¢é˜Ÿ;Xç»„ä»¶;NewLife;MySql;MySQL;ADO.NET;å›½äº§;EntityFramework;EF6;$(AssemblyName)</PackageTags>
     <PackageReleaseNotes></PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
