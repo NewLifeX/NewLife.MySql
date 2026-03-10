@@ -26,6 +26,9 @@ jobs:
           9.x
           10.x
     - name: Build
+      env:
+        LANG: en_US.UTF-8
+        LC_ALL: en_US.UTF-8
       run: |
         dotnet pack --version-suffix $(date "+%Y.%m%d-beta%H%M") -c Release -o out NewLife.MySql/NewLife.MySql.csproj
         dotnet pack --version-suffix $(date "+%Y.%m%d-beta%H%M") -c Release -o out NewLife.MySql.EntityFramework/NewLife.MySql.EntityFramework.csproj
