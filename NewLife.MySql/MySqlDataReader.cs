@@ -331,15 +331,12 @@ public class MySqlDataReader : DbDataReader
     {
         var client = (Command.Connection as MySqlConnection)!.Client!;
 
-        // 如果当前结果集的行未消费完，先消费掉
+        // 如果当前结果集的行未消费完，先跳过剩余行（不解析内容）
         if (_FieldCount > 0 && !_allRowsConsumed)
         {
-            var values = new Object[_FieldCount];
             while (true)
             {
-                var row = IsBinaryProtocol
-                    ? await client.NextBinaryRowAsync(values, _Columns!, cancellationToken).ConfigureAwait(false)
-                    : await client.NextRowAsync(values, _Columns!, cancellationToken).ConfigureAwait(false);
+                var row = await client.SkipRowAsync(cancellationToken).ConfigureAwait(false);
                 if (!row.HasRow)
                 {
                     _hasMoreResults = row.HasMoreResults;

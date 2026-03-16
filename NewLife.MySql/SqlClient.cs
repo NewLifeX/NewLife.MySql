@@ -785,6 +785,17 @@ public class SqlClient : DisposeBase
         return new RowResult(true, 0, 0);
     }
 
+    /// <summary>跳过当前结果集中的一行数据（不解析内容），用于快速消费剩余行</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>行读取结果，包含是否到达 EOF 及状态信息</returns>
+    public async Task<RowResult> SkipRowAsync(CancellationToken cancellationToken = default)
+    {
+        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        if (rs.IsEOF) return ReadEofRowResult(rs);
+
+        return new RowResult(true, 0, 0);
+    }
+
     /// <summary>读取 EOF 包并返回行结束结果</summary>
     /// <param name="rs">服务器包</param>
     /// <returns>行读取结果</returns>
