@@ -306,7 +306,11 @@ public class MySqlDataReader : DbDataReader
 
         var client = (Command.Connection as MySqlConnection)!.Client!;
 
-        var values = new Object[_FieldCount];
+        // 复用上一行的数组，避免每行分配一个新 Object[]，减少 GC 压力
+        var values = _Values;
+        if (values == null || values.Length != _FieldCount)
+            values = new Object[_FieldCount];
+
         var result = IsBinaryProtocol
             ? await client.NextBinaryRowAsync(values, _Columns!, cancellationToken).ConfigureAwait(false)
             : await client.NextRowAsync(values, _Columns!, cancellationToken).ConfigureAwait(false);

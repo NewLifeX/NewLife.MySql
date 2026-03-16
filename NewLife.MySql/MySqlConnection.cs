@@ -27,6 +27,9 @@ public sealed partial class MySqlConnection : DbConnection
     /// <summary>版本</summary>
     public override String ServerVersion => _Version;
 
+    /// <summary>服务器版本注释（version_comment），包含更多产品信息，如 OceanBase/TiDB 标识和完整版本注释）</summary>
+    public String? ServerVersionComment { get; private set; }
+
     private DatabaseType _DatabaseType;
     /// <summary>数据库类型。根据服务器版本字符串自动检测（MySQL/OceanBase/TiDB）</summary>
     public DatabaseType DatabaseType => _DatabaseType;
@@ -167,6 +170,8 @@ public sealed partial class MySqlConnection : DbConnection
                             var comment = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as String;
                             if (!comment.IsNullOrEmpty())
                             {
+                                ServerVersionComment = comment;
+
                                 var parts = comment.Split([' '], StringSplitOptions.RemoveEmptyEntries);
 
                                 // 检测产品类型并更新 DatabaseType
@@ -178,7 +183,7 @@ public sealed partial class MySqlConnection : DbConnection
                                 // 第二段包含'.'则视为版本号，非MySQL产品拼接产品后缀；否则回退到完整注释
                                 if (parts.Length > 1 && parts[1].Contains('.'))
                                     _Version = parts[1];
-                                else
+                                else if (_DatabaseType != DatabaseType.MySQL)
                                     _Version = comment;
                             }
                         }
