@@ -137,7 +137,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="dataReader">数据读取器</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功添加或刷新的行数</returns>
-    public Task<Int32> FillAsync(DataTable dataTable, IDataReader dataReader, CancellationToken cancellationToken = default) => ExecuteAsync(() => base.Fill(dataTable, dataReader), cancellationToken);
+    public Task<Int32> FillAsync(DataTable dataTable, IDataReader dataReader, CancellationToken cancellationToken = default) => ExecuteAsync(() => Fill(dataTable, dataReader), cancellationToken);
 
     /// <summary>使用命令异步填充 DataTable</summary>
     /// <param name="dataTable">要填充的 DataTable</param>
@@ -145,7 +145,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="behavior">命令行为</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功添加或刷新的行数</returns>
-    public Task<Int32> FillAsync(DataTable dataTable, IDbCommand command, CommandBehavior behavior, CancellationToken cancellationToken = default) => ExecuteAsync(() => base.Fill(dataTable, command, behavior), cancellationToken);
+    public Task<Int32> FillAsync(DataTable dataTable, IDbCommand command, CommandBehavior behavior, CancellationToken cancellationToken = default) => ExecuteAsync(() => Fill(dataTable, command, behavior), cancellationToken);
 
     /// <summary>异步填充多个 DataTable</summary>
     /// <param name="startRecord">起始记录</param>
@@ -172,7 +172,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="maxRecords">最大记录数</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功添加或刷新的行数</returns>
-    public Task<Int32> FillAsync(DataSet dataSet, String srcTable, IDataReader dataReader, Int32 startRecord, Int32 maxRecords, CancellationToken cancellationToken = default) => ExecuteAsync(() => base.Fill(dataSet, srcTable, dataReader, startRecord, maxRecords), cancellationToken);
+    public Task<Int32> FillAsync(DataSet dataSet, String srcTable, IDataReader dataReader, Int32 startRecord, Int32 maxRecords, CancellationToken cancellationToken = default) => ExecuteAsync(() => Fill(dataSet, srcTable, dataReader, startRecord, maxRecords), cancellationToken);
 
     /// <summary>使用命令异步填充多个 DataTable 的指定范围</summary>
     /// <param name="dataTables">要填充的 DataTable 数组</param>
@@ -182,7 +182,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="behavior">命令行为</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功添加或刷新的行数</returns>
-    public Task<Int32> FillAsync(DataTable[] dataTables, Int32 startRecord, Int32 maxRecords, IDbCommand command, CommandBehavior behavior, CancellationToken cancellationToken = default) => ExecuteAsync(() => base.Fill(dataTables, startRecord, maxRecords, command, behavior), cancellationToken);
+    public Task<Int32> FillAsync(DataTable[] dataTables, Int32 startRecord, Int32 maxRecords, IDbCommand command, CommandBehavior behavior, CancellationToken cancellationToken = default) => ExecuteAsync(() => Fill(dataTables, startRecord, maxRecords, command, behavior), cancellationToken);
 
     /// <summary>使用命令异步填充 DataSet 的指定范围</summary>
     /// <param name="dataSet">要填充的 DataSet</param>
@@ -193,7 +193,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="behavior">命令行为</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功添加或刷新的行数</returns>
-    public Task<Int32> FillAsync(DataSet dataSet, Int32 startRecord, Int32 maxRecords, String srcTable, IDbCommand command, CommandBehavior behavior, CancellationToken cancellationToken = default) => ExecuteAsync(() => base.Fill(dataSet, startRecord, maxRecords, srcTable, command, behavior), cancellationToken);
+    public Task<Int32> FillAsync(DataSet dataSet, Int32 startRecord, Int32 maxRecords, String srcTable, IDbCommand command, CommandBehavior behavior, CancellationToken cancellationToken = default) => ExecuteAsync(() => Fill(dataSet, startRecord, maxRecords, srcTable, command, behavior), cancellationToken);
 
     /// <summary>异步获取 DataSet 的架构信息</summary>
     /// <param name="dataSet">要填充架构的 DataSet</param>
@@ -217,7 +217,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="dataReader">数据读取器</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>包含架构信息的 DataTable 数组</returns>
-    public Task<DataTable[]> FillSchemaAsync(DataSet dataSet, SchemaType schemaType, String srcTable, IDataReader dataReader, CancellationToken cancellationToken = default) => ExecuteAsync(() => base.FillSchema(dataSet, schemaType, srcTable, dataReader), cancellationToken);
+    public Task<DataTable[]> FillSchemaAsync(DataSet dataSet, SchemaType schemaType, String srcTable, IDataReader dataReader, CancellationToken cancellationToken = default) => ExecuteAsync(() => FillSchema(dataSet, schemaType, srcTable, dataReader), cancellationToken);
 
     /// <summary>使用命令异步获取 DataSet 的架构信息</summary>
     /// <param name="dataSet">要填充架构的 DataSet</param>
@@ -227,7 +227,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="behavior">命令行为</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>包含架构信息的 DataTable 数组</returns>
-    public Task<DataTable[]> FillSchemaAsync(DataSet dataSet, SchemaType schemaType, IDbCommand command, String srcTable, CommandBehavior behavior, CancellationToken cancellationToken = default) => ExecuteAsync(() => base.FillSchema(dataSet, schemaType, command, srcTable, behavior), cancellationToken);
+    public Task<DataTable[]> FillSchemaAsync(DataSet dataSet, SchemaType schemaType, IDbCommand command, String srcTable, CommandBehavior behavior, CancellationToken cancellationToken = default) => ExecuteAsync(() => FillSchema(dataSet, schemaType, command, srcTable, behavior), cancellationToken);
 
     /// <summary>异步获取 DataTable 的架构信息</summary>
     /// <param name="dataTable">要填充架构的 DataTable</param>
@@ -242,7 +242,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="dataReader">数据读取器</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>包含架构信息的 DataTable</returns>
-    public Task<DataTable> FillSchemaAsync(DataTable dataTable, SchemaType schemaType, IDataReader dataReader, CancellationToken cancellationToken = default) => ExecuteAsync(() => base.FillSchema(dataTable, schemaType, dataReader), cancellationToken);
+    public Task<DataTable> FillSchemaAsync(DataTable dataTable, SchemaType schemaType, IDataReader dataReader, CancellationToken cancellationToken = default) => ExecuteAsync(() => FillSchema(dataTable, schemaType, dataReader), cancellationToken);
 
     /// <summary>使用命令异步获取 DataTable 的架构信息</summary>
     /// <param name="dataTable">要填充架构的 DataTable</param>
@@ -251,7 +251,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="behavior">命令行为</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>包含架构信息的 DataTable</returns>
-    public Task<DataTable> FillSchemaAsync(DataTable dataTable, SchemaType schemaType, IDbCommand command, CommandBehavior behavior, CancellationToken cancellationToken = default) => ExecuteAsync(() => base.FillSchema(dataTable, schemaType, command, behavior), cancellationToken);
+    public Task<DataTable> FillSchemaAsync(DataTable dataTable, SchemaType schemaType, IDbCommand command, CommandBehavior behavior, CancellationToken cancellationToken = default) => ExecuteAsync(() => FillSchema(dataTable, schemaType, command, behavior), cancellationToken);
 
     /// <summary>异步更新 DataRow 数组</summary>
     /// <param name="dataRows">要更新的数据行数组</param>
