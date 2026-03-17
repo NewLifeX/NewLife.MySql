@@ -18,6 +18,9 @@ public record QueryResult(Int32 FieldCount, Int32 AffectedRows, Int64 InsertedId
 /// <param name="Warnings">警告数量</param>
 public record RowResult(Boolean HasRow, ServerStatusFlags StatusFlags, UInt16 Warnings)
 {
+    /// <summary>数据行正常读取的缓存结果，无状态标志和警告。避免每行分配一个 RowResult 对象</summary>
+    public static readonly RowResult DataRow = new(true, 0, 0);
+
     /// <summary>是否有更多结果集</summary>
     public Boolean HasMoreResults => StatusFlags.HasFlag(ServerStatusFlags.SERVER_MORE_RESULTS_EXISTS);
 }

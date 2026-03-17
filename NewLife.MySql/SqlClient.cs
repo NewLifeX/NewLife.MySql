@@ -745,7 +745,7 @@ public class SqlClient : DisposeBase
             values[i] = MySqlFieldCodec.ReadTextValue(ref reader, columns[i], len);
         }
 
-        return new RowResult(true, 0, 0);
+        return RowResult.DataRow;
     }
 
     /// <summary>异步读取二进制协议结果行（COM_STMT_EXECUTE 返回的行数据）</summary>
@@ -782,7 +782,7 @@ public class SqlClient : DisposeBase
             values[i] = MySqlFieldCodec.ReadBinaryValue(ref reader, columns[i]);
         }
 
-        return new RowResult(true, 0, 0);
+        return RowResult.DataRow;
     }
 
     /// <summary>跳过当前结果集中的一行数据（不解析内容），用于快速消费剩余行</summary>
@@ -793,7 +793,7 @@ public class SqlClient : DisposeBase
         using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         if (rs.IsEOF) return ReadEofRowResult(rs);
 
-        return new RowResult(true, 0, 0);
+        return RowResult.DataRow;
     }
 
     /// <summary>读取 EOF 包并返回行结束结果</summary>

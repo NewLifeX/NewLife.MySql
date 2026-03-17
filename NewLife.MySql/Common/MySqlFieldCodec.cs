@@ -37,23 +37,23 @@ public static class MySqlFieldCodec
 
         return column.Type switch
         {
-            // 数值类型：ASCII 十进制字符串 → 对应 .NET 类型
-            MySqlDbType.Decimal or MySqlDbType.NewDecimal => Decimal.Parse(span.ToStr()),
-            MySqlDbType.Byte => (SByte)Int64.Parse(span.ToStr()),
-            MySqlDbType.UByte => (Byte)Int64.Parse(span.ToStr()),
-            MySqlDbType.Int16 => (Int16)Int64.Parse(span.ToStr()),
-            MySqlDbType.UInt16 => (UInt16)Int64.Parse(span.ToStr()),
-            MySqlDbType.Int24 or MySqlDbType.Int32 => (Int32)Int64.Parse(span.ToStr()),
-            MySqlDbType.UInt24 or MySqlDbType.UInt32 => (UInt32)Int64.Parse(span.ToStr()),
-            MySqlDbType.Int64 => Int64.Parse(span.ToStr()),
-            MySqlDbType.UInt64 => UInt64.Parse(span.ToStr()),
-            MySqlDbType.Float => Single.Parse(span.ToStr()),
-            MySqlDbType.Double => Double.Parse(span.ToStr()),
+            // 数值类型：从 UTF-8 ASCII 字节直接解析，零分配
+            MySqlDbType.Decimal or MySqlDbType.NewDecimal => ParseDecimalUtf8(span),
+            MySqlDbType.Byte => (SByte)ParseInt64Utf8(span),
+            MySqlDbType.UByte => (Byte)ParseInt64Utf8(span),
+            MySqlDbType.Int16 => (Int16)ParseInt64Utf8(span),
+            MySqlDbType.UInt16 => (UInt16)ParseInt64Utf8(span),
+            MySqlDbType.Int24 or MySqlDbType.Int32 => (Int32)ParseInt64Utf8(span),
+            MySqlDbType.UInt24 or MySqlDbType.UInt32 => (UInt32)ParseInt64Utf8(span),
+            MySqlDbType.Int64 => ParseInt64Utf8(span),
+            MySqlDbType.UInt64 => ParseUInt64Utf8(span),
+            MySqlDbType.Float => ParseSingleUtf8(span),
+            MySqlDbType.Double => ParseDoubleUtf8(span),
 
-            // 日期时间类型：ISO 格式字符串
-            MySqlDbType.DateTime or MySqlDbType.Timestamp or MySqlDbType.Date => span.ToStr().ToDateTime(),
-            MySqlDbType.Time => ParseTextTime(span.ToStr()),
-            MySqlDbType.Year => span.ToStr().ToInt(),
+            // 日期时间类型：从 UTF-8 字节直接解析，零分配
+            MySqlDbType.DateTime or MySqlDbType.Timestamp or MySqlDbType.Date => ParseDateTimeUtf8(span),
+            MySqlDbType.Time => ParseTextTimeUtf8(span),
+            MySqlDbType.Year => (Int32)ParseInt64Utf8(span),
 
             // 字符串类型：直接转为 .NET String
             MySqlDbType.String or MySqlDbType.VarString or MySqlDbType.VarChar
@@ -176,12 +176,12 @@ public static class MySqlFieldCodec
             MySqlDbType.UInt24 or MySqlDbType.UInt32 => (UInt32)reader.ReadInt32(),
             MySqlDbType.UInt64 => (UInt64)reader.ReadInt64(),
 
-            // 浮点数：IEEE 754 小端序
-            MySqlDbType.Float => BitConverter.ToSingle(reader.ReadBytes(4).ToArray(), 0),
-            MySqlDbType.Double => BitConverter.ToDouble(reader.ReadBytes(8).ToArray(), 0),
+            // 浮点数：IEEE 754 小端序，避免 .ToArray() 分配
+            MySqlDbType.Float => ReadBinaryFloat(ref reader),
+            MySqlDbType.Double => ReadBinaryDouble(ref reader),
 
-            // 高精度小数：length-encoded string
-            MySqlDbType.Decimal or MySqlDbType.NewDecimal => Decimal.Parse(reader.ReadString()),
+            // 高精度小数：MySQL 长度编码字符串
+            MySqlDbType.Decimal or MySqlDbType.NewDecimal => ParseDecimalUtf8(reader.ReadBytes((Int32)reader.ReadLength())),
 
             // 日期时间：自定义二进制格式
             MySqlDbType.DateTime or MySqlDbType.Timestamp or MySqlDbType.Date => ReadBinaryDateTime(ref reader),
@@ -196,8 +196,8 @@ public static class MySqlFieldCodec
                 or MySqlDbType.Binary or MySqlDbType.VarBinary or MySqlDbType.Geometry or MySqlDbType.Vector
                 => reader.ReadBytes((Int32)reader.ReadLength()).ToArray(),
 
-            // 字符串类型（VarString, String, VarChar, Text, JSON, Guid, Enum, Set 等）：length-encoded string
-            _ => reader.ReadString(),
+            // 字符串类型（VarString, String, VarChar, Text, JSON, Guid, Enum, Set 等）：MySQL 长度编码字符串
+            _ => reader.ReadString((Int32)reader.ReadLength()),
         };
     }
 
@@ -459,5 +459,209 @@ public static class MySqlFieldCodec
             writer.Write((Int32)(ts.Milliseconds * 1000));
         }
     }
+    #endregion
+
+    #region 零分配解析
+    /// <summary>从 UTF-8 ASCII 字节直接解析有符号 64 位整数，零分配</summary>
+    /// <param name="span">UTF-8 ASCII 十进制数字字节</param>
+    /// <returns>解析后的 Int64 值</returns>
+    private static Int64 ParseInt64Utf8(ReadOnlySpan<Byte> span)
+    {
+        if (span.Length == 0) return 0;
+
+        var pos = 0;
+        var neg = false;
+        if (span[0] == (Byte)'-')
+        {
+            neg = true;
+            pos = 1;
+        }
+        else if (span[0] == (Byte)'+')
+        {
+            pos = 1;
+        }
+
+        var result = 0L;
+        for (; pos < span.Length; pos++)
+        {
+            result = result * 10 + (span[pos] - '0');
+        }
+
+        return neg ? -result : result;
+    }
+
+    /// <summary>从 UTF-8 ASCII 字节直接解析无符号 64 位整数，零分配</summary>
+    /// <param name="span">UTF-8 ASCII 十进制数字字节</param>
+    /// <returns>解析后的 UInt64 值</returns>
+    private static UInt64 ParseUInt64Utf8(ReadOnlySpan<Byte> span)
+    {
+        var result = 0UL;
+        for (var i = 0; i < span.Length; i++)
+        {
+            result = result * 10 + (UInt64)(span[i] - '0');
+        }
+        return result;
+    }
+
+    /// <summary>从 UTF-8 字节直接解析 MySQL 日期时间，零分配</summary>
+    /// <remarks>支持格式：YYYY-MM-DD、YYYY-MM-DD HH:MM:SS、YYYY-MM-DD HH:MM:SS.ffffff</remarks>
+    /// <param name="span">UTF-8 日期时间字节</param>
+    /// <returns>解析后的 DateTime 值</returns>
+    private static DateTime ParseDateTimeUtf8(ReadOnlySpan<Byte> span)
+    {
+        if (span.Length < 10) return DateTime.MinValue;
+
+        var year = (span[0] - '0') * 1000 + (span[1] - '0') * 100 + (span[2] - '0') * 10 + (span[3] - '0');
+        var month = (span[5] - '0') * 10 + (span[6] - '0');
+        var day = (span[8] - '0') * 10 + (span[9] - '0');
+
+        // MySQL 的 0000-00-00 零日期
+        if (year == 0 && month == 0 && day == 0) return DateTime.MinValue;
+
+        var hour = 0;
+        var minute = 0;
+        var second = 0;
+        var millisecond = 0;
+
+        if (span.Length >= 19)
+        {
+            hour = (span[11] - '0') * 10 + (span[12] - '0');
+            minute = (span[14] - '0') * 10 + (span[15] - '0');
+            second = (span[17] - '0') * 10 + (span[18] - '0');
+        }
+
+        if (span.Length > 20)
+        {
+            // 微秒部分，补齐到6位后取前3位作为毫秒
+            var fracStart = 20;
+            var fracLen = span.Length - fracStart;
+            if (fracLen > 6) fracLen = 6;
+            var frac = 0;
+            for (var i = 0; i < fracLen; i++)
+            {
+                frac = frac * 10 + (span[fracStart + i] - '0');
+            }
+            for (var i = fracLen; i < 6; i++) frac *= 10;
+            millisecond = frac / 1000;
+        }
+
+        return new DateTime(year, month, day, hour, minute, second, millisecond);
+    }
+
+    /// <summary>从 UTF-8 字节直接解析 MySQL TIME 值，零分配</summary>
+    /// <remarks>格式：[-]H:MM:SS[.ffffff]，范围 -838:59:59.000000 到 838:59:59.000000</remarks>
+    /// <param name="span">UTF-8 TIME 字节</param>
+    /// <returns>解析后的 TimeSpan 值</returns>
+    private static TimeSpan ParseTextTimeUtf8(ReadOnlySpan<Byte> span)
+    {
+        if (span.Length == 0) return TimeSpan.Zero;
+
+        var pos = 0;
+        var neg = false;
+        if (span[0] == (Byte)'-')
+        {
+            neg = true;
+            pos = 1;
+        }
+
+        // 解析小时（变长：1-3位）
+        var hours = 0;
+        while (pos < span.Length && span[pos] != (Byte)':')
+        {
+            hours = hours * 10 + (span[pos] - '0');
+            pos++;
+        }
+        if (pos >= span.Length) return TimeSpan.Zero;
+        pos++; // 跳过 ':'
+
+        // 解析分钟（2位）
+        var minutes = (span[pos] - '0') * 10 + (span[pos + 1] - '0');
+        pos += 3; // 跳过 "MM:"
+
+        // 解析秒（2位）
+        var seconds = (span[pos] - '0') * 10 + (span[pos + 1] - '0');
+        pos += 2;
+
+        var milliseconds = 0;
+        if (pos < span.Length && span[pos] == (Byte)'.')
+        {
+            pos++; // 跳过 '.'
+            var fracLen = span.Length - pos;
+            if (fracLen > 6) fracLen = 6;
+            var frac = 0;
+            for (var i = 0; i < fracLen; i++)
+            {
+                frac = frac * 10 + (span[pos + i] - '0');
+            }
+            for (var i = fracLen; i < 6; i++) frac *= 10;
+            milliseconds = frac / 1000;
+        }
+
+        var ts = new TimeSpan(0, hours, minutes, seconds, milliseconds);
+        return neg ? ts.Negate() : ts;
+    }
+
+    /// <summary>从 UTF-8 字节解析单精度浮点数</summary>
+    /// <param name="span">UTF-8 浮点数字节</param>
+    /// <returns>解析后的 Single 值</returns>
+    private static Single ParseSingleUtf8(ReadOnlySpan<Byte> span)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
+        if (System.Buffers.Text.Utf8Parser.TryParse(span, out Single value, out _))
+            return value;
+#endif
+        return Single.Parse(span.ToStr());
+    }
+
+    /// <summary>从 UTF-8 字节解析双精度浮点数</summary>
+    /// <param name="span">UTF-8 浮点数字节</param>
+    /// <returns>解析后的 Double 值</returns>
+    private static Double ParseDoubleUtf8(ReadOnlySpan<Byte> span)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
+        if (System.Buffers.Text.Utf8Parser.TryParse(span, out Double value, out _))
+            return value;
+#endif
+        return Double.Parse(span.ToStr());
+    }
+
+    /// <summary>从 UTF-8 字节解析高精度小数</summary>
+    /// <param name="span">UTF-8 小数字节</param>
+    /// <returns>解析后的 Decimal 值</returns>
+    private static Decimal ParseDecimalUtf8(ReadOnlySpan<Byte> span)
+    {
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
+        if (System.Buffers.Text.Utf8Parser.TryParse(span, out Decimal value, out _))
+            return value;
+#endif
+        return Decimal.Parse(span.ToStr());
+    }
+
+    /// <summary>读取二进制协议的单精度浮点数，避免 .ToArray() 分配</summary>
+    /// <param name="reader">数据读取器</param>
+    /// <returns>解析后的 Single 值</returns>
+    private static Single ReadBinaryFloat(ref SpanReader reader)
+    {
+        var bytes = reader.ReadBytes(4);
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
+        return BitConverter.ToSingle(bytes);
+#else
+        return BitConverter.ToSingle(bytes.ToArray(), 0);
+#endif
+    }
+
+    /// <summary>读取二进制协议的双精度浮点数，避免 .ToArray() 分配</summary>
+    /// <param name="reader">数据读取器</param>
+    /// <returns>解析后的 Double 值</returns>
+    private static Double ReadBinaryDouble(ref SpanReader reader)
+    {
+        var bytes = reader.ReadBytes(8);
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
+        return BitConverter.ToDouble(bytes);
+#else
+        return BitConverter.ToDouble(bytes.ToArray(), 0);
+#endif
+    }
+
     #endregion
 }

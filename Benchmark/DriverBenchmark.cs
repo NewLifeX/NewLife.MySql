@@ -2,6 +2,7 @@
 using System.Data.Common;
 using System.Diagnostics;
 using System.Text;
+using NewLife.Data;
 using NL = NewLife.MySql;
 using Official = MySql.Data.MySqlClient;
 using Connector = MySqlConnector;
@@ -60,6 +61,10 @@ public static class DriverBenchmark
             await RunOne(all, "SELECT", "Official BulkRead", n, () => Off_BulkSelect(n), () => SeedData(n));
             await RunOne(all, "SELECT", "Connector SingleRow", n, () => Conn_SingleSelect(n), () => SeedData(n));
             await RunOne(all, "SELECT", "Connector BulkRead", n, () => Conn_BulkSelect(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "NewLife DbTable", n, () => NL_DbTable(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "Official DbTable", n, () => Off_DbTable(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "Connector DbTable", n, () => Conn_DbTable(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "NewLife ReadModels", n, () => NL_ReadModels(n), () => SeedData(n));
             Console.WriteLine();
         }
 
@@ -127,6 +132,10 @@ public static class DriverBenchmark
             await RunOne(all, "SELECT", "Official BulkRead", n, () => Off_BulkSelect(n), () => SeedData(n));
             await RunOne(all, "SELECT", "Connector SingleRow", n, () => Conn_SingleSelect(n), () => SeedData(n));
             await RunOne(all, "SELECT", "Connector BulkRead", n, () => Conn_BulkSelect(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "NewLife DbTable", n, () => NL_DbTable(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "Official DbTable", n, () => Off_DbTable(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "Connector DbTable", n, () => Conn_DbTable(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "NewLife ReadModels", n, () => NL_ReadModels(n), () => SeedData(n));
 
             // --- UPDATE ---
             Console.WriteLine("--- UPDATE ---");
@@ -754,7 +763,66 @@ public static class DriverBenchmark
         }
         return total;
     }
+
+    /// <summary>批量读取：返回 DbTable，直接使用 MySqlDataReader.ReadTableAsync 零拷贝填充</summary>
+    private static Int32 NL_DbTable(Int32 count)
+    {
+        using var conn = new NL.MySqlConnection(_connStr);
+        conn.Open();
+        using var cmd = new NL.MySqlCommand(conn, "SELECT id,name,age,email,score,created FROM bench_driver LIMIT " + count);
+        using var reader = (NL.MySqlDataReader)cmd.ExecuteReader();
+        var dt = reader.ReadTableAsync().ConfigureAwait(false).GetAwaiter().GetResult();
+        return dt.Rows.Count;
+    }
+
+    /// <summary>批量读取：返回实体对象列表，直接使用 MySqlDataReader.ReadModelsAsync 跳过 DbTable 中间层</summary>
+    private static Int32 NL_ReadModels(Int32 count)
+    {
+        using var conn = new NL.MySqlConnection(_connStr);
+        conn.Open();
+        using var cmd = new NL.MySqlCommand(conn, "SELECT id,name,age,email,score,created FROM bench_driver LIMIT " + count);
+        using var reader = (NL.MySqlDataReader)cmd.ExecuteReader();
+        var list = reader.ReadModelsAsync<BenchRow>().ConfigureAwait(false).GetAwaiter().GetResult();
+        return list.Count;
+    }
+
+    /// <summary>批量读取：通过 DbTable.ReadAsync 读取（外部 ReadData 路径），Official 驱动</summary>
+    private static Int32 Off_DbTable(Int32 count)
+    {
+        using var conn = new Official.MySqlConnection(_connStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT id,name,age,email,score,created FROM bench_driver LIMIT " + count;
+        using var reader = cmd.ExecuteReader();
+        var dt = new DbTable();
+        dt.ReadAsync(reader).ConfigureAwait(false).GetAwaiter().GetResult();
+        return dt.Rows.Count;
+    }
+
+    /// <summary>批量读取：通过 DbTable.ReadAsync 读取（外部 ReadData 路径），Connector 驱动</summary>
+    private static Int32 Conn_DbTable(Int32 count)
+    {
+        using var conn = new Connector.MySqlConnection(_connStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT id,name,age,email,score,created FROM bench_driver LIMIT " + count;
+        using var reader = cmd.ExecuteReader();
+        var dt = new DbTable();
+        dt.ReadAsync(reader).ConfigureAwait(false).GetAwaiter().GetResult();
+        return dt.Rows.Count;
+    }
     #endregion
 
     private record R(String Op, String Driver, Int32 Rows, Double Med, Double Min, Double Max, Int32 Affected, String? Err);
+}
+
+/// <summary>基准测试行实体，对应 bench_driver 表结构</summary>
+public class BenchRow
+{
+    public Int64 Id { get; set; }
+    public String Name { get; set; } = null!;
+    public Int32 Age { get; set; }
+    public String? Email { get; set; }
+    public Double Score { get; set; }
+    public DateTime Created { get; set; }
 }

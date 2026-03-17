@@ -1,8 +1,12 @@
 ﻿using System.Collections;
 using System.Data;
 using System.Data.Common;
+using System.Reflection;
 using System.Text;
+using NewLife.Data;
 using NewLife.MySql.Common;
+using NewLife.Reflection;
+using NewLife.Serialization;
 
 namespace NewLife.MySql;
 
@@ -52,6 +56,16 @@ public class MySqlDataReader : DbDataReader
     private Object[]? _Values;
     /// <summary>当前行数值集合</summary>
     public Object[]? Values => _Values;
+
+    /// <summary>取走当前行值数组。调用后下次 Read 将分配新数组，避免逐列复制开销</summary>
+    /// <remarks>供 DbTable 等上层组件直接持有行数据使用，无需额外分配和复制</remarks>
+    /// <returns>当前行数组，调用方拥有所有权</returns>
+    public Object[]? TakeValues()
+    {
+        var values = _Values;
+        _Values = null;
+        return values;
+    }
 
     private Boolean _allRowsConsumed = true;
 
@@ -400,6 +414,112 @@ public class MySqlDataReader : DbDataReader
         return Task.CompletedTask;
     }
 #endif
+
+    /// <summary>异步读取当前结果集到 DbTable，跳过外部 DbTable.ReadData 的逐列复制开销</summary>
+    /// <remarks>
+    /// 直接在驱动层填充 DbTable，利用 TakeValues 实现行数组零拷贝转移，
+    /// 避免外部 ReadData 每行通过 dr[i] 逐列读取并二次装箱。
+    /// DBNull 值按列类型填充为对应的默认值（0/false/DateTime.MinValue/null）。
+    /// </remarks>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>填充完毕的 DbTable</returns>
+    public async Task<DbTable> ReadTableAsync(CancellationToken cancellationToken = default)
+    {
+        var dt = new DbTable();
+        var columns = _Columns;
+        var count = _FieldCount;
+
+        // 填充列名和类型
+        var cs = new String[count];
+        var ts = new Type[count];
+        for (var i = 0; i < count; i++)
+        {
+            cs[i] = columns![i].Name;
+            ts[i] = GetFieldType(i);
+        }
+        dt.Columns = cs;
+        dt.Types = ts;
+
+        // 构建默认值缓存，避免每行每列重复计算
+        var defaults = new Object?[count];
+        for (var i = 0; i < count; i++)
+        {
+            defaults[i] = GetDefaultValue(Type.GetTypeCode(ts[i]));
+        }
+
+        // 逐行读取，TakeValues 零拷贝转移行数组所有权
+        var rows = new List<Object?[]>();
+        while (await ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var values = TakeValues()!;
+            // 将 DBNull 替换为类型默认值
+            for (var i = 0; i < values.Length; i++)
+            {
+                if (values[i] == DBNull.Value)
+                    values[i] = defaults[i];
+            }
+            rows.Add(values);
+        }
+        dt.Rows = rows;
+        dt.Total = rows.Count;
+
+        return dt;
+    }
+
+    /// <summary>异步读取当前结果集并直接映射为实体对象列表，跳过 DbTable 中间层</summary>
+    /// <remarks>
+    /// 在驱动层直接将每行数据映射到实体属性，避免先构建 DbTable 再 ReadModels 的二次遍历。
+    /// 支持 IModel 索引器快速赋值，回退到反射 SetValue。属性名匹配不区分大小写。
+    /// </remarks>
+    /// <typeparam name="T">实体类型，需有无参构造函数</typeparam>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>实体对象列表</returns>
+    public async Task<IList<T>> ReadModelsAsync<T>(CancellationToken cancellationToken = default)
+    {
+        var columns = _Columns;
+        var count = _FieldCount;
+
+        // 构建列名到属性的映射
+        var pis = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        var dic = pis.ToDictionary(e => SerialHelper.GetName(e), e => e, StringComparer.OrdinalIgnoreCase);
+
+        // 预计算列名到属性的映射数组，避免每行重复字典查找
+        var colNames = new String[count];
+        var colProps = new PropertyInfo?[count];
+        for (var i = 0; i < count; i++)
+        {
+            var name = columns![i].Name;
+            colNames[i] = name;
+            dic.TryGetValue(name, out colProps[i]);
+        }
+
+        var list = new List<T>();
+        while (await ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var model = typeof(T).CreateInstance();
+            if (model == null) continue;
+
+            var values = _Values!;
+            for (var i = 0; i < values.Length; i++)
+            {
+                var pi = colProps[i];
+                if (pi == null || !pi.CanWrite) continue;
+
+                var val = values[i];
+                if (val == DBNull.Value) continue;
+
+                val = val.ChangeType(pi.PropertyType);
+                if (model is IModel ext)
+                    ext[pi.Name] = val;
+                else
+                    model.SetValue(pi, val);
+            }
+
+            list.Add((T)model);
+        }
+
+        return list;
+    }
     #endregion
 
     #region 辅助
@@ -459,6 +579,34 @@ public class MySqlDataReader : DbDataReader
         }
 
         return dt;
+    }
+
+    private static IDictionary<TypeCode, Object?>? _defaults;
+    private static Object? GetDefaultValue(TypeCode tc)
+    {
+        if (_defaults == null)
+        {
+            var dic = new Dictionary<TypeCode, Object?>
+            {
+                [TypeCode.Boolean] = false,
+                [TypeCode.Char] = (Char)0,
+                [TypeCode.SByte] = (SByte)0,
+                [TypeCode.Byte] = (Byte)0,
+                [TypeCode.Int16] = (Int16)0,
+                [TypeCode.UInt16] = (UInt16)0,
+                [TypeCode.Int32] = 0,
+                [TypeCode.UInt32] = (UInt32)0,
+                [TypeCode.Int64] = (Int64)0,
+                [TypeCode.UInt64] = (UInt64)0,
+                [TypeCode.Single] = (Single)0,
+                [TypeCode.Double] = (Double)0,
+                [TypeCode.Decimal] = (Decimal)0,
+                [TypeCode.DateTime] = DateTime.MinValue,
+            };
+            _defaults = dic;
+        }
+
+        return _defaults.TryGetValue(tc, out var obj) ? obj : null;
     }
     #endregion
 }
