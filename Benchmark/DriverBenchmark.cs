@@ -17,6 +17,58 @@ public static class DriverBenchmark
     private const Int32 Rounds = 3;
     private static String _connStr = null!;
 
+    public static async Task RunSelectAsync(String[] args)
+    {
+        _connStr = Environment.GetEnvironmentVariable("MYSQL_CONNSTR")
+            ?? "Server=127.0.0.1;Port=3306;Database=benchmark;User Id=root;Password=root;";
+
+        Console.WriteLine("=== SELECT Benchmark (BulkRead vs SingleRow) ===");
+
+        try
+        {
+            var builder = new NL.MySqlConnectionStringBuilder(_connStr);
+            var dbName = builder.Database;
+            builder.Database = "mysql";
+            using (var c = new NL.MySqlConnection(builder.ConnectionString))
+            {
+                c.Open();
+                c.ExecuteNonQuery("CREATE DATABASE IF NOT EXISTS `" + dbName + "`");
+            }
+
+            using var conn = new NL.MySqlConnection(_connStr);
+            conn.Open();
+            Console.WriteLine("MySQL: " + conn.ServerVersion);
+            conn.ExecuteNonQuery("CREATE TABLE IF NOT EXISTS bench_driver (id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(64) NOT NULL, age INT NOT NULL, email VARCHAR(128), score DOUBLE, created DATETIME NOT NULL) ENGINE=InnoDB");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Connect failed: " + ex.Message);
+            return;
+        }
+
+        Console.WriteLine();
+        var rowCounts = new[] { 100, 1000, 10000 };
+        var all = new List<R>();
+
+        foreach (var n in rowCounts)
+        {
+            Console.WriteLine("--- SELECT " + n + " rows ---");
+            SeedData(n);
+            await RunOne(all, "SELECT", "NewLife SingleRow", n, () => NL_SingleSelect(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "NewLife BulkRead", n, () => NL_BulkSelect(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "Official SingleRow", n, () => Off_SingleSelect(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "Official BulkRead", n, () => Off_BulkSelect(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "Connector SingleRow", n, () => Conn_SingleSelect(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "Connector BulkRead", n, () => Conn_BulkSelect(n), () => SeedData(n));
+            Console.WriteLine();
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("=== Markdown ===");
+        Console.WriteLine();
+        PrintDriverTable(all, rowCounts, "SELECT");
+    }
+
     public static async Task RunAsync(String[] args)
     {
         _connStr = Environment.GetEnvironmentVariable("MYSQL_CONNSTR")
@@ -70,8 +122,11 @@ public static class DriverBenchmark
             Console.WriteLine("--- SELECT ---");
             SeedData(n);
             await RunOne(all, "SELECT", "NewLife SingleRow", n, () => NL_SingleSelect(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "NewLife BulkRead", n, () => NL_BulkSelect(n), () => SeedData(n));
             await RunOne(all, "SELECT", "Official SingleRow", n, () => Off_SingleSelect(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "Official BulkRead", n, () => Off_BulkSelect(n), () => SeedData(n));
             await RunOne(all, "SELECT", "Connector SingleRow", n, () => Conn_SingleSelect(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "Connector BulkRead", n, () => Conn_BulkSelect(n), () => SeedData(n));
 
             // --- UPDATE ---
             Console.WriteLine("--- UPDATE ---");
@@ -358,6 +413,27 @@ public static class DriverBenchmark
         tr.Commit();
         return result;
     }
+
+    /// <summary>批量读取：单条 SELECT 返回全部 N 行，通过 reader.Read() 循环迭代，验证 _Values[] 复用优化效果</summary>
+    private static Int32 NL_BulkSelect(Int32 count)
+    {
+        using var conn = new NL.MySqlConnection(_connStr);
+        conn.Open();
+        using var cmd = new NL.MySqlCommand(conn, "SELECT id,name,age,email,score,created FROM bench_driver LIMIT " + count);
+        using var reader = cmd.ExecuteReader();
+        var total = 0;
+        while (reader.Read())
+        {
+            _ = reader.GetInt64(0);
+            _ = reader.GetString(1);
+            _ = reader.GetInt32(2);
+            _ = reader.GetString(3);
+            _ = reader.GetDouble(4);
+            _ = reader.GetDateTime(5);
+            total++;
+        }
+        return total;
+    }
     #endregion
 
     #region MySql.Data (Official)
@@ -490,15 +566,37 @@ public static class DriverBenchmark
         var total = 0;
         for (var i = 0; i < count; i++)
         {
-            cmd.Parameters["@id"].Value = (Int64)(i + 1);
-            total += cmd.ExecuteNonQuery();
-        }
-        tr.Commit();
-        return total;
-    }
-    #endregion
+                cmd.Parameters["@id"].Value = (Int64)(i + 1);
+                    total += cmd.ExecuteNonQuery();
+                }
+                tr.Commit();
+                return total;
+            }
 
-    #region MySqlConnector
+            /// <summary>批量读取：单条 SELECT 返回全部 N 行，通过 reader.Read() 循环迭代</summary>
+            private static Int32 Off_BulkSelect(Int32 count)
+            {
+                using var conn = new Official.MySqlConnection(_connStr);
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT id,name,age,email,score,created FROM bench_driver LIMIT " + count;
+                using var reader = cmd.ExecuteReader();
+                var total = 0;
+                while (reader.Read())
+                {
+                    _ = reader.GetInt64(0);
+                    _ = reader.GetString(1);
+                    _ = reader.GetInt32(2);
+                    _ = reader.GetString(3);
+                    _ = reader.GetDouble(4);
+                    _ = reader.GetDateTime(5);
+                    total++;
+                }
+                return total;
+            }
+            #endregion
+
+            #region MySqlConnector
     private static Int32 Conn_SingleInsert(Int32 count, String[] names, Int32[] ages, String[] emails, Double[] scores, DateTime[] dates)
     {
         using var conn = new Connector.MySqlConnection(_connStr);
@@ -632,6 +730,28 @@ public static class DriverBenchmark
             total += cmd.ExecuteNonQuery();
         }
         tr.Commit();
+        return total;
+    }
+
+    /// <summary>批量读取：单条 SELECT 返回全部 N 行，通过 reader.Read() 循环迭代</summary>
+    private static Int32 Conn_BulkSelect(Int32 count)
+    {
+        using var conn = new Connector.MySqlConnection(_connStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT id,name,age,email,score,created FROM bench_driver LIMIT " + count;
+        using var reader = cmd.ExecuteReader();
+        var total = 0;
+        while (reader.Read())
+        {
+            _ = reader.GetInt64(0);
+            _ = reader.GetString(1);
+            _ = reader.GetInt32(2);
+            _ = reader.GetString(3);
+            _ = reader.GetDouble(4);
+            _ = reader.GetDateTime(5);
+            total++;
+        }
         return total;
     }
     #endregion
