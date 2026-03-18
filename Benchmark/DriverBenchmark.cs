@@ -65,6 +65,8 @@ public static class DriverBenchmark
             await RunOne(all, "SELECT", "Official DbTable", n, () => Off_DbTable(n), () => SeedData(n));
             await RunOne(all, "SELECT", "Connector DbTable", n, () => Conn_DbTable(n), () => SeedData(n));
             await RunOne(all, "SELECT", "NewLife ReadModels", n, () => NL_ReadModels(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "Official ReadModels", n, () => Off_ReadModels(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "Connector ReadModels", n, () => Conn_ReadModels(n), () => SeedData(n));
             Console.WriteLine();
         }
 
@@ -136,6 +138,8 @@ public static class DriverBenchmark
             await RunOne(all, "SELECT", "Official DbTable", n, () => Off_DbTable(n), () => SeedData(n));
             await RunOne(all, "SELECT", "Connector DbTable", n, () => Conn_DbTable(n), () => SeedData(n));
             await RunOne(all, "SELECT", "NewLife ReadModels", n, () => NL_ReadModels(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "Official ReadModels", n, () => Off_ReadModels(n), () => SeedData(n));
+            await RunOne(all, "SELECT", "Connector ReadModels", n, () => Conn_ReadModels(n), () => SeedData(n));
 
             // --- UPDATE ---
             Console.WriteLine("--- UPDATE ---");
@@ -810,6 +814,34 @@ public static class DriverBenchmark
         var dt = new DbTable();
         dt.ReadAsync(reader).ConfigureAwait(false).GetAwaiter().GetResult();
         return dt.Rows.Count;
+    }
+
+    /// <summary>批量读取：DbTable 中间层 + ReadModel 映射实体，Official 驱动</summary>
+    private static Int32 Off_ReadModels(Int32 count)
+    {
+        using var conn = new Official.MySqlConnection(_connStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT id,name,age,email,score,created FROM bench_driver LIMIT " + count;
+        using var reader = cmd.ExecuteReader();
+        var dt = new DbTable();
+        dt.ReadAsync(reader).ConfigureAwait(false).GetAwaiter().GetResult();
+        var list = dt.ReadModels<BenchRow>();
+        return list?.Count() ?? 0;
+    }
+
+    /// <summary>批量读取：DbTable 中间层 + ReadModel 映射实体，Connector 驱动</summary>
+    private static Int32 Conn_ReadModels(Int32 count)
+    {
+        using var conn = new Connector.MySqlConnection(_connStr);
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT id,name,age,email,score,created FROM bench_driver LIMIT " + count;
+        using var reader = cmd.ExecuteReader();
+        var dt = new DbTable();
+        dt.ReadAsync(reader).ConfigureAwait(false).GetAwaiter().GetResult();
+        var list = dt.ReadModels<BenchRow>();
+        return list?.Count() ?? 0;
     }
     #endregion
 
