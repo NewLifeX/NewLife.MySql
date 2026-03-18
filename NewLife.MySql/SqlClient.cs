@@ -57,6 +57,11 @@ public class SqlClient : DisposeBase
     private TcpClient? _client;
     private Byte _seq = 1;
     private TimerX? _timer;
+
+    // 行接收缓冲区：跨行复用，避免每行分配 OwnerPacket + ArrayPool
+    private Byte[]? _rowBuffer;
+    // 读前置缓冲区：合并多次小读取为一次大的底层读取，减少系统调用次数
+    private readonly ReadBuffer _reader = new();
     #endregion
 
     #region 构造
@@ -222,6 +227,7 @@ public class SqlClient : DisposeBase
 #else
         await sslStream.AuthenticateAsClientAsync(server, null, SslProtocols.Tls12, false).ConfigureAwait(false);
 #endif
+        _reader.Reset();
         _stream = sslStream;
     }
 
@@ -253,6 +259,7 @@ public class SqlClient : DisposeBase
         _client.TryDispose();
         _client = null;
         _stream = null;
+        _reader.Reset();
 
         Active = false;
     }
@@ -315,6 +322,9 @@ public class SqlClient : DisposeBase
         var ns = _stream;
         if (ns == null || !Active) return false;
 
+        // 清除读前置缓冲区中的残留数据
+        _reader.Reset();
+
         try
         {
             // 清除网络流中的残留数据
@@ -372,7 +382,7 @@ public class SqlClient : DisposeBase
         {
             // 3字节长度 + 1字节序列号
             var buf = Pool.Shared.Rent(4);
-            await ms.ReadExactlyAsync(buf, 0, 4, token).ConfigureAwait(false);
+            await _reader.ReadAsync(ms, buf, 0, 4, token).ConfigureAwait(false);
 
             var rs = new ServerPacket(ms)
             {
@@ -385,7 +395,7 @@ public class SqlClient : DisposeBase
             // 读取数据。长度必须刚好，因为可能有多帧数据包
             var len = rs.Length;
             var pk = new OwnerPacket(len);
-            await ms.ReadExactlyAsync(pk.Buffer, pk.Offset, len, token).ConfigureAwait(false);
+            await _reader.ReadAsync(ms, pk.Buffer, pk.Offset, len, token).ConfigureAwait(false);
 
             pk.Resize(len);
             rs.Set(pk);
@@ -721,6 +731,76 @@ public class SqlClient : DisposeBase
         return [.. list];
     }
 
+    /// <summary>读取行数据包到复用缓冲区（含帧头解析、错误处理、超时管理）</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>正数为行数据长度（数据在 _rowBuffer[0..len]）；负数或零表示 EOF（取反为 EOF 包长度）</returns>
+    private async Task<Int32> ReadRowPacketAsync(CancellationToken cancellationToken)
+    {
+        var ms = _stream ?? throw new InvalidOperationException("未打开连接");
+
+        var timeout = Timeout;
+        using var cts = timeout > 0
+            ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
+            : null;
+        cts?.CancelAfter(timeout * 1000);
+        var token = cts?.Token ?? cancellationToken;
+
+        try
+        {
+            if (_rowBuffer == null)
+                _rowBuffer = new Byte[16384];
+
+            // 复用 _rowBuffer 前4字节读取帧头
+            await _reader.ReadAsync(ms, _rowBuffer, 0, 4, token).ConfigureAwait(false);
+            var len = _rowBuffer[0] + (_rowBuffer[1] << 8) + (_rowBuffer[2] << 16);
+            _seq = (Byte)(_rowBuffer[3] + 1);
+
+            if (_rowBuffer.Length < len)
+                _rowBuffer = new Byte[len];
+
+            await _reader.ReadAsync(ms, _rowBuffer, 0, len, token).ConfigureAwait(false);
+
+            // 错误包
+            if (_rowBuffer[0] == 0xFF)
+            {
+                var errReader = new SpanReader(new ReadOnlySpan<Byte>(_rowBuffer, 1, len - 1));
+                var code = errReader.ReadUInt16();
+                var msg = errReader.ReadZeroString();
+                if (!msg.IsNullOrEmpty() && msg[0] == '#')
+                    throw new MySqlException(code, msg[..6], msg[6..]);
+                else
+                    throw new MySqlException(code, msg);
+            }
+
+            // EOF 包：返回负数，调用方取反得到 EOF 包长度
+            if (_rowBuffer[0] == 0xFE && len < 9)
+                return -len;
+
+            return len;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            Active = false;
+            throw new TimeoutException($"读取数据包超时({timeout}s)");
+        }
+    }
+
+    /// <summary>从 _rowBuffer 解析 EOF 包为行结束结果</summary>
+    /// <param name="bodyLen">EOF 包体长度</param>
+    /// <returns>行读取结果</returns>
+    private RowResult ParseEofRowResult(Int32 bodyLen)
+    {
+        ServerStatusFlags statusFlags = 0;
+        UInt16 warnings = 0;
+        if (Capability.Has(ClientFlags.PROTOCOL_41) && bodyLen >= 5)
+        {
+            var reader = new SpanReader(new ReadOnlySpan<Byte>(_rowBuffer!, 1, bodyLen - 1));
+            warnings = reader.ReadUInt16();
+            statusFlags = (ServerStatusFlags)reader.ReadUInt16();
+        }
+        return new RowResult(false, statusFlags, warnings);
+    }
+
     /// <summary>异步读取结果集的下一行数据</summary>
     /// <param name="values">用于存储行数据的数组</param>
     /// <param name="columns">列信息数组</param>
@@ -728,21 +808,21 @@ public class SqlClient : DisposeBase
     /// <returns>行读取结果，包含是否成功及状态信息</returns>
     public async Task<RowResult> NextRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken = default)
     {
-        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-        if (rs.IsEOF) return ReadEofRowResult(rs);
+        var len = await ReadRowPacketAsync(cancellationToken).ConfigureAwait(false);
+        if (len <= 0) return ParseEofRowResult(-len);
 
         // 读取行数据（文本协议：所有值以 UTF-8 字符串传输）
-        var reader = rs.CreateReader(0);
+        var reader = new SpanReader(new ReadOnlySpan<Byte>(_rowBuffer!, 0, len));
         for (var i = 0; i < values.Length; i++)
         {
-            var len = (Int32)reader.ReadLength();
-            if (len == -1)
+            var fieldLen = (Int32)reader.ReadLength();
+            if (fieldLen == -1)
             {
                 values[i] = DBNull.Value;
                 continue;
             }
 
-            values[i] = MySqlFieldCodec.ReadTextValue(ref reader, columns[i], len);
+            values[i] = MySqlFieldCodec.ReadTextValue(ref reader, columns[i], fieldLen);
         }
 
         return RowResult.DataRow;
@@ -755,14 +835,14 @@ public class SqlClient : DisposeBase
     /// <returns>行读取结果，包含是否成功及状态信息</returns>
     public async Task<RowResult> NextBinaryRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken = default)
     {
-        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-        if (rs.IsEOF) return ReadEofRowResult(rs);
+        var len = await ReadRowPacketAsync(cancellationToken).ConfigureAwait(false);
+        if (len <= 0) return ParseEofRowResult(-len);
 
         var numCols = columns.Length;
-        var reader = rs.CreateReader(0);
+        var reader = new SpanReader(new ReadOnlySpan<Byte>(_rowBuffer!, 0, len));
 
         // 二进制行格式：header(0x00) + null_bitmap + values
-        reader.Advance(1); // 跳过 0x00 header
+        reader.Advance(1);
 
         // null_bitmap: (num_columns + 7 + 2) / 8 字节，位偏移量为 2
         var nullBitmapLen = (numCols + 7 + 2) / 8;
@@ -770,7 +850,6 @@ public class SqlClient : DisposeBase
 
         for (var i = 0; i < numCols; i++)
         {
-            // 检查是否为 NULL（位偏移 +2）
             var bitIndex = i + 2;
             if ((nullBitmap[bitIndex / 8] & (1 << (bitIndex % 8))) != 0)
             {
@@ -778,7 +857,6 @@ public class SqlClient : DisposeBase
                 continue;
             }
 
-            // SpanReader 是值类型，必须 ref 传递才能保留 Position 前进
             values[i] = MySqlFieldCodec.ReadBinaryValue(ref reader, columns[i]);
         }
 
