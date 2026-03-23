@@ -146,7 +146,8 @@ public sealed partial class MySqlConnection : DbConnection
                 // 根据连接字符串创建连接池,然后从连接池获取连接
                 _pool = Factory?.PoolManager?.GetPool(Setting);
 
-                client = _pool?.Get() ?? new SqlClient(Setting);
+                if (_pool != null) client = await _pool.GetAsync(cancellationToken).ConfigureAwait(false);
+                client ??= new SqlClient(Setting);
 
                 cancellationToken.ThrowIfCancellationRequested();
 

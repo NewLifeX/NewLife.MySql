@@ -38,8 +38,10 @@ public class MySqlPool : ObjectPool<SqlClient>
         return new SqlClient(set);
     }
 
-    /// <summary>获取连接。剔除无效连接</summary>
-    public override SqlClient Get()
+    /// <summary>异步获取连接。剔除无效连接</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>可用的数据库连接</returns>
+    public async Task<SqlClient> GetAsync(CancellationToken cancellationToken = default)
     {
         var retryCount = 0;
         while (true)
@@ -51,7 +53,7 @@ public class MySqlPool : ObjectPool<SqlClient>
 
             // 已打开的连接需要检查是否仍然可用
             if (!client.Active || !client.Reset() ||
-                client.LastActive.AddSeconds(60) < DateTime.Now && !client.PingAsync().GetAwaiter().GetResult())
+                client.LastActive.AddSeconds(60) < DateTime.Now && !await PingWithTimeoutAsync(client, cancellationToken).ConfigureAwait(false))
             {
                 // 连接已失效，丢弃后重试
                 client.TryDispose();
@@ -61,6 +63,14 @@ public class MySqlPool : ObjectPool<SqlClient>
 
             return client;
         }
+    }
+
+    /// <summary>带短超时的异步 Ping 检测</summary>
+    private static async Task<Boolean> PingWithTimeoutAsync(SqlClient client, CancellationToken cancellationToken)
+    {
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(TimeSpan.FromSeconds(3));
+        return await client.PingAsync(cts.Token).ConfigureAwait(false);
     }
 }
 
