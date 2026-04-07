@@ -28,6 +28,19 @@ public class AuthenticationTests
     }
 
     [Fact]
+    [DisplayName("Get411Password密码为null不抛出异常并返回单字节数组")]
+    public void WhenNullPasswordThenReturnsSingleByteArray()
+    {
+        var auth = CreateAuth();
+        var seed = new Byte[20];
+
+        var result = auth.Get411Password(null!, seed);
+
+        Assert.NotNull(result);
+        Assert.Single(result);
+    }
+
+    [Fact]
     [DisplayName("Get411Password正常密码返回20字节哈希")]
     public void WhenNormalPasswordThenReturns20ByteHash()
     {
