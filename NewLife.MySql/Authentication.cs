@@ -122,7 +122,7 @@ class Authentication(SqlClient client)
     /// <returns>哈希后的密码字节数组</returns>
     public Byte[] Get411Password(String password, Byte[] seed)
     {
-        if (password.Length == 0) return new Byte[1];
+        if (password.IsNullOrEmpty()) return new Byte[1];
 
         //return password.GetBytes().SHA1(seed);
         using var sha = SHA1.Create();
