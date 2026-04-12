@@ -124,7 +124,7 @@ public static class BinaryHelper
         {
             251 => -1,
             252 => reader.ReadUInt16(),
-            253 => reader.ReadBytes(3).ToInt(),
+            253 => reader.ReadByte() | reader.ReadByte() << 8 | reader.ReadByte() << 16,
             254 => reader.ReadInt32(),
             _ => c,
         };
@@ -141,7 +141,7 @@ public static class BinaryHelper
         {
             0xFB => -1,
             0xFC => reader.ReadUInt16(),
-            0xFD => reader.ReadByte() << 16 | reader.ReadByte() << 8 | reader.ReadByte(),
+            0xFD => reader.ReadByte() | reader.ReadByte() << 8 | reader.ReadByte() << 16,
             0xFE => reader.ReadInt64(),
             _ => c,
         };

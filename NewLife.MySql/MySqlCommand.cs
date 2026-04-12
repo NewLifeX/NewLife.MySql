@@ -182,16 +182,27 @@ public class MySqlCommand : DbCommand
             await limitCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
-        // 执行读取器，多语句由服务端拆分，通过NextResult()遍历
-        var reader = new MySqlDataReader
-        {
-            Command = this
-        };
-        var isBinary = await ExecuteAsync(cancellationToken).ConfigureAwait(false);
-        reader.IsBinaryProtocol = isBinary;
-        await reader.NextResultAsync(cancellationToken).ConfigureAwait(false);
+        var operationLease = await conn.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
 
-        return reader;
+        // 执行读取器，多语句由服务端拆分，通过NextResult()遍历
+        try
+        {
+            var reader = new MySqlDataReader
+            {
+                Command = this,
+                OperationLease = operationLease
+            };
+            var isBinary = await ExecuteAsync(cancellationToken).ConfigureAwait(false);
+            reader.IsBinaryProtocol = isBinary;
+            await reader.NextResultAsync(cancellationToken).ConfigureAwait(false);
+
+            return reader;
+        }
+        catch
+        {
+            operationLease.Dispose();
+            throw;
+        }
     }
 
     /// <summary>异步执行并返回影响行数。多语句累加所有语句的影响行数</summary>
@@ -268,6 +279,7 @@ public class MySqlCommand : DbCommand
         if (sql.IsNullOrEmpty()) throw new InvalidOperationException("CommandText 不能为空");
 
         var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
+    using var operationLease = await _DbConnection.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
 
         // 重置网络流
         if (!client.Reset()) throw new InvalidOperationException("数据库连接已断开");
@@ -356,6 +368,7 @@ public class MySqlCommand : DbCommand
         if (sql.IsNullOrEmpty()) throw new InvalidOperationException("CommandText 不能为空");
 
         var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
+    using var operationLease = await _DbConnection.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
 
         if (!client.Reset()) throw new InvalidOperationException("数据库连接已断开");
 

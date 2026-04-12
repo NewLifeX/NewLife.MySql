@@ -73,6 +73,9 @@ public class MySqlDataReader : DbDataReader
 
     /// <summary>是否使用二进制协议读取行数据（COM_STMT_EXECUTE 预编译语句结果集）</summary>
     internal Boolean IsBinaryProtocol { get; set; }
+
+    /// <summary>当前读取器持有的连接独占租约</summary>
+    internal MySqlConnection.ConnectionOperationLease? OperationLease { get; set; }
     #endregion
 
     #region 核心方法
@@ -85,12 +88,7 @@ public class MySqlDataReader : DbDataReader
     public override Boolean Read() => ReadAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
 
     /// <summary>关闭。无需消费剩余结果集，连接从池中取出时 SqlClient.Reset 会清理网络流残余数据</summary>
-    public override void Close()
-    {
-        if (_IsClosed) return;
-
-        _IsClosed = true;
-    }
+    public override void Close() => CloseAsync().ConfigureAwait(false).GetAwaiter().GetResult();
     #endregion
 
     #region 方法
@@ -406,14 +404,32 @@ public class MySqlDataReader : DbDataReader
     /// <returns></returns>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
     public override Task CloseAsync()
+        => CloseCoreAsync();
+#else
+    private Task CloseAsync()
+        => CloseCoreAsync();
+#endif
+
+    private async Task CloseCoreAsync()
     {
-        if (_IsClosed) return Task.CompletedTask;
+        if (_IsClosed) return;
 
         _IsClosed = true;
 
-        return Task.CompletedTask;
+        try
+        {
+            while (await NextResultAsync(CancellationToken.None).ConfigureAwait(false)) { }
+        }
+        catch
+        {
+            // 关闭阶段尽力清理协议流，失败时仍需释放连接占用，避免后续请求永久阻塞。
+        }
+        finally
+        {
+            OperationLease?.Dispose();
+            OperationLease = null;
+        }
     }
-#endif
 
     /// <summary>异步读取当前结果集到 DbTable，跳过外部 DbTable.ReadData 的逐列复制开销</summary>
     /// <remarks>

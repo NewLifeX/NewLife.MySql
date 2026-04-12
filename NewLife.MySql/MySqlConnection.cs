@@ -49,6 +49,7 @@ public sealed partial class MySqlConnection : DbConnection
 
     private MySqlPool? _pool;
     private SchemaProvider? _schemaProvider;
+    private readonly SemaphoreSlim _operationLock = new(1, 1);
     #endregion
 
     #region 构造
@@ -125,6 +126,15 @@ public sealed partial class MySqlConnection : DbConnection
         _State = newState;
 
         OnStateChange(new StateChangeEventArgs(oldState, newState));
+    }
+
+    /// <summary>独占进入当前连接上的数据库操作</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>操作租约。释放后允许下一条命令继续使用当前连接</returns>
+    internal async Task<ConnectionOperationLease> EnterOperationAsync(CancellationToken cancellationToken)
+    {
+        await _operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        return new ConnectionOperationLease(this);
     }
 
     /// <summary>异步打开连接</summary>
@@ -227,6 +237,25 @@ public sealed partial class MySqlConnection : DbConnection
         return Task.CompletedTask;
     }
 #endif
+    #endregion
+
+    #region 辅助
+    /// <summary>连接操作租约。确保同一时刻只有一个命令独占物理连接</summary>
+    internal sealed class ConnectionOperationLease : IDisposable
+    {
+        private MySqlConnection? _connection;
+
+        /// <summary>实例化</summary>
+        /// <param name="connection">所属连接</param>
+        public ConnectionOperationLease(MySqlConnection connection) => _connection = connection;
+
+        /// <summary>释放租约</summary>
+        public void Dispose()
+        {
+            var connection = Interlocked.Exchange(ref _connection, null);
+            connection?._operationLock.Release();
+        }
+    }
     #endregion
 
     #region 执行命令
