@@ -176,38 +176,50 @@ public sealed partial class MySqlConnection : DbConnection
                 {
                     _Version = welcome.ServerVersion!;
                     _DatabaseType = DetectDatabaseType(_Version);
+                    ServerVersionComment = null;
 
                     // 如果握手包没有标识为 OceanBase/TiDB，尝试通过查询 version_comment 获取更多信息
                     if (_DatabaseType == DatabaseType.MySQL)
                     {
-                        // 先临时设置 Client，方便使用 MySqlCommand 发起查询
-                        Client = client;
-                        try
+                        if (_pool != null && _pool.TryGetServerInfo(out var serverVersion, out var serverVersionComment, out var databaseType))
                         {
-                            using var cmd = new MySqlCommand(this, "SELECT @@version_comment");
-                            var comment = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as String;
-                            if (!comment.IsNullOrEmpty())
-                            {
-                                ServerVersionComment = comment;
-
-                                var parts = comment.Split([' '], StringSplitOptions.RemoveEmptyEntries);
-
-                                // 检测产品类型并更新 DatabaseType
-                                if (comment.Contains("OceanBase", StringComparison.OrdinalIgnoreCase))
-                                    _DatabaseType = DatabaseType.OceanBase;
-                                else if (comment.Contains("TiDB", StringComparison.OrdinalIgnoreCase))
-                                    _DatabaseType = DatabaseType.TiDB;
-
-                                // 第二段包含'.'则视为版本号，非MySQL产品拼接产品后缀；否则回退到完整注释
-                                if (parts.Length > 1 && parts[1].Contains('.'))
-                                    _Version = parts[1];
-                                else if (_DatabaseType != DatabaseType.MySQL)
-                                    _Version = comment;
-                            }
+                            _Version = serverVersion!;
+                            ServerVersionComment = serverVersionComment;
+                            _DatabaseType = databaseType;
                         }
-                        catch
+                        else
                         {
-                            // 忽略探测错误，保持原有类型判断
+                            // 先临时设置 Client，方便使用 MySqlCommand 发起查询
+                            Client = client;
+                            try
+                            {
+                                using var cmd = new MySqlCommand(this, "SELECT @@version_comment");
+                                var comment = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as String;
+                                if (!comment.IsNullOrEmpty())
+                                {
+                                    ServerVersionComment = comment;
+
+                                    var parts = comment.Split([' '], StringSplitOptions.RemoveEmptyEntries);
+
+                                    // 检测产品类型并更新 DatabaseType
+                                    if (comment.Contains("OceanBase", StringComparison.OrdinalIgnoreCase))
+                                        _DatabaseType = DatabaseType.OceanBase;
+                                    else if (comment.Contains("TiDB", StringComparison.OrdinalIgnoreCase))
+                                        _DatabaseType = DatabaseType.TiDB;
+
+                                    // 第二段包含'.'则视为版本号，非MySQL产品拼接产品后缀；否则回退到完整注释
+                                    if (parts.Length > 1 && parts[1].Contains('.'))
+                                        _Version = parts[1];
+                                    else if (_DatabaseType != DatabaseType.MySQL)
+                                        _Version = comment;
+
+                                    _pool?.SetServerInfo(_Version, ServerVersionComment, _DatabaseType);
+                                }
+                            }
+                            catch
+                            {
+                                // 忽略探测错误，保持原有类型判断
+                            }
                         }
                     }
                 }

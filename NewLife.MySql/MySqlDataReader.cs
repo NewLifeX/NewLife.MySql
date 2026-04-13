@@ -229,11 +229,8 @@ public class MySqlDataReader : DbDataReader
         var str = GetString(ordinal);
         if (String.IsNullOrEmpty(str)) return 0L;
 
-        //转换为char数组
-        var sourceBuffer = str.ToCharArray();
-
         //计算写入长度
-        var maxReadCount = sourceBuffer.LongLength - dataOffset;  //最大能读
+        var maxReadCount = str.Length - dataOffset;               //最大能读
         var maxWriteCount = buffer.Length - bufferOffset;         //最大能写
 
         var count = maxReadCount < maxWriteCount ? maxReadCount : maxWriteCount;
@@ -241,10 +238,8 @@ public class MySqlDataReader : DbDataReader
         count = count < 0 ? 0 : count;  //不能小于0
 
         //写入
-        for (var i = 0; i < count; i++)
-        {
-            buffer[bufferOffset + i] = sourceBuffer[dataOffset + i];
-        }
+        if (count > 0)
+            str.CopyTo((Int32)dataOffset, buffer, bufferOffset, (Int32)count);
 
         return count;
     }

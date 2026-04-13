@@ -303,40 +303,18 @@ public class MySqlCommand : DbCommand
         try
         {
             // 构建多组参数集合，按 SQL 中 ? 占位符的顺序排列
-            var order = _paramOrder;
+            var bindings = GetBatchBindings(_parameters, _paramOrder);
             var sets = new List<MySqlParameterCollection>(parameterSets.Count);
             foreach (var dict in parameterSets)
             {
                 var ps = new MySqlParameterCollection();
-                if (order != null)
+                foreach (var binding in bindings)
                 {
-                    // 按 SQL 中参数出现顺序排列
-                    for (var j = 0; j < order.Length; j++)
-                    {
-                        var p = (MySqlParameter)_parameters[order[j]];
-                        var name = p.ParameterName ?? "";
-                        var cleanName = name.StartsWith("@") ? name[1..] : name;
+                    Object? val = null;
+                    if (!dict.TryGetValue(binding.CleanName, out val) && binding.FullName.Length > 0)
+                        dict.TryGetValue(binding.FullName, out val);
 
-                        Object? val = null;
-                        if (!dict.TryGetValue(cleanName, out val))
-                            dict.TryGetValue("@" + cleanName, out val);
-
-                        ps.AddWithValue(cleanName, val);
-                    }
-                }
-                else
-                {
-                    foreach (MySqlParameter p in _parameters)
-                    {
-                        var name = p.ParameterName ?? "";
-                        var cleanName = name.StartsWith("@") ? name[1..] : name;
-
-                        Object? val = null;
-                        if (!dict.TryGetValue(cleanName, out val))
-                            dict.TryGetValue("@" + cleanName, out val);
-
-                        ps.AddWithValue(cleanName, val);
-                    }
+                    ps.AddWithValue(binding.CleanName, val);
                 }
                 sets.Add(ps);
             }
@@ -383,29 +361,15 @@ public class MySqlCommand : DbCommand
         try
         {
             // 从参数的数组值中提取每组参数，按 SQL 中 ? 占位符的顺序排列
-            var order = _paramOrder;
+            var bindings = GetBatchBindings(_parameters, _paramOrder);
             var sets = new List<MySqlParameterCollection>(count);
             for (var i = 0; i < count; i++)
             {
                 var ps = new MySqlParameterCollection();
-                if (order != null)
+                foreach (var binding in bindings)
                 {
-                    for (var j = 0; j < order.Length; j++)
-                    {
-                        var p = (MySqlParameter)_parameters[order[j]];
-                        var name = p.ParameterName ?? "";
-                        var val = ExtractArrayValue(p.Value, i);
-                        ps.AddWithValue(name, val);
-                    }
-                }
-                else
-                {
-                    foreach (MySqlParameter p in _parameters)
-                    {
-                        var name = p.ParameterName ?? "";
-                        var val = ExtractArrayValue(p.Value, i);
-                        ps.AddWithValue(name, val);
-                    }
+                    var val = ExtractArrayValue(binding.Parameter.Value, i);
+                    ps.AddWithValue(binding.ParameterName, val);
                 }
                 sets.Add(ps);
             }
@@ -436,6 +400,37 @@ public class MySqlCommand : DbCommand
 
         // 非数组值，每次都用同一个值
         return value;
+    }
+
+    private static BatchParameterBinding[] GetBatchBindings(MySqlParameterCollection parameters, Int32[]? paramOrder)
+    {
+        if (paramOrder == null || paramOrder.Length == 0)
+        {
+            var bindings = new BatchParameterBinding[parameters.Count];
+            for (var i = 0; i < parameters.Count; i++)
+            {
+                var parameter = (MySqlParameter)parameters[i];
+                bindings[i] = new BatchParameterBinding(parameter);
+            }
+            return bindings;
+        }
+
+        var ordered = new BatchParameterBinding[paramOrder.Length];
+        for (var i = 0; i < paramOrder.Length; i++)
+        {
+            var parameter = (MySqlParameter)parameters[paramOrder[i]];
+            ordered[i] = new BatchParameterBinding(parameter);
+        }
+
+        return ordered;
+    }
+
+    private readonly struct BatchParameterBinding(MySqlParameter parameter)
+    {
+        public MySqlParameter Parameter { get; } = parameter;
+        public String ParameterName { get; } = parameter.ParameterName ?? String.Empty;
+        public String FullName { get; } = parameter.ParameterName ?? String.Empty;
+        public String CleanName { get; } = (parameter.ParameterName ?? String.Empty).TrimStart('@');
     }
     #endregion
 

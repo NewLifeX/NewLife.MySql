@@ -1,17 +1,24 @@
 ﻿using System.Collections.Concurrent;
 using NewLife.Collections;
 using NewLife.Log;
+using NewLife.MySql.Common;
 
 namespace NewLife.MySql;
 
 /// <summary>连接池。每个连接字符串一个连接池，管理多个可重用连接</summary>
 public class MySqlPool : ObjectPool<SqlClient>
 {
+    private static readonly TimeSpan PingIdleTime = TimeSpan.FromSeconds(10);
+
     /// <summary>设置</summary>
     public MySqlConnectionStringBuilder? Setting { get; set; }
 
     private IDictionary<String, String>? _Variables;
     private DateTime _nextTime;
+    private String? _serverVersion;
+    private String? _serverVersionComment;
+    private DatabaseType _databaseType;
+    private DateTime _serverInfoExpire;
     /// <summary>服务器变量。缓存10分钟后自动过期</summary>
     public IDictionary<String, String>? Variables
     {
@@ -26,6 +33,39 @@ public class MySqlPool : ObjectPool<SqlClient>
             _Variables = value;
             _nextTime = DateTime.UtcNow.AddMinutes(10);
         }
+    }
+
+    /// <summary>尝试获取缓存的服务器信息</summary>
+    /// <param name="serverVersion">服务器版本</param>
+    /// <param name="serverVersionComment">版本注释</param>
+    /// <param name="databaseType">数据库类型</param>
+    /// <returns>是否命中缓存</returns>
+    public Boolean TryGetServerInfo(out String? serverVersion, out String? serverVersionComment, out DatabaseType databaseType)
+    {
+        if (_serverVersion.IsNullOrEmpty() || _serverInfoExpire < DateTime.UtcNow)
+        {
+            serverVersion = null;
+            serverVersionComment = null;
+            databaseType = DatabaseType.MySQL;
+            return false;
+        }
+
+        serverVersion = _serverVersion;
+        serverVersionComment = _serverVersionComment;
+        databaseType = _databaseType;
+        return true;
+    }
+
+    /// <summary>缓存服务器信息</summary>
+    /// <param name="serverVersion">服务器版本</param>
+    /// <param name="serverVersionComment">版本注释</param>
+    /// <param name="databaseType">数据库类型</param>
+    public void SetServerInfo(String serverVersion, String? serverVersionComment, DatabaseType databaseType)
+    {
+        _serverVersion = serverVersion;
+        _serverVersionComment = serverVersionComment;
+        _databaseType = databaseType;
+        _serverInfoExpire = DateTime.UtcNow.AddMinutes(10);
     }
 
     /// <summary>创建连接</summary>
@@ -53,7 +93,7 @@ public class MySqlPool : ObjectPool<SqlClient>
 
             // 已打开的连接借出前强制做一次轻量验活，避免半断开的连接在首个命令时才暴露失败
             if (!client.Active || !client.Reset() ||
-                !await PingWithTimeoutAsync(client, cancellationToken).ConfigureAwait(false))
+                NeedPing(client) && !await PingWithTimeoutAsync(client, cancellationToken).ConfigureAwait(false))
             {
                 // 连接已失效，丢弃后重试
                 client.TryDispose();
@@ -71,6 +111,13 @@ public class MySqlPool : ObjectPool<SqlClient>
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(TimeSpan.FromSeconds(3));
         return await client.PingAsync(cts.Token).ConfigureAwait(false);
+    }
+
+    private static Boolean NeedPing(SqlClient client)
+    {
+        if (client.LastActive == DateTime.MinValue) return true;
+
+        return client.LastActive.Add(PingIdleTime) <= DateTime.Now;
     }
 }
 
