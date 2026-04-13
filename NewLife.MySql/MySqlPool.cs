@@ -41,7 +41,7 @@ public class MySqlPool : ObjectPool<SqlClient>
     /// <summary>异步获取连接。剔除无效连接</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>可用的数据库连接</returns>
-    public async Task<SqlClient> GetAsync(CancellationToken cancellationToken = default)
+    public new async Task<SqlClient> GetAsync(CancellationToken cancellationToken = default)
     {
         var retryCount = 0;
         while (true)
@@ -51,9 +51,9 @@ public class MySqlPool : ObjectPool<SqlClient>
             // 新创建的连接尚未打开，直接返回由调用方打开
             if (client.Welcome == null) return client;
 
-            // 已打开的连接需要检查是否仍然可用
+            // 已打开的连接借出前强制做一次轻量验活，避免半断开的连接在首个命令时才暴露失败
             if (!client.Active || !client.Reset() ||
-                client.LastActive.AddSeconds(60) < DateTime.Now && !await PingWithTimeoutAsync(client, cancellationToken).ConfigureAwait(false))
+                !await PingWithTimeoutAsync(client, cancellationToken).ConfigureAwait(false))
             {
                 // 连接已失效，丢弃后重试
                 client.TryDispose();

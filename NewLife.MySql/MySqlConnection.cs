@@ -86,11 +86,12 @@ public sealed partial class MySqlConnection : DbConnection
     /// <summary>关闭</summary>
     public override void Close()
     {
-        if (State == ConnectionState.Closed) return;
-
-        // 关闭附属对象
-
         var client = Client;
+        var pool = _pool;
+
+        Client = null;
+        _pool = null;
+
         if (client != null)
         {
             // 检查当前数据库是否与原始数据库一致
@@ -101,21 +102,19 @@ public sealed partial class MySqlConnection : DbConnection
                 // 数据库状态被污染，销毁连接不归还连接池
                 client.TryDispose();
             }
-            else if (_pool != null)
+            else if (pool != null)
             {
                 // 数据库状态正常，归还连接池
-                _pool.Return(client);
+                pool.Return(client);
             }
             else
             {
                 client.TryDispose();
             }
-
-            Client = null;
-            _pool = null;
         }
 
-        SetState(ConnectionState.Closed);
+        if (State != ConnectionState.Closed)
+            SetState(ConnectionState.Closed);
     }
 
     private void SetState(ConnectionState newState)
@@ -148,6 +147,9 @@ public sealed partial class MySqlConnection : DbConnection
 
         SetState(ConnectionState.Connecting);
 
+        SqlClient? borrowedClient = null;
+        Boolean clientAttached = false;
+
         try
         {
             var client = Client;
@@ -156,8 +158,13 @@ public sealed partial class MySqlConnection : DbConnection
                 // 根据连接字符串创建连接池,然后从连接池获取连接
                 _pool = Factory?.PoolManager?.GetPool(Setting);
 
-                if (_pool != null) client = await _pool.GetAsync(cancellationToken).ConfigureAwait(false);
+                if (_pool != null)
+                {
+                    client = await _pool.GetAsync(cancellationToken).ConfigureAwait(false);
+                    borrowedClient = client;
+                }
                 client ??= new SqlClient(Setting);
+                borrowedClient ??= client;
 
                 cancellationToken.ThrowIfCancellationRequested();
 
@@ -206,6 +213,8 @@ public sealed partial class MySqlConnection : DbConnection
                 }
 
                 Client = client;
+                clientAttached = true;
+                borrowedClient = null;
 
                 // 设置读取超时
                 var cmdTimeout = Setting.CommandTimeout;
@@ -221,6 +230,11 @@ public sealed partial class MySqlConnection : DbConnection
         }
         catch (Exception)
         {
+            if (clientAttached || Client != null)
+                Close();
+            else
+                borrowedClient.TryDispose();
+
             SetState(ConnectionState.Closed);
             throw;
         }

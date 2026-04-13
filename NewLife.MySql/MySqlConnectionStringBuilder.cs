@@ -37,6 +37,9 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// <summary>是否启用管道化执行。批量操作时连续发送多个 EXECUTE 包再批量读取响应，默认false</summary>
     public Boolean Pipeline { get => this[nameof(Pipeline)].ToBoolean(); set => this[nameof(Pipeline)] = value; }
 
+    /// <summary>是否输出协议收发包日志。默认false，仅用于排查协议层问题</summary>
+    public Boolean TracePackets { get => this[nameof(TracePackets)].ToBoolean(); set => this[nameof(TracePackets)] = value; }
+
     /// <summary>字符集。默认Utf8Mb4，支持4字节Unicode（含emoji）。握手时写入协议编号，等效于SET NAMES</summary>
     public MySqlCharSet CharSet
     {
@@ -69,6 +72,7 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
             [nameof(SslMode)] = ["sslmode", "ssl mode", "ssl-mode"],
             [nameof(UseServerPrepare)] = ["useserverprepare", "use server prepare", "use_server_prepare"],
             [nameof(Pipeline)] = ["pipeline", "pipelining"],
+            [nameof(TracePackets)] = ["tracepackets", "trace packets", "packettrace", "packet trace"],
             [nameof(CharSet)] = ["charset", "character set", "characterset", "char set"],
         };
 

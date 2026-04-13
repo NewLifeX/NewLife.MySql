@@ -191,7 +191,8 @@ class Authentication(SqlClient client)
 
         flags |= ClientFlags.LONG_PASSWORD;
 
-        flags |= ClientFlags.CONNECT_WITH_DB;
+        if (!client.Setting.Database.IsNullOrEmpty())
+            flags |= ClientFlags.CONNECT_WITH_DB;
 
         if ((caps & ClientFlags.SECURE_CONNECTION) != 0)
             flags |= ClientFlags.SECURE_CONNECTION;
