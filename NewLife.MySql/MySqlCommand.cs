@@ -13,7 +13,17 @@ public class MySqlCommand : DbCommand
     #region 属性
     private MySqlConnection _DbConnection = null!;
     /// <summary>连接</summary>
-    protected override DbConnection DbConnection { get => _DbConnection; set => _DbConnection = (value as MySqlConnection)!; }
+    protected override DbConnection DbConnection
+    {
+        get => _DbConnection;
+        set
+        {
+            _DbConnection = (value as MySqlConnection)!;
+
+            if (_DbConnection != null && CommandTimeout <= 0)
+                CommandTimeout = _DbConnection.Setting.CommandTimeout;
+        }
+    }
 
     /// <summary>命令语句</summary>
     public override String CommandText { get; set; } = null!;
@@ -168,6 +178,7 @@ public class MySqlCommand : DbCommand
         if (sql.IsNullOrEmpty()) throw new ArgumentNullException(nameof(CommandText));
 
         var conn = _DbConnection;
+        var client = conn.Client ?? throw new InvalidOperationException("连接未打开");
 
         if (CommandType == CommandType.TableDirect) sql = "Select * From " + sql;
 
@@ -183,14 +194,19 @@ public class MySqlCommand : DbCommand
         }
 
         var operationLease = await conn.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
+        var previousTimeout = client.Timeout;
 
         // 执行读取器，多语句由服务端拆分，通过NextResult()遍历
         try
         {
+            client.Timeout = CommandTimeout;
+
             var reader = new MySqlDataReader
             {
                 Command = this,
-                OperationLease = operationLease
+                OperationLease = operationLease,
+                OriginalTimeout = previousTimeout,
+                RestoreTimeoutOnClose = true
             };
             var isBinary = await ExecuteAsync(cancellationToken).ConfigureAwait(false);
             reader.IsBinaryProtocol = isBinary;
@@ -200,6 +216,7 @@ public class MySqlCommand : DbCommand
         }
         catch
         {
+            client.Timeout = previousTimeout;
             operationLease.Dispose();
             throw;
         }

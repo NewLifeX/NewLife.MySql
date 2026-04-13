@@ -76,6 +76,12 @@ public class MySqlDataReader : DbDataReader
 
     /// <summary>当前读取器持有的连接独占租约</summary>
     internal MySqlConnection.ConnectionOperationLease? OperationLease { get; set; }
+
+    /// <summary>执行命令前底层客户端超时值</summary>
+    internal Int32 OriginalTimeout { get; set; }
+
+    /// <summary>关闭读取器时是否恢复底层客户端超时值</summary>
+    internal Boolean RestoreTimeoutOnClose { get; set; }
     #endregion
 
     #region 核心方法
@@ -421,6 +427,10 @@ public class MySqlDataReader : DbDataReader
         }
         finally
         {
+            if (RestoreTimeoutOnClose && Command.Connection is MySqlConnection conn && conn.Client != null)
+                conn.Client.Timeout = OriginalTimeout;
+
+            RestoreTimeoutOnClose = false;
             OperationLease?.Dispose();
             OperationLease = null;
         }
