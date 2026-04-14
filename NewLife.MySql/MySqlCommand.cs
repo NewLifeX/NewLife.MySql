@@ -199,14 +199,14 @@ public class MySqlCommand : DbCommand
         // 执行读取器，多语句由服务端拆分，通过NextResult()遍历
         try
         {
-            client.Timeout = CommandTimeout;
-
             var reader = new MySqlDataReader
             {
                 Command = this,
                 OperationLease = operationLease,
                 OriginalTimeout = previousTimeout,
-                RestoreTimeoutOnClose = true
+                RestoreTimeoutOnClose = true,
+                CommandPhaseTimeout = CommandTimeout,
+                ReadPhaseTimeout = previousTimeout
             };
             var isBinary = await ExecuteAsync(cancellationToken).ConfigureAwait(false);
             reader.IsBinaryProtocol = isBinary;

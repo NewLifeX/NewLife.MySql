@@ -82,6 +82,12 @@ public class MySqlDataReader : DbDataReader
 
     /// <summary>关闭读取器时是否恢复底层客户端超时值</summary>
     internal Boolean RestoreTimeoutOnClose { get; set; }
+
+    /// <summary>命令执行阶段超时。用于等待首包和结果集切换</summary>
+    internal Int32 CommandPhaseTimeout { get; set; }
+
+    /// <summary>结果读取阶段超时。用于逐行读取和跳过剩余行</summary>
+    internal Int32 ReadPhaseTimeout { get; set; }
     #endregion
 
     #region 核心方法
@@ -318,6 +324,7 @@ public class MySqlDataReader : DbDataReader
         if (_FieldCount <= 0) return false;
 
         var client = (Command.Connection as MySqlConnection)!.Client!;
+        SetClientTimeout(client, ReadPhaseTimeout);
 
         // 复用上一行的数组，避免每行分配一个新 Object[]，减少 GC 压力
         var values = _Values;
@@ -351,6 +358,7 @@ public class MySqlDataReader : DbDataReader
         // 如果当前结果集的行未消费完，先跳过剩余行（不解析内容）
         if (_FieldCount > 0 && !_allRowsConsumed)
         {
+            SetClientTimeout(client, ReadPhaseTimeout);
             while (true)
             {
                 var row = await client.SkipRowAsync(cancellationToken).ConfigureAwait(false);
@@ -374,31 +382,41 @@ public class MySqlDataReader : DbDataReader
         }
 
         // 读取下一个结果（第一次或后续）
-        using var response = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-        var qr = client.GetResult(response);
+        var previousTimeout = client.Timeout;
+        SetClientTimeout(client, CommandPhaseTimeout);
 
-        _hasReadResult = true;
-        _RecordsAffected += qr.AffectedRows;
-        _hasMoreResults = qr.HasMoreResults;
-
-        _FieldCount = qr.FieldCount;
-        _Values = null;
-        _allRowsConsumed = true;
-
-        if (qr.FieldCount <= 0)
+        try
         {
-            // OK 包（INSERT/UPDATE/DELETE）
-            _Columns = null;
-            // 根据 ADO.NET 标准，NextResult 每次只移动一个结果。
-            // 即使当前结果是 OK 包（FieldCount=0），我们也成功读取了一个结果，应返回 true。
-            // 下次调用时，通过 _hasMoreResults 判断是否继续。
+            using var response = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+            var qr = client.GetResult(response);
+
+            _hasReadResult = true;
+            _RecordsAffected += qr.AffectedRows;
+            _hasMoreResults = qr.HasMoreResults;
+
+            _FieldCount = qr.FieldCount;
+            _Values = null;
+            _allRowsConsumed = true;
+
+            if (qr.FieldCount <= 0)
+            {
+                // OK 包（INSERT/UPDATE/DELETE）
+                _Columns = null;
+                // 根据 ADO.NET 标准，NextResult 每次只移动一个结果。
+                // 即使当前结果是 OK 包（FieldCount=0），我们也成功读取了一个结果，应返回 true。
+                // 下次调用时，通过 _hasMoreResults 判断是否继续。
+                return true;
+            }
+
+            _Columns = await client.GetColumnsAsync(qr.FieldCount, cancellationToken).ConfigureAwait(false);
+            _allRowsConsumed = false;
+
             return true;
         }
-
-        _Columns = await client.GetColumnsAsync(qr.FieldCount, cancellationToken).ConfigureAwait(false);
-        _allRowsConsumed = false;
-
-        return true;
+        finally
+        {
+            SetClientTimeout(client, ReadPhaseTimeout > 0 ? ReadPhaseTimeout : previousTimeout);
+        }
     }
 
     /// <summary>异步关闭。无需消费剩余结果集，连接从池中取出时 SqlClient.Reset 会清理网络流残余数据</summary>
@@ -434,6 +452,12 @@ public class MySqlDataReader : DbDataReader
             OperationLease?.Dispose();
             OperationLease = null;
         }
+    }
+
+    private static void SetClientTimeout(SqlClient client, Int32 timeout)
+    {
+        if (timeout > 0 && client.Timeout != timeout)
+            client.Timeout = timeout;
     }
 
     /// <summary>异步读取当前结果集到 DbTable，跳过外部 DbTable.ReadData 的逐列复制开销</summary>

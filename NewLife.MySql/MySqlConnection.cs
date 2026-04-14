@@ -228,9 +228,9 @@ public sealed partial class MySqlConnection : DbConnection
                 clientAttached = true;
                 borrowedClient = null;
 
-                // 设置读取超时
-                var cmdTimeout = Setting.CommandTimeout;
-                if (cmdTimeout > 0) client.Timeout = cmdTimeout;
+                // 默认网络读写超时跟随连接超时，命令执行阶段再临时切换到 CommandTimeout。
+                var readTimeout = Setting.ConnectionTimeout;
+                if (readTimeout > 0) client.Timeout = readTimeout;
 
                 // 配置参数，优先从连接池获取缓存的变量
                 var vs = _pool?.Variables;
