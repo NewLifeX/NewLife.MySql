@@ -65,6 +65,8 @@ public class SqlClient : DisposeBase
 
     // 行接收缓冲区：跨行复用，避免每行分配 OwnerPacket + ArrayPool
     private Byte[]? _rowBuffer;
+    // 帧头缓冲区：4 字节固定大小，同一连接串行读包，可安全复用
+    private readonly Byte[] _headerBuf = new Byte[4];
     // 读前置缓冲区：合并多次小读取为一次大的底层读取，减少系统调用次数
     private readonly ReadBuffer _reader = new();
     #endregion
@@ -443,8 +445,8 @@ public class SqlClient : DisposeBase
 
         try
         {
-            // 3字节长度 + 1字节序列号
-            var buf = Pool.Shared.Rent(4);
+            // 3字节长度 + 1字节序列号，复用实例字段避免池租借开销（同一连接串行读包，无并发风险）
+            var buf = _headerBuf;
             await _reader.ReadAsync(ms, buf, 0, 4, token).ConfigureAwait(false);
 
             var rs = new ServerPacket(ms)
@@ -453,7 +455,6 @@ public class SqlClient : DisposeBase
                 Sequence = buf[3],
             };
             _seq = (Byte)(rs.Sequence + 1);
-            Pool.Shared.Return(buf);
 
             // 读取数据。长度必须刚好，因为可能有多帧数据包
             var len = rs.Length;

@@ -37,7 +37,7 @@ public class SqlClientTests
         Assert.Equal(len, rs.Length);
         //Assert.Equal(len, pk.Length);
         Assert.Equal(buf, pk.ReadBytes());
-        Assert.Equal(seq + 1, (Byte)client.GetValue("_seq")!);
+        Assert.Equal((Byte)(seq + 1), (Byte)client.GetValue("_seq")!);
         Assert.Equal(ms.Position, ms.Length);
     }
 
@@ -64,7 +64,7 @@ public class SqlClientTests
 
         Assert.Equal(len, rs.Length);
         Assert.Equal(buf, reader.ReadBytes(len));
-        Assert.Equal(seq + 1, (Byte)client.GetValue("_seq")!);
+        Assert.Equal((Byte)(seq + 1), (Byte)client.GetValue("_seq")!);
         Assert.Equal(ms.Position, ms.Length);
     }
 
@@ -91,7 +91,7 @@ public class SqlClientTests
 
         Assert.Equal(len, rs.Length);
         Assert.Equal(buf, reader.ReadBytes(len));
-        Assert.Equal(seq + 1, (Byte)client.GetValue("_seq")!);
+        Assert.Equal((Byte)(seq + 1), (Byte)client.GetValue("_seq")!);
         Assert.Equal(ms.Position, ms.Length);
     }
 
@@ -160,7 +160,7 @@ public class SqlClientTests
 
         Assert.True(rs.IsEOF);
         //Assert.Null(pk);
-        Assert.Equal(seq + 1, (Byte)client.GetValue("_seq")!);
+        Assert.Equal((Byte)(seq + 1), (Byte)client.GetValue("_seq")!);
         Assert.Equal(ms.Position, ms.Length);
     }
 
@@ -188,7 +188,7 @@ public class SqlClientTests
         Assert.Equal(pk.Length, rs.Length);
         Assert.Equal(len, (Int32)(rs.ToUInt32(0) & 0xFF_FFFF));
         Assert.Equal(seq, rs[3]);
-        Assert.Equal(seq + 1, (Byte)client.GetValue("_seq")!);
+        Assert.Equal((Byte)(seq + 1), (Byte)client.GetValue("_seq")!);
         Assert.Equal(buf, rs.ReadBytes(4, -1));
     }
 
@@ -210,7 +210,7 @@ public class SqlClientTests
         Assert.Equal(4 + buf.Length, rs.Length);
         Assert.Equal(len, (Int32)(rs.ToUInt32(0) & 0xFF_FFFF));
         Assert.Equal(seq, rs[3]);
-        Assert.Equal(seq + 1, (Byte)client.GetValue("_seq")!);
+        Assert.Equal((Byte)(seq + 1), (Byte)client.GetValue("_seq")!);
         Assert.Equal(buf, rs.ReadBytes(4, -1));
     }
 

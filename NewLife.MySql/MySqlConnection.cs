@@ -65,7 +65,8 @@ public sealed partial class MySqlConnection : DbConnection
     {
         base.Dispose(disposing);
 
-        Close();
+        // disposing=false 表示来自 GC 终结器线程，不应在终结器中关闭托管资源（网络连接可能正被其他线程使用）
+        if (disposing) Close();
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
