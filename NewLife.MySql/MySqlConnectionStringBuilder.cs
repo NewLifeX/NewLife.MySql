@@ -40,6 +40,11 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// <summary>是否输出协议收发包日志。默认false，仅用于排查协议层问题</summary>
     public Boolean TracePackets { get => this[nameof(TracePackets)].ToBoolean(); set => this[nameof(TracePackets)] = value; }
 
+    /// <summary>网络断线时是否自动重连重试。默认true。遇到 IOException/MySqlException(2006/2013) 等临时网络错误时，
+    /// 在 ConnectionTimeout 时间内指数退避等待并重建连接重试；超过 ConnectionTimeout 才向上层抛出异常。
+    /// 事务内自动跳过重试以避免 DML 重复执行。设为 false 可关闭。</summary>
+    public Boolean RetryOnNetworkFailure { get => this[nameof(RetryOnNetworkFailure)].ToBoolean(true); set => this[nameof(RetryOnNetworkFailure)] = value; }
+
     /// <summary>字符集。默认Utf8Mb4，支持4字节Unicode（含emoji）。握手时写入协议编号，等效于SET NAMES</summary>
     public MySqlCharSet CharSet
     {
@@ -73,6 +78,7 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
             [nameof(UseServerPrepare)] = ["useserverprepare", "use server prepare", "use_server_prepare"],
             [nameof(Pipeline)] = ["pipeline", "pipelining"],
             [nameof(TracePackets)] = ["tracepackets", "trace packets", "packettrace", "packet trace"],
+            [nameof(RetryOnNetworkFailure)] = ["retryonnetworkfailure", "retry on network failure", "retry_on_network_failure"],
             [nameof(CharSet)] = ["charset", "character set", "characterset", "char set"],
         };
 
@@ -86,6 +92,7 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
         ConnectionTimeout = 15;
         CommandTimeout = 30;
         CharSet = MySqlCharSet.Utf8Mb4;
+        RetryOnNetworkFailure = true;
     }
 
     /// <summary>使用连接字符串实例化</summary>

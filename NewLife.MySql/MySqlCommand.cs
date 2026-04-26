@@ -3,6 +3,7 @@ using System.Data.Common;
 using System.Text;
 using NewLife.Collections;
 using NewLife.Data;
+using NewLife.Log;
 using NewLife.MySql.Messages;
 
 namespace NewLife.MySql;
@@ -168,11 +169,61 @@ public class MySqlCommand : DbCommand
     /// <summary>取消</summary>
     public override void Cancel() { }
 
-    /// <summary>异步执行读取器。多语句由服务端拆分，通过NextResult()遍历多结果集</summary>
+    /// <summary>异步执行读取器。多语句由服务端拆分，通过NextResult()遍历多结果集。
+    /// 在 ConnectionTimeout 时间内对网络临时故障自动重连重试；事务内或关闭重试时直接执行</summary>
     /// <param name="behavior">命令行为</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
     protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken)
+    {
+        var conn = _DbConnection;
+        // 事务内不重试（避免 DML 重复执行）；用户主动关闭重试则直接执行
+        if (DbTransaction != null || !conn.Setting.RetryOnNetworkFailure)
+            return await ExecuteDbDataReaderCoreAsync(behavior, cancellationToken).ConfigureAwait(false);
+
+        var connTimeout = conn.Setting.ConnectionTimeout;
+        // 以毫秒级 TickCount64 计算 deadline；不配置超时时不限制重试次数
+        var deadline = connTimeout > 0 ? Runtime.TickCount64 + (Int64)connTimeout * 1000 : Int64.MaxValue;
+        var delay = 500;
+
+        while (true)
+        {
+            try
+            {
+                return await ExecuteDbDataReaderCoreAsync(behavior, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (IsNetworkException(ex))
+            {
+                // 超过最大等待时间，直接抛出让上层感知
+                if (Runtime.TickCount64 >= deadline) throw;
+
+                // 计算实际等待时间，不超过剩余 deadline
+                var remaining = (Int32)(deadline - Runtime.TickCount64);
+                var waitMs = Math.Min(delay, remaining);
+                if (waitMs > 0)
+                    await Task.Delay(waitMs, cancellationToken).ConfigureAwait(false);
+
+                // 指数退避：500ms → 1000ms → 2000ms → 上限 5000ms
+                delay = Math.Min(delay * 2, 5000);
+
+                XTrace.WriteLine($"MySQL 网络断线自动重连（{ex.GetType().Name}: {ex.Message}），已等待 {waitMs}ms");
+
+                // 清除预编译状态：重连后服务端上的 StatementId 已失效
+                _statementId = -1;
+                _paramColumns = null;
+                _paramOrder = null;
+
+                // 重建连接
+                await conn.ReconnectAsync(cancellationToken).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>执行读取器核心逻辑。每次重试都从 conn.Client 重新获取客户端引用</summary>
+    /// <param name="behavior">命令行为</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    private async Task<DbDataReader> ExecuteDbDataReaderCoreAsync(CommandBehavior behavior, CancellationToken cancellationToken)
     {
         var sql = CommandText;
         if (sql.IsNullOrEmpty()) throw new ArgumentNullException(nameof(CommandText));
@@ -275,6 +326,18 @@ public class MySqlCommand : DbCommand
 
         return result;
     }
+
+    /// <summary>判断异常是否为可重试的网络临时故障</summary>
+    /// <param name="ex">待判断异常</param>
+    /// <returns>true 表示可重试</returns>
+    private static Boolean IsNetworkException(Exception ex) => ex switch
+    {
+        OperationCanceledException => false,
+        TimeoutException => false,
+        IOException => true,
+        MySqlException { ErrorCode: 2006 or 2013 } => true,
+        _ => false
+    };
     #endregion
 
     #region 批量执行

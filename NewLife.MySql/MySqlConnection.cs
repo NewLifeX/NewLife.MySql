@@ -137,6 +137,23 @@ public sealed partial class MySqlConnection : DbConnection
         return new ConnectionOperationLease(this);
     }
 
+    /// <summary>销毁失效连接并重新建立连接。专供网络断线重试使用，不归还连接池直接销毁</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    internal async Task ReconnectAsync(CancellationToken cancellationToken)
+    {
+        // 直接销毁失效连接，不归还连接池（避免把断掉的连接还回池）
+        var oldClient = Client;
+        Client = null;
+        _pool = null;
+        oldClient?.TryDispose();
+
+        SetState(ConnectionState.Closed);
+
+        // 复用 OpenAsync，重新从连接池获取并打开连接
+        await OpenAsync(cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>异步打开连接</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
