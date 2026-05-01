@@ -4,8 +4,8 @@
     <AssemblyTitle>新生命MySql EFCore提供程序</AssemblyTitle>
     <Description>基于NewLife.MySql的Entity Framework Core数据库提供程序，纯国产零依赖，支持管道化批量操作和DbBatch</Description>
     <Company>新生命开发团队</Company>
-    <Copyright>?2002-2026 NewLife</Copyright>
-    <VersionPrefix>1.0</VersionPrefix>
+    <Copyright>©2002-2026 NewLife</Copyright>
+    <VersionPrefix>1.1</VersionPrefix>
     <VersionSuffix>$([System.DateTime]::Now.ToString(`yyyy.MMdd`))</VersionSuffix>
     <Version>$(VersionPrefix).$(VersionSuffix)</Version>
     <FileVersion>$(Version)</FileVersion>
@@ -28,7 +28,7 @@
     <RepositoryUrl>https://github.com/NewLifeX/NewLife.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>新生命团队;X组件;NewLife;MySql;MySQL;ADO.NET;国产;EntityFrameworkCore;EFCore;$(AssemblyName)</PackageTags>
-    <PackageReleaseNotes></PackageReleaseNotes>
+    <PackageReleaseNotes>v1.1 同步主驱动更新：新增断线自动重连、增强超时管理、修复并发安全与空密码连接问题</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>

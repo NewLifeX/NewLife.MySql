@@ -5,7 +5,7 @@
     <Description>纯国产高性能MySQL驱动，零第三方依赖，管道化批量执行领先竞品2~3倍，全链路真异步，MIT协议商用无忧</Description>
     <Company>新生命开发团队</Company>
     <Copyright>©2002-2026 NewLife</Copyright>
-    <VersionPrefix>1.0</VersionPrefix>
+    <VersionPrefix>1.1</VersionPrefix>
     <VersionSuffix>$([System.DateTime]::Now.ToString(`yyyy.MMdd`))</VersionSuffix>
     <Version>$(VersionPrefix).$(VersionSuffix)</Version>
     <FileVersion>$(Version)</FileVersion>
@@ -29,20 +29,14 @@
     <RepositoryUrl>https://github.com/NewLifeX/NewLife.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>新生命团队;X组件;NewLife;MySql;MySQL;ADO.NET;国产;高性能;批量;管道化;$(AssemblyName)</PackageTags>
-    <PackageReleaseNotes>v1.0 正式版
-完整ADO.NET实现，支持MySqlConnection/Command/DataReader/Parameter/Transaction全套组件；
-支持SSL/TLS安全连接、参数化查询、事务自动回滚、多语句多结果集；
-支持.NET 6.0+ DbBatch批量命令与真管道化执行，大幅提升批量性能；
-支持MySQL服务端预编译语句与二进制参数绑定；
-支持GetSchema元数据查询、MySqlDataAdapter、存储过程参数；
-支持ChangeDatabase/SetDatabaseAsync、连接心跳检测、读取超时控制；
-支持MySQL Binlog订阅与事件解析；
-全面异步化，所有核心操作支持异步方法与CancellationToken；
-新增EF Core Provider与EF6适配层；
-兼容OceanBase和TiDB数据库自动识别；
-使用缓冲区与SpanReader优化协议解析，减少GC；
-修复密码登录、类型转换、Bit解析等问题；
-支持.NET Framework 4.5至.NET 10全版本，零第三方依赖</PackageReleaseNotes>
+    <PackageReleaseNotes>v1.1 连接稳定性增强
+新增MySQL网络断线自动重连重试机制，大幅提升长连接场景稳定性；
+MySqlCommand超时自动从连接继承，DataReader读取阶段超时更灵活可控；
+重构参数绑定逻辑，优化服务器信息缓存管理，减少冗余查询；
+优化连接释放流程，复用包头缓冲区，减少内存分配；
+新增协议包日志输出，便于连接问题诊断；
+修复连接并发安全问题及3字节整数读取顺序错误；
+修复空密码连接时的NullReferenceException</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
@@ -57,7 +51,7 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="NewLife.Core" Version="11.14.2026.402" />
+    <PackageReference Include="NewLife.Core" Version="11.15.2026.501" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="NewLife" />
