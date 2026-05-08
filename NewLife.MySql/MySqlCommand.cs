@@ -265,11 +265,13 @@ public class MySqlCommand : DbCommand
 
             return reader;
         }
-        catch
+        catch (Exception ex)
         {
             client.Timeout = previousTimeout;
             operationLease.Dispose();
-            throw;
+            if (IsNetworkException(ex)) throw;
+
+            throw CreateCommandException(ex, GetDebugCommandText());
         }
     }
 
@@ -401,6 +403,10 @@ public class MySqlCommand : DbCommand
 
             return await client.ExecuteStatementPipelineAsync(_statementId, sets, _paramColumns, cancellationToken).ConfigureAwait(false);
         }
+        catch (Exception ex)
+        {
+            throw CreateCommandException(ex, GetBatchDebugCommandText(firstSet), parameterSets.Count);
+        }
         finally
         {
             if (needClose)
@@ -455,6 +461,10 @@ public class MySqlCommand : DbCommand
             }
 
             return await client.ExecuteStatementPipelineAsync(_statementId, sets, _paramColumns, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw CreateCommandException(ex, GetArrayBatchDebugCommandText(), count);
         }
         finally
         {
@@ -511,6 +521,64 @@ public class MySqlCommand : DbCommand
         public String ParameterName { get; } = parameter.ParameterName ?? String.Empty;
         public String FullName { get; } = parameter.ParameterName ?? String.Empty;
         public String CleanName { get; } = (parameter.ParameterName ?? String.Empty).TrimStart('@');
+    }
+
+    private Exception CreateCommandException(Exception ex, String debugSql, Int32? batchCount = null)
+    {
+        var sb = Pool.StringBuilder.Get();
+        sb.Append(ex.Message);
+
+        if (!debugSql.IsNullOrEmpty())
+        {
+            sb.AppendLine();
+            sb.Append("SQL: ");
+            sb.Append(debugSql);
+        }
+
+        if (batchCount > 1)
+        {
+            sb.AppendLine();
+            sb.Append("BatchCount: ");
+            sb.Append(batchCount.Value);
+        }
+
+        var message = sb.Return(true);
+
+        return ex switch
+        {
+            MySqlException mySqlException => new MySqlException(mySqlException.ErrorCode, mySqlException.State, message, mySqlException),
+            _ => new InvalidOperationException(message, ex),
+        };
+    }
+
+    private String GetDebugCommandText()
+        => CommandType == CommandType.StoredProcedure ? BuildStoredProcedureCall() : SubstituteParameters(CommandText, _parameters);
+
+    private String GetBatchDebugCommandText(IDictionary<String, Object?> parameterSet)
+    {
+        var parameters = new MySqlParameterCollection();
+        foreach (MySqlParameter parameter in _parameters)
+        {
+            Object? value = null;
+            if (!parameterSet.TryGetValue((parameter.ParameterName ?? String.Empty).TrimStart('@'), out value) && !String.IsNullOrEmpty(parameter.ParameterName))
+                parameterSet.TryGetValue(parameter.ParameterName, out value);
+
+            parameters.AddWithValue(parameter.ParameterName ?? String.Empty, value);
+        }
+
+        return SubstituteParameters(CommandText, parameters);
+    }
+
+    private String GetArrayBatchDebugCommandText()
+    {
+        var parameters = new MySqlParameterCollection();
+        foreach (MySqlParameter parameter in _parameters)
+        {
+            var value = ExtractArrayValue(parameter.Value, 0);
+            parameters.AddWithValue(parameter.ParameterName ?? String.Empty, value);
+        }
+
+        return SubstituteParameters(CommandText, parameters);
     }
     #endregion
 
