@@ -118,6 +118,22 @@ public class MySqlCommand : DbCommand
     /// <summary>预编译语句。通过 COM_STMT_PREPARE 在服务端编译，后续执行走二进制协议</summary>
     public override void Prepare() => PrepareAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
 
+    /// <summary>返回适合日志输出的 SQL 文本。</summary>
+    /// <returns></returns>
+    public override String ToString()
+    {
+        if (CommandText.IsNullOrEmpty()) return base.ToString() ?? String.Empty;
+        if (_parameters.Count == 0) return CommandText;
+
+        if (TryGetArrayBatchCount(out var batchCount))
+        {
+            var sql = GetArrayBatchDebugCommandText();
+            return batchCount > 1 ? $"{sql} /* BatchPreview:1/{batchCount} */" : sql;
+        }
+
+        return GetDebugCommandText();
+    }
+
     /// <summary>异步预编译语句</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
@@ -490,6 +506,25 @@ public class MySqlCommand : DbCommand
 
         // 非数组值，每次都用同一个值
         return value;
+    }
+
+    private Boolean TryGetArrayBatchCount(out Int32 count)
+    {
+        foreach (MySqlParameter parameter in _parameters)
+        {
+            switch (parameter.Value)
+            {
+                case Array arr:
+                    count = arr.Length;
+                    return true;
+                case System.Collections.IList list:
+                    count = list.Count;
+                    return true;
+            }
+        }
+
+        count = 0;
+        return false;
     }
 
     private static BatchParameterBinding[] GetBatchBindings(MySqlParameterCollection parameters, Int32[]? paramOrder)
