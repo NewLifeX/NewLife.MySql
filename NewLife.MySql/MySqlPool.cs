@@ -135,7 +135,7 @@ public class MySqlPoolManager
     /// <returns></returns>
     protected virtual MySqlPool CreatePool(MySqlConnectionStringBuilder setting)
     {
-        using var span = DefaultTracer.Instance?.NewSpan("db:mysql:CreatePool", setting.ConnectionString);
+        using var span = DefaultTracer.Instance?.NewSpan("db:mysql:CreatePool", new { setting.Server, setting.Database });
 
         var pool = new MySqlPool
         {

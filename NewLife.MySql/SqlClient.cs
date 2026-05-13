@@ -674,6 +674,9 @@ public class SqlClient : DisposeBase
          - 使用 Tracer 记录埋点，尊重传入的 CancellationToken 和 Timeout 属性
         */
 
+#if DEBUG
+        using var span = Tracer?.NewSpan($"db:{Database}:Ping");
+#endif
         try
         {
             // 发送 PING 命令
@@ -683,8 +686,12 @@ public class SqlClient : DisposeBase
             // 如果是错误包，ReadPacketAsync 会抛出 MySqlException；到这里代表收到 OK 或其他合法包
             return rs.IsOK || !rs.IsError;
         }
-        catch
+        catch (Exception ex)
         {
+#if DEBUG
+            span?.SetError(ex);
+#endif
+
             // 心跳失败，标记为不可用，停止定时器
             Active = false;
             _timer.TryDispose();

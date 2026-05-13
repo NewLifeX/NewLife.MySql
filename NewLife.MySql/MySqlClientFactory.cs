@@ -4,7 +4,7 @@ using NewLife.Log;
 namespace NewLife.MySql;
 
 /// <summary>客户端工厂</summary>
-public sealed partial class MySqlClientFactory : DbProviderFactory
+public sealed partial class MySqlClientFactory : DbProviderFactory, ITracerFeature
 {
     /// <summary>默认实例</summary>
     public static MySqlClientFactory Instance = new();
@@ -37,7 +37,7 @@ public sealed partial class MySqlClientFactory : DbProviderFactory
     public MySqlPoolManager PoolManager { get; set; } = new();
 
     /// <summary>性能跟踪器</summary>
-    public ITracer? Tracer { get; set; }
+    public ITracer? Tracer { get; set; } = DefaultTracer.Instance;
     #endregion
 
     #region 方法
