@@ -5,7 +5,7 @@
     <Description>纯国产高性能MySQL驱动，零第三方依赖，管道化批量执行领先竞品2~3倍，全链路真异步，MIT协议商用无忧</Description>
     <Company>新生命开发团队</Company>
     <Copyright>©2002-2026 NewLife</Copyright>
-    <VersionPrefix>1.1</VersionPrefix>
+    <VersionPrefix>1.2</VersionPrefix>
     <VersionSuffix>$([System.DateTime]::Now.ToString(`yyyy.MMdd`))</VersionSuffix>
     <Version>$(VersionPrefix).$(VersionSuffix)</Version>
     <FileVersion>$(Version)</FileVersion>
@@ -29,14 +29,7 @@
     <RepositoryUrl>https://github.com/NewLifeX/NewLife.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>新生命团队;X组件;NewLife;MySql;MySQL;ADO.NET;国产;高性能;批量;管道化;$(AssemblyName)</PackageTags>
-    <PackageReleaseNotes>v1.1 连接稳定性增强
-新增MySQL网络断线自动重连重试机制，大幅提升长连接场景稳定性；
-MySqlCommand超时自动从连接继承，DataReader读取阶段超时更灵活可控；
-重构参数绑定逻辑，优化服务器信息缓存管理，减少冗余查询；
-优化连接释放流程，复用包头缓冲区，减少内存分配；
-新增协议包日志输出，便于连接问题诊断；
-修复连接并发安全问题及3字节整数读取顺序错误；
-修复空密码连接时的NullReferenceException</PackageReleaseNotes>
+    <PackageReleaseNotes>v1.2 追踪与可观测性增强；MySqlClientFactory 实现 ITracerFeature 接口并默认启用 Tracer，增强可观测性集成；MySqlPoolManager 埋点参数精简为 Server/Database，避免敏感信息泄露；SqlClient.PingAsync 调试模式下增加埋点并记录异常，便于连接问题诊断</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
@@ -51,7 +44,7 @@ MySqlCommand超时自动从连接继承，DataReader读取阶段超时更灵活�
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="NewLife.Core" Version="11.15.2026.501" />
+    <PackageReference Include="NewLife.Core" Version="11.16.2026.601" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="NewLife" />

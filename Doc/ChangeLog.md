@@ -4,6 +4,15 @@
 
 ---
 
+## v1.2.2026.0601（2026-06-01）
+
+### 追踪与可观测性
+- **ITracerFeature 支持**：MySqlClientFactory 实现 ITracerFeature 接口并默认启用 Tracer，增强与 NewLife 可观测性体系的集成
+- **埋点参数安全**：MySqlPoolManager 埋点参数精简为 Server/Database，避免连接字符串中的敏感信息随追踪数据泄露
+- **调试追踪增强**：SqlClient.PingAsync 在 DEBUG 模式下增加埋点并记录异常，便于连接问题诊断
+
+---
+
 ## v1.1.2026.0501（2026-05-01）
 
 ### 连接稳定性增强
