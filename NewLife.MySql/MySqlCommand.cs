@@ -118,6 +118,22 @@ public class MySqlCommand : DbCommand
     /// <summary>预编译语句。通过 COM_STMT_PREPARE 在服务端编译，后续执行走二进制协议</summary>
     public override void Prepare() => PrepareAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
 
+    /// <summary>返回适合日志输出的 SQL 文本。</summary>
+    /// <returns></returns>
+    public override String ToString()
+    {
+        if (CommandText.IsNullOrEmpty()) return base.ToString() ?? String.Empty;
+        if (_parameters.Count == 0) return CommandText;
+
+        if (TryGetArrayBatchCount(out var batchCount))
+        {
+            var sql = GetArrayBatchDebugCommandText();
+            return batchCount > 1 ? $"{sql} /* BatchPreview:1/{batchCount} */" : sql;
+        }
+
+        return GetDebugCommandText();
+    }
+
     /// <summary>异步预编译语句</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
@@ -265,11 +281,13 @@ public class MySqlCommand : DbCommand
 
             return reader;
         }
-        catch
+        catch (Exception ex)
         {
             client.Timeout = previousTimeout;
             operationLease.Dispose();
-            throw;
+            if (IsNetworkException(ex)) throw;
+
+            throw CreateCommandException(ex, GetDebugCommandText());
         }
     }
 
@@ -401,6 +419,10 @@ public class MySqlCommand : DbCommand
 
             return await client.ExecuteStatementPipelineAsync(_statementId, sets, _paramColumns, cancellationToken).ConfigureAwait(false);
         }
+        catch (Exception ex)
+        {
+            throw CreateCommandException(ex, GetBatchDebugCommandText(firstSet), parameterSets.Count);
+        }
         finally
         {
             if (needClose)
@@ -456,6 +478,10 @@ public class MySqlCommand : DbCommand
 
             return await client.ExecuteStatementPipelineAsync(_statementId, sets, _paramColumns, cancellationToken).ConfigureAwait(false);
         }
+        catch (Exception ex)
+        {
+            throw CreateCommandException(ex, GetArrayBatchDebugCommandText(), count);
+        }
         finally
         {
             if (needClose)
@@ -480,6 +506,25 @@ public class MySqlCommand : DbCommand
 
         // 非数组值，每次都用同一个值
         return value;
+    }
+
+    private Boolean TryGetArrayBatchCount(out Int32 count)
+    {
+        foreach (MySqlParameter parameter in _parameters)
+        {
+            switch (parameter.Value)
+            {
+                case Array arr:
+                    count = arr.Length;
+                    return true;
+                case System.Collections.IList list:
+                    count = list.Count;
+                    return true;
+            }
+        }
+
+        count = 0;
+        return false;
     }
 
     private static BatchParameterBinding[] GetBatchBindings(MySqlParameterCollection parameters, Int32[]? paramOrder)
@@ -511,6 +556,64 @@ public class MySqlCommand : DbCommand
         public String ParameterName { get; } = parameter.ParameterName ?? String.Empty;
         public String FullName { get; } = parameter.ParameterName ?? String.Empty;
         public String CleanName { get; } = (parameter.ParameterName ?? String.Empty).TrimStart('@');
+    }
+
+    private Exception CreateCommandException(Exception ex, String debugSql, Int32? batchCount = null)
+    {
+        var sb = Pool.StringBuilder.Get();
+        sb.Append(ex.Message);
+
+        if (!debugSql.IsNullOrEmpty())
+        {
+            sb.AppendLine();
+            sb.Append("SQL: ");
+            sb.Append(debugSql);
+        }
+
+        if (batchCount > 1)
+        {
+            sb.AppendLine();
+            sb.Append("BatchCount: ");
+            sb.Append(batchCount.Value);
+        }
+
+        var message = sb.Return(true);
+
+        return ex switch
+        {
+            MySqlException mySqlException => new MySqlException(mySqlException.ErrorCode, mySqlException.State, message, mySqlException),
+            _ => new InvalidOperationException(message, ex),
+        };
+    }
+
+    private String GetDebugCommandText()
+        => CommandType == CommandType.StoredProcedure ? BuildStoredProcedureCall() : SubstituteParameters(CommandText, _parameters);
+
+    private String GetBatchDebugCommandText(IDictionary<String, Object?> parameterSet)
+    {
+        var parameters = new MySqlParameterCollection();
+        foreach (MySqlParameter parameter in _parameters)
+        {
+            Object? value = null;
+            if (!parameterSet.TryGetValue((parameter.ParameterName ?? String.Empty).TrimStart('@'), out value) && !String.IsNullOrEmpty(parameter.ParameterName))
+                parameterSet.TryGetValue(parameter.ParameterName, out value);
+
+            parameters.AddWithValue(parameter.ParameterName ?? String.Empty, value);
+        }
+
+        return SubstituteParameters(CommandText, parameters);
+    }
+
+    private String GetArrayBatchDebugCommandText()
+    {
+        var parameters = new MySqlParameterCollection();
+        foreach (MySqlParameter parameter in _parameters)
+        {
+            var value = ExtractArrayValue(parameter.Value, 0);
+            parameters.AddWithValue(parameter.ParameterName ?? String.Empty, value);
+        }
+
+        return SubstituteParameters(CommandText, parameters);
     }
     #endregion
 

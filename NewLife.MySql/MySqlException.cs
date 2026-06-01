@@ -23,15 +23,37 @@ public class MySqlException : Exception
     public MySqlException(String message) : base(message) { }
 
     /// <summary>实例化</summary>
+    /// <param name="message"></param>
+    /// <param name="innerException"></param>
+    public MySqlException(String message, Exception innerException) : base(message, innerException) { }
+
+    /// <summary>实例化</summary>
     /// <param name="error"></param>
     /// <param name="message"></param>
     public MySqlException(Int32 error, String message) : base(message) => ErrorCode = error;
 
     /// <summary>实例化</summary>
     /// <param name="error"></param>
+    /// <param name="message"></param>
+    /// <param name="innerException"></param>
+    public MySqlException(Int32 error, String message, Exception innerException) : base(message, innerException) => ErrorCode = error;
+
+    /// <summary>实例化</summary>
+    /// <param name="error"></param>
     /// <param name="state"></param>
     /// <param name="message"></param>
     public MySqlException(Int32 error, String state, String message) : base(message)
+    {
+        ErrorCode = error;
+        State = state;
+    }
+
+    /// <summary>实例化</summary>
+    /// <param name="error"></param>
+    /// <param name="state"></param>
+    /// <param name="message"></param>
+    /// <param name="innerException"></param>
+    public MySqlException(Int32 error, String? state, String message, Exception innerException) : base(message, innerException)
     {
         ErrorCode = error;
         State = state;
