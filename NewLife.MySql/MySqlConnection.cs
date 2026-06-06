@@ -98,9 +98,10 @@ public sealed partial class MySqlConnection : DbConnection
             // 检查当前数据库是否与原始数据库一致
             // 如果不一致，说明调用过 SetDatabaseAsync 且未切回，连接状态被污染，直接销毁
             // 如果一致，说明要么未切换过数据库，要么切换后又切回来了，可以安全归还连接池
-            if (client.Database != Setting.Database)
+            if (!client.Active || client.Database != Setting.Database)
             {
-                // 数据库状态被污染，销毁连接不归还连接池
+                // 连接已失效（如批量写入中途失败标记 Active=false）或数据库状态被污染，销毁连接不归还连接池，
+                // 避免脏连接被后续查询复用导致协议错位、读取超时
                 client.TryDispose();
             }
             else if (pool != null)

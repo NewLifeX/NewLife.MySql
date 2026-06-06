@@ -550,8 +550,18 @@ public class SqlClient : DisposeBase
 
         WritePacketLog("=>", pk2[3], payload, len);
 
-        await pk2.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
-        if (flush) await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await pk2.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+            if (flush) await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            // 发送中断（如批量写入时网络抛 IOException）服务端可能只收到半截请求，连接协议状态已破坏。
+            // 标记连接失效，避免脏连接归还连接池后被后续查询复用，导致响应错位、查询端读取超时。
+            Active = false;
+            throw;
+        }
 
         LastActive = DateTime.Now;
     }
@@ -1310,10 +1320,21 @@ public class SqlClient : DisposeBase
         var totalAffected = 0;
         for (var i = 0; i < parameterSets.Count; i++)
         {
-            await ExecuteStatementAsync(statementId, parameterSets[i], paramColumns, cancellationToken).ConfigureAwait(false);
-            using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-            var qr = GetResult(rs);
-            totalAffected += qr.AffectedRows;
+            try
+            {
+                await ExecuteStatementAsync(statementId, parameterSets[i], paramColumns, cancellationToken).ConfigureAwait(false);
+                using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+                var qr = GetResult(rs);
+                totalAffected += qr.AffectedRows;
+            }
+            catch (Exception ex) when (ex is not MySqlException)
+            {
+                // 网络/协议错误（如发送中途断线、读取超时）会使连接残留半截请求或响应，协议状态不可信。
+                // 标记连接失效，避免脏连接归还连接池后被后续查询复用导致读取超时。
+                // 业务异常 MySqlException（如唯一键冲突）连接仍干净，保持可复用。
+                Active = false;
+                throw;
+            }
         }
 
         return totalAffected;
@@ -1336,31 +1357,68 @@ public class SqlClient : DisposeBase
         var count = parameterSets.Count;
         var ms = _stream ?? throw new InvalidOperationException("未打开连接");
 
+        // 读取任务使用独立取消源：发送方向一旦失败，可主动取消后台读取，避免它成为野任务在后台继续读取网络流
+        using var readCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+
         // 先启动读取任务，它会在 ReadExactlyAsync 处让出执行权等待数据到达
-        var readTask = ReadPipelineResponsesAsync(count, cancellationToken);
+        var readTask = ReadPipelineResponsesAsync(count, readCts.Token);
 
-        // 发送所有 EXECUTE 包，直接写入 seq=0 帧头，避免与读取任务竞争 _seq 字段
-        for (var i = 0; i < count; i++)
+        // 标记发送循环是否全部成功完成，用于区分“发送失败（连接脏）”与“读取返回业务错误（连接干净）”
+        var sendCompleted = false;
+
+        try
         {
-            var pk = BuildExecutePacket(statementId, parameterSets[i]);
+            // 发送所有 EXECUTE 包，直接写入 seq=0 帧头，避免与读取任务竞争 _seq 字段
+            for (var i = 0; i < count; i++)
+            {
+                var pk = BuildExecutePacket(statementId, parameterSets[i]);
 
-            // 管道化每个 EXECUTE 独立使用 seq=0，直接构造帧头避免并发读写 _seq 竞态
-            var len = pk.Total;
-            var pk2 = pk.ExpandHeader(4);
-            pk2[0] = (Byte)(len & 0xFF);
-            pk2[1] = (Byte)((len >> 8) & 0xFF);
-            pk2[2] = (Byte)((len >> 16) & 0xFF);
-            pk2[3] = 0;
+                // 管道化每个 EXECUTE 独立使用 seq=0，直接构造帧头避免并发读写 _seq 竞态
+                var len = pk.Total;
+                var pk2 = pk.ExpandHeader(4);
+                pk2[0] = (Byte)(len & 0xFF);
+                pk2[1] = (Byte)((len >> 8) & 0xFF);
+                pk2[2] = (Byte)((len >> 16) & 0xFF);
+                pk2[3] = 0;
 
-            await pk2.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+                await pk2.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
 
-            // 定期 Flush 推送数据到服务端（SslStream 有内部缓冲，必须 Flush 才能发出）
-            if (i == count - 1 || (i + 1) % 100 == 0)
-                await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
+                // 定期 Flush 推送数据到服务端（SslStream 有内部缓冲，必须 Flush 才能发出）
+                if (i == count - 1 || (i + 1) % 100 == 0)
+                    await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+            sendCompleted = true;
+
+            // 等待所有响应读取完成
+            return await readTask.ConfigureAwait(false);
         }
+        catch (Exception ex)
+        {
+            if (!sendCompleted)
+            {
+                // 发送方向失败（如批量写入 5000 条时发送抛 IOException），此时后台读取任务可能仍在运行。
+                // 连接的协议状态已不可信，必须标记失效，防止脏连接归还连接池后被后续查询复用，
+                // 否则新查询的读取会与残留响应错位、帧序号混乱，最终表现为查询端“读取数据包超时”。
+                Active = false;
 
-        // 等待所有响应读取完成
-        return await readTask.ConfigureAwait(false);
+                // 取消并等待后台读取任务结束，避免它成为野任务在后台继续读取网络流，
+                // 与归还连接池后被复用的新连接争抢同一个底层流。
+                readCts.Cancel();
+                try
+                {
+                    await readTask.ConfigureAwait(false);
+                }
+                catch { /* 吞掉读取任务异常，向上抛出原始发送失败异常 */ }
+            }
+            else if (ex is not MySqlException)
+            {
+                // 发送已全部完成，但读取阶段遭遇网络/协议错误（如 IOException、读取超时），连接状态不可信，标记失效。
+                // 业务异常 MySqlException（如唯一键冲突）说明所有响应已正常读完、连接干净，无需失效，可正常归还复用。
+                Active = false;
+            }
+
+            throw;
+        }
     }
 
     /// <summary>批量读取管道化响应，累加影响行数</summary>
