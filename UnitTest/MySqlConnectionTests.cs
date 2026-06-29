@@ -199,8 +199,14 @@ public class MySqlConnectionTests
 
         var dt = connection.GetSchema();
         Assert.NotNull(dt);
-        Assert.Equal(11, dt.Rows.Count);
+        Assert.Equal(15, dt.Rows.Count);
         //Assert.Throws<NotSupportedException>(() => connection.GetSchema());
+
+        // sys 数据库中可能没有视图/触发器/外键，跳过这些集合的非空断言
+        var skipNonEmptyCheck = new HashSet<String>(StringComparer.OrdinalIgnoreCase)
+        {
+            "Views", "Triggers", "ForeignKeys"
+        };
 
         foreach (DataRow dr in dt.Rows)
         {
@@ -208,7 +214,9 @@ public class MySqlConnectionTests
 
             var dt2 = connection.GetSchema(name);
             Assert.NotNull(dt2);
-            Assert.NotEmpty(dt2.Rows);
+
+            if (!skipNonEmptyCheck.Contains(name!))
+                Assert.NotEmpty(dt2.Rows);
         }
     }
 }

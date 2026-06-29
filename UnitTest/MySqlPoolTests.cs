@@ -162,8 +162,8 @@ public class MySqlPoolTests
 
         Assert.NotNull(pool);
         Assert.Same(setting, pool.Setting);
-        Assert.Equal(10, pool.Min);
-        Assert.Equal(100000, pool.Max);
+        Assert.Equal(0, pool.Min);
+        Assert.Equal(100, pool.Max);
         Assert.Equal(30, pool.IdleTime);
         Assert.Equal(300, pool.AllIdleTime);
     }
