@@ -7,6 +7,8 @@
 
 独创的**管道化批量执行**（Pipeline）在万级行批量写入场景下领先竞品 **2×~3×**，是大数据批量操作、信创国产化替代的理想选择。
 
+> 📖 [English Documentation](README.en.md)
+
 ---
 
 ## 设计目标
@@ -581,3 +583,6 @@ Console.WriteLine($"数据库类型: {conn2.DatabaseType}");  // TiDB
 | [需求文档](Doc/需求文档.md) | 功能需求、验收条件、迭代计划 |
 | [架构设计](Doc/架构设计.md) | 架构概览、协议实现、技术选型、设计决策、驱动对比 |
 | [性能测试报告](Doc/性能测试报告.md) | 批量操作基准性能测试详细数据 |
+| [英文 README](README.en.md) | English documentation with performance charts |
+| [迁移指南：MySql.Data → NL](Doc/迁移指南_MySqlData.md) | 从 Oracle 官方驱动迁移的步骤和注意事项 |
+| [迁移指南：MySqlConnector → NL](Doc/迁移指南_MySqlConnector.md) | 从社区主流驱动迁移的步骤和注意事项 |

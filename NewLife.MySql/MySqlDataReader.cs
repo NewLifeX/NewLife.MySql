@@ -158,7 +158,8 @@ public class MySqlDataReader : DbDataReader
             // 二进制
             MySqlDbType.Blob or MySqlDbType.TinyBlob or MySqlDbType.MediumBlob or MySqlDbType.LongBlob => typeof(Byte[]),
             MySqlDbType.Binary or MySqlDbType.VarBinary => typeof(Byte[]),
-            MySqlDbType.Geometry or MySqlDbType.Vector => typeof(Byte[]),
+            MySqlDbType.Geometry => typeof(MySqlGeometry),
+            MySqlDbType.Vector => typeof(Byte[]),
 
             // 其他
             MySqlDbType.Bit => typeof(UInt64),

@@ -548,7 +548,8 @@ public class MySqlFieldCodecTests
 
         var result = MySqlFieldCodec.ReadTextValue(ref reader, column, bytes.Length);
 
-        Assert.Equal(bytes, result);
+        var geom = Assert.IsType<MySqlGeometry>(result);
+        Assert.Equal(bytes, geom.Value);
     }
 
     [Fact(DisplayName = "文本协议_Vector")]
@@ -605,13 +606,13 @@ public class MySqlFieldCodecTests
         Assert.Equal(str, result);
     }
 
-    /// <summary>测试文本协议解析未知类型（返回字节数组）</summary>
+    /// <summary>测试文本协议解析未知类型（返回字节数组）。使用 200 确保不命中任何已知类型分支</summary>
     [Fact(DisplayName = "文本协议_未知类型")]
     public void ReadTextValue_UnknownType()
     {
         var bytes = new Byte[] { 0x01, 0x02, 0x03 };
         var reader = new SpanReader(bytes);
-        var column = new MySqlColumn { Type = (MySqlDbType)255 };
+        var column = new MySqlColumn { Type = (MySqlDbType)200 };
 
         var result = MySqlFieldCodec.ReadTextValue(ref reader, column, bytes.Length);
 
@@ -1251,7 +1252,8 @@ public class MySqlFieldCodecTests
 
         var result = MySqlFieldCodec.ReadBinaryValue(ref reader, column);
 
-        Assert.Equal(data, result);
+        var geom = Assert.IsType<MySqlGeometry>(result);
+        Assert.Equal(data, geom.Value);
     }
 
     [Fact(DisplayName = "二进制协议_Vector")]
@@ -1807,6 +1809,61 @@ public class MySqlFieldCodecTests
         var result = reader.ReadString();
         Assert.Contains("Name", result);
         Assert.Contains("test", result);
+    }
+
+    [Fact(DisplayName = "写入二进制_MySqlGeometry")]
+    public void WriteBinaryValue_MySqlGeometry()
+    {
+        var wkb = new Byte[] { 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+        var geom = new MySqlGeometry(wkb);
+        var buffer = new Byte[200];
+        var writer = new SpanWriter(buffer);
+        MySqlFieldCodec.WriteBinaryValue(ref writer, geom, Encoding.UTF8);
+
+        // 验证：length-encoded 前缀 + WKB 字节
+        var reader2 = new SpanReader(buffer);
+        var length = (Int64)reader2.ReadLength();
+        Assert.Equal((Int64)wkb.Length, length);
+        var payload = reader2.ReadBytes(wkb.Length).ToArray();
+        Assert.Equal(wkb, payload);
+    }
+
+    [Fact(DisplayName = "获取MySQL类型_MySqlGeometry")]
+    public void GetMySqlTypeForValue_MySqlGeometry()
+    {
+        var geom = new MySqlGeometry(new Byte[] { 0x01, 0x01, 0x00, 0x00, 0x00 });
+        var (typeId, unsigned) = MySqlFieldCodec.GetMySqlTypeForValue(geom);
+
+        Assert.Equal(0xFC, typeId); // MYSQL_TYPE_BLOB
+        Assert.False(unsigned);
+    }
+
+    [Fact(DisplayName = "MySqlGeometry_隐式转换")]
+    public void MySqlGeometry_ImplicitConversion()
+    {
+        var wkb = new Byte[] { 0x01, 0x01, 0x00, 0x00, 0x00 };
+
+        MySqlGeometry geom = wkb; // 隐式 Byte[] → MySqlGeometry
+        Assert.Equal(wkb, geom.Value);
+
+        Byte[] bytes = geom; // 隐式 MySqlGeometry → Byte[]
+        Assert.Equal(wkb, bytes);
+    }
+
+    [Fact(DisplayName = "MySqlGeometry_Equals")]
+    public void MySqlGeometry_Equals()
+    {
+        var wkb1 = new Byte[] { 0x01, 0x01, 0x00 };
+        var wkb2 = new Byte[] { 0x01, 0x01, 0x00 };
+        var wkb3 = new Byte[] { 0x01, 0x02, 0x00 };
+
+        var geom1 = new MySqlGeometry(wkb1);
+        var geom2 = new MySqlGeometry(wkb2);
+        var geom3 = new MySqlGeometry(wkb3);
+
+        Assert.True(geom1.Equals(geom2));
+        Assert.True(geom1.Value.SequenceEqual(geom2.Value));
+        Assert.False(geom1.Equals(geom3));
     }
     #endregion
 }

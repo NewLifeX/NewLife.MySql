@@ -4,6 +4,7 @@ using System.Text;
 using NewLife.Collections;
 using NewLife.Data;
 using NewLife.Log;
+using NewLife.MySql.Common;
 using NewLife.MySql.Messages;
 
 namespace NewLife.MySql;
@@ -899,6 +900,7 @@ public class MySqlCommand : DbCommand
             DateTime dt => "'" + dt.ToString("yyyy-MM-dd HH:mm:ss.ffffff").TrimEnd('0').TrimEnd('.') + "'",
             DateTimeOffset dto => "'" + dto.ToString("yyyy-MM-dd HH:mm:ss.ffffff").TrimEnd('0').TrimEnd('.') + "'",
             Byte[] bytes => "X'" + bytes.ToHex() + "'",
+            MySqlGeometry geom => "X'" + geom.Value.ToHex() + "'",
             Guid guid => "'" + guid.ToString() + "'",
             Enum e => Convert.ToInt64(e).ToString(),
             Single f => f.ToString("R"),

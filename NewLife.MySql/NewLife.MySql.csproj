@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFrameworks>net45;net461;netstandard2.0;netstandard2.1;net6.0;net8.0;net10.0</TargetFrameworks>
     <AssemblyTitle>新生命MySQL驱动</AssemblyTitle>
-    <Description>纯国产高性能MySQL驱动，零第三方依赖，管道化批量执行领先竞品2~3倍，全链路真异步，MIT协议商用无忧</Description>
+    <Description>Pure C# high-performance MySQL ADO.NET driver. Zero third-party dependencies, full async/await, 2~3× faster batch DML than MySql.Data/MySqlConnector with unique Pipelined Batch Execution. MIT license. Supports net45~net10, MySQL 5.x~9.0+, OceanBase, TiDB.</Description>
     <Company>新生命开发团队</Company>
     <Copyright>©2002-2026 NewLife</Copyright>
     <VersionPrefix>1.2</VersionPrefix>
@@ -28,8 +28,8 @@
     <PackageIcon>leaf.png</PackageIcon>
     <RepositoryUrl>https://github.com/NewLifeX/NewLife.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>新生命团队;X组件;NewLife;MySql;MySQL;ADO.NET;国产;高性能;批量;管道化;$(AssemblyName)</PackageTags>
-    <PackageReleaseNotes>v1.2 追踪与可观测性增强；MySqlClientFactory 实现 ITracerFeature 接口并默认启用 Tracer，增强可观测性集成；MySqlPoolManager 埋点参数精简为 Server/Database，避免敏感信息泄露；SqlClient.PingAsync 调试模式下增加埋点并记录异常，便于连接问题诊断</PackageReleaseNotes>
+    <PackageTags>MySQL;ADO.NET;database;driver;client;batch;bulk;high-performance;async;MIT;XCode;国产;信创;高性能;批量;管道化;pipeline;OceanBase;TiDB;ORM;EF Core;DataReader;DataAdapter;DbBatch;$(AssemblyName)</PackageTags>
+    <PackageReleaseNotes>v1.2.2026.0630: MySQL Geometry spatial data type support (MySqlGeometry WKB wrapper); English README with performance comparison charts; Migration guides (from MySql.Data and MySqlConnector); Enhanced NuGet package metadata</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>

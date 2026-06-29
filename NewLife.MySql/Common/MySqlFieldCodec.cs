@@ -62,7 +62,10 @@ public static class MySqlFieldCodec
 
             // 二进制类型：保留为字节数组
             MySqlDbType.Blob or MySqlDbType.TinyBlob or MySqlDbType.MediumBlob or MySqlDbType.LongBlob
-                or MySqlDbType.Binary or MySqlDbType.VarBinary or MySqlDbType.Geometry or MySqlDbType.Vector => span.ToArray(),
+                or MySqlDbType.Binary or MySqlDbType.VarBinary or MySqlDbType.Vector => span.ToArray(),
+
+            // Geometry：封装为 MySqlGeometry 类型
+            MySqlDbType.Geometry => (Object)new MySqlGeometry(span.ToArray()),
 
             // BIT：MySQL 文本协议中 Bit 类型以二进制字节传输，需从字节数组转为 UInt64（小端序）
             MySqlDbType.Bit => ConvertBitBytesToUInt64(span),
@@ -193,8 +196,11 @@ public static class MySqlFieldCodec
 
             // 二进制类型：length-encoded bytes
             MySqlDbType.Blob or MySqlDbType.TinyBlob or MySqlDbType.MediumBlob or MySqlDbType.LongBlob
-                or MySqlDbType.Binary or MySqlDbType.VarBinary or MySqlDbType.Geometry or MySqlDbType.Vector
+                or MySqlDbType.Binary or MySqlDbType.VarBinary or MySqlDbType.Vector
                 => reader.ReadBytes((Int32)reader.ReadLength()).ToArray(),
+
+            // Geometry：封装为 MySqlGeometry 类型
+            MySqlDbType.Geometry => (Object)new MySqlGeometry(reader.ReadBytes((Int32)reader.ReadLength()).ToArray()),
 
             // 字符串类型（VarString, String, VarChar, Text, JSON, Guid, Enum, Set 等）：MySQL 长度编码字符串
             _ => reader.ReadString((Int32)reader.ReadLength()),
@@ -282,6 +288,7 @@ public static class MySqlFieldCodec
         DateTimeOffset => (0x0C, false),        // MYSQL_TYPE_DATETIME
         TimeSpan => (0x0B, false),              // MYSQL_TYPE_TIME
         Byte[] => (0xFC, false),                // MYSQL_TYPE_BLOB
+        MySqlGeometry => (0xFC, false),          // MYSQL_TYPE_BLOB (WKB 字节)
         Guid => (0xFE, false),                  // MYSQL_TYPE_STRING
         String => (0xFE, false),                // MYSQL_TYPE_STRING
         Enum => (0x08, false),                  // MYSQL_TYPE_LONGLONG
@@ -340,6 +347,9 @@ public static class MySqlFieldCodec
                 break;
             case TimeSpan v:
                 WriteBinaryTime(ref writer, v);
+                break;
+            case MySqlGeometry v:
+                WriteLengthEncodedBytes(ref writer, v.Value);
                 break;
             case Byte[] v:
                 WriteLengthEncodedBytes(ref writer, v);
