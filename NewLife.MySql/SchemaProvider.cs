@@ -31,6 +31,15 @@ internal class SchemaProvider(MySqlConnection connection)
                 return GetUsers(restrictions);
             case "DATABASES":
                 return GetDatabases(restrictions);
+            case "PROCEDURES":
+                return GetProcedures(restrictions);
+            case "VIEWS":
+                return GetViews(restrictions);
+            case "TRIGGERS":
+                return GetTriggers(restrictions);
+            case "FOREIGNKEYS":
+            case "FOREIGN_KEY_COLUMNS":
+                return GetForeignKeys(restrictions);
             default:
                 restrictions ??= new String[2];
                 var db = connection.Database;
@@ -63,6 +72,10 @@ internal class SchemaProvider(MySqlConnection connection)
             ["Columns", 4, 4],
             ["Indexes", 4, 3],
             ["IndexColumns", 5, 4],
+            ["Procedures", 4, 2],
+            ["Views", 3, 2],
+            ["Triggers", 4, 2],
+            ["ForeignKeys", 4, 3],
         };
         var collection = new SchemaCollection("MetaDataCollections");
         collection.AddColumn("CollectionName", typeof(String));
@@ -138,7 +151,22 @@ internal class SchemaProvider(MySqlConnection connection)
             ["IndexColumns", "Schema", "", 1],
             ["IndexColumns", "Table", "", 2],
             ["IndexColumns", "ConstraintName", "", 3],
-            ["IndexColumns", "Column", "", 4]
+            ["IndexColumns", "Column", "", 4],
+            ["Procedures", "Database", "", 0],
+            ["Procedures", "Schema", "", 1],
+            ["Procedures", "Name", "", 2],
+            ["Procedures", "Type", "", 3],
+            ["Views", "Database", "", 0],
+            ["Views", "Schema", "", 1],
+            ["Views", "Table", "", 2],
+            ["Triggers", "Database", "", 0],
+            ["Triggers", "Schema", "", 1],
+            ["Triggers", "Table", "", 2],
+            ["Triggers", "Name", "", 3],
+            ["ForeignKeys", "Database", "", 0],
+            ["ForeignKeys", "Schema", "", 1],
+            ["ForeignKeys", "Table", "", 2],
+            ["ForeignKeys", "Name", "", 3],
         };
         var collection = new SchemaCollection("Restrictions");
         collection.AddColumn("CollectionName", typeof(String));
@@ -431,7 +459,7 @@ internal class SchemaProvider(MySqlConnection connection)
         if (restrictions != null && restrictions.Length == 4)
         {
             columnName = restrictions[3];
-            restrictions[3] = null;
+            restrictions[3] = null!;
         }
         foreach (var row in GetTables(restrictions).Rows)
         {
@@ -653,6 +681,376 @@ internal class SchemaProvider(MySqlConnection connection)
             }
         }
         return dt;
+    }
+
+    /// <summary>获取存储过程和函数列表</summary>
+    /// <param name="restrictions">限制条件：[数据库, 架构, 名称, 类型]</param>
+    /// <returns></returns>
+    public virtual SchemaCollection GetProcedures(String?[]? restrictions)
+    {
+        var collection = new SchemaCollection("Procedures");
+        collection.AddColumn("SPECIFIC_CATALOG", typeof(String));
+        collection.AddColumn("SPECIFIC_SCHEMA", typeof(String));
+        collection.AddColumn("SPECIFIC_NAME", typeof(String));
+        collection.AddColumn("ROUTINE_CATALOG", typeof(String));
+        collection.AddColumn("ROUTINE_SCHEMA", typeof(String));
+        collection.AddColumn("ROUTINE_NAME", typeof(String));
+        collection.AddColumn("ROUTINE_TYPE", typeof(String));
+        collection.AddColumn("ROUTINE_DEFINITION", typeof(String));
+        collection.AddColumn("CREATED", typeof(DateTime));
+        collection.AddColumn("LAST_ALTERED", typeof(DateTime));
+        collection.AddColumn("SQL_MODE", typeof(String));
+        collection.AddColumn("ROUTINE_COMMENT", typeof(String));
+        collection.AddColumn("DEFINER", typeof(String));
+        collection.AddColumn("CHARACTER_SET_CLIENT", typeof(String));
+        collection.AddColumn("COLLATION_CONNECTION", typeof(String));
+        collection.AddColumn("DATABASE_COLLATION", typeof(String));
+
+        String? dbRestriction = null;
+        String? nameRestriction = null;
+        String? typeRestriction = null;
+        if (restrictions != null)
+        {
+            if (restrictions.Length >= 1) dbRestriction = restrictions[0];
+            if (restrictions.Length >= 2 && restrictions[1] != null) dbRestriction ??= restrictions[1];
+            if (restrictions.Length >= 3) nameRestriction = restrictions[2];
+            if (restrictions.Length >= 4) typeRestriction = restrictions[3];
+        }
+
+        // 确定要查询的数据库
+        var databases = new List<String>();
+        if (!dbRestriction.IsNullOrEmpty())
+        {
+            databases.Add(dbRestriction!);
+        }
+        else
+        {
+            var dbCollection = GetDatabases(null);
+            foreach (var row in dbCollection.Rows)
+            {
+                var dbName = row["SCHEMA_NAME"]?.ToString();
+                if (!dbName.IsNullOrEmpty()) databases.Add(dbName);
+            }
+        }
+
+        foreach (var dbName in databases)
+        {
+            try
+            {
+                // 查询存储过程
+                if (typeRestriction.IsNullOrEmpty() || typeRestriction.EqualIgnoreCase("PROCEDURE"))
+                {
+                    var sql = $"SHOW PROCEDURE STATUS WHERE Db = '{dbName}'";
+                    if (!nameRestriction.IsNullOrEmpty()) sql += $" AND Name LIKE '{nameRestriction}'";
+                    FillProceduresFromQuery(collection, dbName, sql, "PROCEDURE");
+                }
+
+                // 查询函数
+                if (typeRestriction.IsNullOrEmpty() || typeRestriction.EqualIgnoreCase("FUNCTION"))
+                {
+                    var sql = $"SHOW FUNCTION STATUS WHERE Db = '{dbName}'";
+                    if (!nameRestriction.IsNullOrEmpty()) sql += $" AND Name LIKE '{nameRestriction}'";
+                    FillProceduresFromQuery(collection, dbName, sql, "FUNCTION");
+                }
+            }
+            catch (MySqlException)
+            {
+                // 数据库可能不存在或无权限，跳过
+            }
+        }
+
+        return collection;
+    }
+
+    private void FillProceduresFromQuery(SchemaCollection collection, String dbName, String sql, String routineType)
+    {
+        // SHOW PROCEDURE/FUNCTION STATUS 返回列: Db,Name,Type,Definer,Modified,Created,Security_type,Comment,character_set_client,collation_connection,Database Collation
+        using var cmd = new MySqlCommand(connection, sql);
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            var row = collection.AddRow();
+            row["SPECIFIC_CATALOG"] = DBNull.Value;
+            row["SPECIFIC_SCHEMA"] = dbName;
+            row["SPECIFIC_NAME"] = reader.GetValue(1);
+            row["ROUTINE_CATALOG"] = DBNull.Value;
+            row["ROUTINE_SCHEMA"] = dbName;
+            row["ROUTINE_NAME"] = reader.GetValue(1);
+            row["ROUTINE_TYPE"] = routineType;
+            row["ROUTINE_DEFINITION"] = DBNull.Value; // SHOW PROCEDURE STATUS 不含定义体
+            row["CREATED"] = reader.GetValue(5);
+            row["LAST_ALTERED"] = reader.GetValue(4);
+            row["SQL_MODE"] = DBNull.Value;
+            row["ROUTINE_COMMENT"] = reader.GetValue(7);
+            row["DEFINER"] = reader.GetValue(3);
+            row["CHARACTER_SET_CLIENT"] = reader.GetValue(8);
+            row["COLLATION_CONNECTION"] = reader.GetValue(9);
+            row["DATABASE_COLLATION"] = reader.GetValue(10);
+        }
+    }
+
+    /// <summary>获取视图列表</summary>
+    /// <param name="restrictions">限制条件：[数据库, 架构, 表名]</param>
+    /// <returns></returns>
+    public virtual SchemaCollection GetViews(String?[]? restrictions)
+    {
+        var collection = new SchemaCollection("Views");
+        collection.AddColumn("TABLE_CATALOG", typeof(String));
+        collection.AddColumn("TABLE_SCHEMA", typeof(String));
+        collection.AddColumn("TABLE_NAME", typeof(String));
+        collection.AddColumn("VIEW_DEFINITION", typeof(String));
+        collection.AddColumn("CHECK_OPTION", typeof(String));
+        collection.AddColumn("IS_UPDATABLE", typeof(String));
+        collection.AddColumn("DEFINER", typeof(String));
+        collection.AddColumn("SECURITY_TYPE", typeof(String));
+        collection.AddColumn("CHARACTER_SET_CLIENT", typeof(String));
+        collection.AddColumn("COLLATION_CONNECTION", typeof(String));
+
+        String? dbRestriction = null;
+        String? nameRestriction = null;
+        if (restrictions != null)
+        {
+            if (restrictions.Length >= 1) dbRestriction = restrictions[0];
+            if (restrictions.Length >= 2 && restrictions[1] != null) dbRestriction ??= restrictions[1];
+            if (restrictions.Length >= 3) nameRestriction = restrictions[2];
+        }
+
+        // 确定要查询的数据库
+        var databases = new List<String>();
+        if (!dbRestriction.IsNullOrEmpty())
+        {
+            databases.Add(dbRestriction!);
+        }
+        else
+        {
+            var dbCollection = GetDatabases(null);
+            foreach (var row in dbCollection.Rows)
+            {
+                var dbName = row["SCHEMA_NAME"]?.ToString();
+                if (!dbName.IsNullOrEmpty()) databases.Add(dbName);
+            }
+        }
+
+        foreach (var dbName in databases)
+        {
+            try
+            {
+                var sql = $"SHOW FULL TABLES FROM `{dbName}` WHERE Table_type = 'VIEW'";
+                if (!nameRestriction.IsNullOrEmpty()) sql += $" AND Tables_in_{dbName} LIKE '{nameRestriction}'";
+
+                using var cmd = new MySqlCommand(connection, sql);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    var viewName = reader.GetString(0);
+                    var row = collection.AddRow();
+                    row["TABLE_CATALOG"] = DBNull.Value;
+                    row["TABLE_SCHEMA"] = dbName;
+                    row["TABLE_NAME"] = viewName;
+                    row["VIEW_DEFINITION"] = DBNull.Value;
+                    row["CHECK_OPTION"] = DBNull.Value;
+                    row["IS_UPDATABLE"] = DBNull.Value;
+                    row["DEFINER"] = DBNull.Value;
+                    row["SECURITY_TYPE"] = DBNull.Value;
+                    row["CHARACTER_SET_CLIENT"] = DBNull.Value;
+                    row["COLLATION_CONNECTION"] = DBNull.Value;
+                }
+            }
+            catch (MySqlException)
+            {
+                // 数据库可能不存在或无权限，跳过
+            }
+        }
+
+        return collection;
+    }
+
+    /// <summary>获取触发器列表</summary>
+    /// <param name="restrictions">限制条件：[数据库, 架构, 表名, 触发器名]</param>
+    /// <returns></returns>
+    public virtual SchemaCollection GetTriggers(String?[]? restrictions)
+    {
+        var collection = new SchemaCollection("Triggers");
+        collection.AddColumn("TRIGGER_CATALOG", typeof(String));
+        collection.AddColumn("TRIGGER_SCHEMA", typeof(String));
+        collection.AddColumn("TRIGGER_NAME", typeof(String));
+        collection.AddColumn("EVENT_MANIPULATION", typeof(String));
+        collection.AddColumn("EVENT_OBJECT_CATALOG", typeof(String));
+        collection.AddColumn("EVENT_OBJECT_SCHEMA", typeof(String));
+        collection.AddColumn("EVENT_OBJECT_TABLE", typeof(String));
+        collection.AddColumn("ACTION_ORDER", typeof(Int64));
+        collection.AddColumn("ACTION_CONDITION", typeof(String));
+        collection.AddColumn("ACTION_STATEMENT", typeof(String));
+        collection.AddColumn("ACTION_ORIENTATION", typeof(String));
+        collection.AddColumn("ACTION_TIMING", typeof(String));
+        collection.AddColumn("ACTION_REFERENCE_OLD_TABLE", typeof(String));
+        collection.AddColumn("ACTION_REFERENCE_NEW_TABLE", typeof(String));
+        collection.AddColumn("ACTION_REFERENCE_OLD_ROW", typeof(String));
+        collection.AddColumn("ACTION_REFERENCE_NEW_ROW", typeof(String));
+        collection.AddColumn("CREATED", typeof(DateTime));
+        collection.AddColumn("SQL_MODE", typeof(String));
+        collection.AddColumn("DEFINER", typeof(String));
+        collection.AddColumn("CHARACTER_SET_CLIENT", typeof(String));
+        collection.AddColumn("COLLATION_CONNECTION", typeof(String));
+        collection.AddColumn("DATABASE_COLLATION", typeof(String));
+
+        String? dbRestriction = null;
+        String? tableRestriction = null;
+        String? nameRestriction = null;
+        if (restrictions != null)
+        {
+            if (restrictions.Length >= 1) dbRestriction = restrictions[0];
+            if (restrictions.Length >= 2 && restrictions[1] != null) dbRestriction ??= restrictions[1];
+            if (restrictions.Length >= 3) tableRestriction = restrictions[2];
+            if (restrictions.Length >= 4) nameRestriction = restrictions[3];
+        }
+
+        // 确定要查询的数据库
+        var databases = new List<String>();
+        if (!dbRestriction.IsNullOrEmpty())
+        {
+            databases.Add(dbRestriction!);
+        }
+        else
+        {
+            var dbCollection = GetDatabases(null);
+            foreach (var row in dbCollection.Rows)
+            {
+                var dbName = row["SCHEMA_NAME"]?.ToString();
+                if (!dbName.IsNullOrEmpty()) databases.Add(dbName);
+            }
+        }
+
+        foreach (var dbName in databases)
+        {
+            try
+            {
+                var sql = $"SHOW TRIGGERS FROM `{dbName}`";
+                if (!tableRestriction.IsNullOrEmpty()) sql += $" WHERE `Table` LIKE '{tableRestriction}'";
+
+                using var cmd = new MySqlCommand(connection, sql);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    // SHOW TRIGGERS 返回列: Trigger,Event,Table,Statement,Timing,Created,sql_mode,Definer,character_set_client,collation_connection,Database Collation
+                    var triggerName = reader.GetString(0);
+                    if (!nameRestriction.IsNullOrEmpty() && triggerName != nameRestriction) continue;
+
+                    var row = collection.AddRow();
+                    row["TRIGGER_CATALOG"] = DBNull.Value;
+                    row["TRIGGER_SCHEMA"] = dbName;
+                    row["TRIGGER_NAME"] = triggerName;
+                    row["EVENT_MANIPULATION"] = reader.GetString(1);
+                    row["EVENT_OBJECT_CATALOG"] = DBNull.Value;
+                    row["EVENT_OBJECT_SCHEMA"] = dbName;
+                    row["EVENT_OBJECT_TABLE"] = reader.GetString(2);
+                    row["ACTION_ORDER"] = DBNull.Value;
+                    row["ACTION_CONDITION"] = DBNull.Value;
+                    row["ACTION_STATEMENT"] = reader.GetString(3);
+                    row["ACTION_ORIENTATION"] = DBNull.Value;
+                    row["ACTION_TIMING"] = reader.GetString(4);
+                    row["ACTION_REFERENCE_OLD_TABLE"] = DBNull.Value;
+                    row["ACTION_REFERENCE_NEW_TABLE"] = DBNull.Value;
+                    row["ACTION_REFERENCE_OLD_ROW"] = DBNull.Value;
+                    row["ACTION_REFERENCE_NEW_ROW"] = DBNull.Value;
+                    row["CREATED"] = reader.GetValue(5);
+                    row["SQL_MODE"] = reader.GetValue(6);
+                    row["DEFINER"] = reader.GetValue(7);
+                    row["CHARACTER_SET_CLIENT"] = reader.GetValue(8);
+                    row["COLLATION_CONNECTION"] = reader.GetValue(9);
+                    row["DATABASE_COLLATION"] = reader.GetValue(10);
+                }
+            }
+            catch (MySqlException)
+            {
+                // 数据库可能不存在或无权限，跳过
+            }
+        }
+
+        return collection;
+    }
+
+    /// <summary>获取外键列表</summary>
+    /// <param name="restrictions">限制条件：[数据库, 架构, 表名, 外键名]</param>
+    /// <returns></returns>
+    public virtual SchemaCollection GetForeignKeys(String?[]? restrictions)
+    {
+        var collection = new SchemaCollection("ForeignKeys");
+        collection.AddColumn("CONSTRAINT_CATALOG", typeof(String));
+        collection.AddColumn("CONSTRAINT_SCHEMA", typeof(String));
+        collection.AddColumn("CONSTRAINT_NAME", typeof(String));
+        collection.AddColumn("TABLE_CATALOG", typeof(String));
+        collection.AddColumn("TABLE_SCHEMA", typeof(String));
+        collection.AddColumn("TABLE_NAME", typeof(String));
+        collection.AddColumn("COLUMN_NAME", typeof(String));
+        collection.AddColumn("ORDINAL_POSITION", typeof(Int64));
+        collection.AddColumn("REFERENCED_TABLE_CATALOG", typeof(String));
+        collection.AddColumn("REFERENCED_TABLE_SCHEMA", typeof(String));
+        collection.AddColumn("REFERENCED_TABLE_NAME", typeof(String));
+        collection.AddColumn("REFERENCED_COLUMN_NAME", typeof(String));
+
+        String? dbRestriction = null;
+        String? tableRestriction = null;
+        String? fkNameRestriction = null;
+        if (restrictions != null)
+        {
+            if (restrictions.Length >= 1) dbRestriction = restrictions[0];
+            if (restrictions.Length >= 2 && restrictions[1] != null) dbRestriction ??= restrictions[1];
+            if (restrictions.Length >= 3) tableRestriction = restrictions[2];
+            if (restrictions.Length >= 4) fkNameRestriction = restrictions[3];
+        }
+
+        // 确定要查询的数据库
+        var databases = new List<String>();
+        if (!dbRestriction.IsNullOrEmpty())
+        {
+            databases.Add(dbRestriction!);
+        }
+        else
+        {
+            var dbCollection = GetDatabases(null);
+            foreach (var row in dbCollection.Rows)
+            {
+                var dbName = row["SCHEMA_NAME"]?.ToString();
+                if (!dbName.IsNullOrEmpty()) databases.Add(dbName);
+            }
+        }
+
+        foreach (var dbName in databases)
+        {
+            try
+            {
+                var sql = $"SELECT CONSTRAINT_NAME, TABLE_NAME, COLUMN_NAME, ORDINAL_POSITION, REFERENCED_TABLE_SCHEMA, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = '{dbName}' AND REFERENCED_TABLE_NAME IS NOT NULL";
+                if (!tableRestriction.IsNullOrEmpty()) sql += $" AND TABLE_NAME LIKE '{tableRestriction}'";
+                if (!fkNameRestriction.IsNullOrEmpty()) sql += $" AND CONSTRAINT_NAME LIKE '{fkNameRestriction}'";
+                sql += " ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION";
+
+                using var cmd = new MySqlCommand(connection, sql);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    var row = collection.AddRow();
+                    row["CONSTRAINT_CATALOG"] = DBNull.Value;
+                    row["CONSTRAINT_SCHEMA"] = dbName;
+                    row["CONSTRAINT_NAME"] = reader["CONSTRAINT_NAME"];
+                    row["TABLE_CATALOG"] = DBNull.Value;
+                    row["TABLE_SCHEMA"] = dbName;
+                    row["TABLE_NAME"] = reader["TABLE_NAME"];
+                    row["COLUMN_NAME"] = reader["COLUMN_NAME"];
+                    row["ORDINAL_POSITION"] = reader["ORDINAL_POSITION"];
+                    row["REFERENCED_TABLE_CATALOG"] = DBNull.Value;
+                    row["REFERENCED_TABLE_SCHEMA"] = reader["REFERENCED_TABLE_SCHEMA"];
+                    row["REFERENCED_TABLE_NAME"] = reader["REFERENCED_TABLE_NAME"];
+                    row["REFERENCED_COLUMN_NAME"] = reader["REFERENCED_COLUMN_NAME"];
+                }
+            }
+            catch (MySqlException)
+            {
+                // 数据库可能不存在或无权限，跳过
+            }
+        }
+
+        return collection;
     }
 
     protected static void FillTable(SchemaCollection dt, Object[][] data)

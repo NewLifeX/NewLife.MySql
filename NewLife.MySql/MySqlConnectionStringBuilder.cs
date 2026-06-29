@@ -45,6 +45,15 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// 事务内自动跳过重试以避免 DML 重复执行。设为 false 可关闭。</summary>
     public Boolean RetryOnNetworkFailure { get => this[nameof(RetryOnNetworkFailure)].ToBoolean(true); set => this[nameof(RetryOnNetworkFailure)] = value; }
 
+    /// <summary>连接池最小连接数。默认0，不预创建连接</summary>
+    public Int32 MinPoolSize { get => this[nameof(MinPoolSize)].ToInt(); set => this[nameof(MinPoolSize)] = value; }
+
+    /// <summary>连接池最大连接数。默认100，超出时新请求等待</summary>
+    public Int32 MaxPoolSize { get => this[nameof(MaxPoolSize)].ToInt(); set => this[nameof(MaxPoolSize)] = value; }
+
+    /// <summary>连接负载均衡超时（秒）。连接存活超过此时长后被回收，由新连接替代。默认0表示禁用</summary>
+    public Int32 LoadBalanceTimeout { get => this[nameof(LoadBalanceTimeout)].ToInt(); set => this[nameof(LoadBalanceTimeout)] = value; }
+
     /// <summary>字符集。默认Utf8Mb4，支持4字节Unicode（含emoji）。握手时写入协议编号，等效于SET NAMES</summary>
     public MySqlCharSet CharSet
     {
@@ -79,6 +88,9 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
             [nameof(Pipeline)] = ["pipeline", "pipelining"],
             [nameof(TracePackets)] = ["tracepackets", "trace packets", "packettrace", "packet trace"],
             [nameof(RetryOnNetworkFailure)] = ["retryonnetworkfailure", "retry on network failure", "retry_on_network_failure"],
+            [nameof(MinPoolSize)] = ["minpoolsize", "min pool size", "minimum pool size", "minimumPoolSize"],
+            [nameof(MaxPoolSize)] = ["maxpoolsize", "max pool size", "maximum pool size", "maximumPoolSize"],
+            [nameof(LoadBalanceTimeout)] = ["loadbalancetimeout", "load balance timeout", "connection lifetime", "connectionlifetime"],
             [nameof(CharSet)] = ["charset", "character set", "characterset", "char set"],
         };
 
