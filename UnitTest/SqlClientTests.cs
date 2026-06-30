@@ -423,15 +423,16 @@ public class SqlClientTests
     [Fact]
     public void Reset_WithMemoryStream()
     {
-        // MemoryStream 不是 NetworkStream，Reset 应直接返回 true
+        // Reset 现在探测底层 socket（取代旧的排残留逻辑）。仅有 MemoryStream 而无底层 socket 时，
+        // 无法验证连接活性，视为不可复用，返回 false 并标记失效
         var ms = new MemoryStream();
         var client = new SqlClient { BaseStream = ms };
         client.SetValue("Active", true);
 
         var result = client.Reset();
 
-        Assert.True(result);
-        Assert.True(client.Active);
+        Assert.False(result);
+        Assert.False(client.Active);
     }
 
     [Fact]

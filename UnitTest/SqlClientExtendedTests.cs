@@ -56,21 +56,21 @@ public class SqlClientExtendedTests
         Assert.Equal(30, client.Setting.ConnectionTimeout);
     }
 
-    [Fact(DisplayName = "测试Reset方法清除残留数据")]
+    [Fact(DisplayName = "测试Reset方法在无底层socket时返回false")]
     public void TestReset_WithAvailableData()
     {
-        // 创建包含残留数据的NetworkStream模拟场景
+        // Reset 现在探测底层 socket（取代旧的排残留逻辑）。仅有 MemoryStream 而无底层 socket 时，
+        // 无法验证连接活性，视为不可复用，返回 false 并标记失效
         var buf = Rand.NextBytes(100);
         var ms = new MemoryStream(buf);
-        
+
         var client = new SqlClient { BaseStream = ms };
         client.SetValue("Active", true);
 
-        // NetworkStream模拟需要实际网络连接，这里测试基本流的情况
         var result = client.Reset();
-        
-        // 基本Stream不是NetworkStream，应该能正常执行
-        Assert.True(result);
+
+        Assert.False(result);
+        Assert.False(client.Active);
     }
 
     [Fact(DisplayName = "测试Reset方法在连接关闭时返回false")]

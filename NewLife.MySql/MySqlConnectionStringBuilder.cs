@@ -51,8 +51,15 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// <summary>连接池最大连接数。默认100，超出时新请求等待</summary>
     public Int32 MaxPoolSize { get => this[nameof(MaxPoolSize)].ToInt(); set => this[nameof(MaxPoolSize)] = value; }
 
-    /// <summary>连接负载均衡超时（秒）。连接存活超过此时长后被回收，由新连接替代。默认0表示禁用</summary>
+    /// <summary>连接负载均衡超时（秒）。旧版连接存活回收参数，现已由 <see cref="ConnectionLifeTime"/> 接管，保留仅为兼容旧连接字符串。默认0</summary>
     public Int32 LoadBalanceTimeout { get => this[nameof(LoadBalanceTimeout)].ToInt(); set => this[nameof(LoadBalanceTimeout)] = value; }
+
+    /// <summary>连接最大存活期（秒）。连接存活超过此时长后，在借出/归还时被主动销毁重建，
+    /// 避免长寿连接累积半开、或被服务端 wait_timeout 静默杀掉。默认600，0表示禁用</summary>
+    public Int32 ConnectionLifeTime { get => this[nameof(ConnectionLifeTime)].ToInt(); set => this[nameof(ConnectionLifeTime)] = value; }
+
+    /// <summary>连接空闲多久后借出前需 PING 验活（秒）。兜底无 FIN 的黑洞型断连（NAT/防火墙静默丢弃连接状态）。默认30，0表示从不主动 PING</summary>
+    public Int32 ConnectionIdlePingTime { get => this[nameof(ConnectionIdlePingTime)].ToInt(); set => this[nameof(ConnectionIdlePingTime)] = value; }
 
     /// <summary>字符集。默认Utf8Mb4，支持4字节Unicode（含emoji）。握手时写入协议编号，等效于SET NAMES</summary>
     public MySqlCharSet CharSet
@@ -90,7 +97,9 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
             [nameof(RetryOnNetworkFailure)] = ["retryonnetworkfailure", "retry on network failure", "retry_on_network_failure"],
             [nameof(MinPoolSize)] = ["minpoolsize", "min pool size", "minimum pool size", "minimumPoolSize"],
             [nameof(MaxPoolSize)] = ["maxpoolsize", "max pool size", "maximum pool size", "maximumPoolSize"],
-            [nameof(LoadBalanceTimeout)] = ["loadbalancetimeout", "load balance timeout", "connection lifetime", "connectionlifetime"],
+            [nameof(LoadBalanceTimeout)] = ["loadbalancetimeout", "load balance timeout"],
+            [nameof(ConnectionLifeTime)] = ["connectionlifetime", "connection lifetime", "connection life time", "connlifetime"],
+            [nameof(ConnectionIdlePingTime)] = ["connectionidlepingtime", "connection idle ping time", "idlepingtime", "idle ping time"],
             [nameof(CharSet)] = ["charset", "character set", "characterset", "char set"],
         };
 
@@ -105,6 +114,8 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
         CommandTimeout = 30;
         CharSet = MySqlCharSet.Utf8Mb4;
         RetryOnNetworkFailure = true;
+        ConnectionLifeTime = 600;
+        ConnectionIdlePingTime = 30;
     }
 
     /// <summary>使用连接字符串实例化</summary>

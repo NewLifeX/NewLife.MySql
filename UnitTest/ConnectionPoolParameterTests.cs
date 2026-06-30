@@ -99,13 +99,63 @@ public class ConnectionPoolParameterTests
         Assert.Equal(600, builder.LoadBalanceTimeout);
     }
 
-    [Fact(DisplayName = "连接字符串_LoadBalanceTimeout支持别名connection lifetime")]
-    public void LoadBalanceTimeout_AliasConnectionLifetime()
+    [Fact(DisplayName = "连接字符串_connection lifetime别名映射到ConnectionLifeTime")]
+    public void ConnectionLifeTime_AliasConnectionLifetime()
     {
         var builder = new MySqlConnectionStringBuilder();
         builder["connection lifetime"] = 900;
 
-        Assert.Equal(900, builder.LoadBalanceTimeout);
+        // connection lifetime 现归属 ConnectionLifeTime（MySQL/MySqlConnector 同名语义），不再映射到遗留的 LoadBalanceTimeout
+        Assert.Equal(900, builder.ConnectionLifeTime);
+    }
+
+    [Fact(DisplayName = "连接字符串_ConnectionLifeTime默认值为600")]
+    public void ConnectionLifeTime_DefaultValue()
+    {
+        var builder = new MySqlConnectionStringBuilder();
+
+        Assert.Equal(600, builder.ConnectionLifeTime);
+    }
+
+    [Fact(DisplayName = "连接字符串_ConnectionLifeTime通过连接字符串设置")]
+    public void ConnectionLifeTime_SetViaConnectionString()
+    {
+        var builder = new MySqlConnectionStringBuilder("server=localhost;port=3306;ConnectionLifeTime=120");
+
+        Assert.Equal(120, builder.ConnectionLifeTime);
+    }
+
+    [Fact(DisplayName = "连接字符串_ConnectionLifeTime设为0禁用")]
+    public void ConnectionLifeTime_Zero_Disables()
+    {
+        var builder = new MySqlConnectionStringBuilder("server=localhost;ConnectionLifeTime=0");
+
+        Assert.Equal(0, builder.ConnectionLifeTime);
+    }
+
+    [Fact(DisplayName = "连接字符串_ConnectionIdlePingTime默认值为30")]
+    public void ConnectionIdlePingTime_DefaultValue()
+    {
+        var builder = new MySqlConnectionStringBuilder();
+
+        Assert.Equal(30, builder.ConnectionIdlePingTime);
+    }
+
+    [Fact(DisplayName = "连接字符串_ConnectionIdlePingTime通过连接字符串设置")]
+    public void ConnectionIdlePingTime_SetViaConnectionString()
+    {
+        var builder = new MySqlConnectionStringBuilder("server=localhost;port=3306;ConnectionIdlePingTime=15");
+
+        Assert.Equal(15, builder.ConnectionIdlePingTime);
+    }
+
+    [Fact(DisplayName = "连接字符串_ConnectionIdlePingTime支持别名idle ping time")]
+    public void ConnectionIdlePingTime_AliasIdlePingTime()
+    {
+        var builder = new MySqlConnectionStringBuilder();
+        builder["idle ping time"] = 45;
+
+        Assert.Equal(45, builder.ConnectionIdlePingTime);
     }
 
     [Fact(DisplayName = "连接池_MinPoolSize=0时不预创建连接")]

@@ -26,7 +26,7 @@ public class SqlClient : DisposeBase
     public MySqlConnectionStringBuilder Setting { get; } = [];
 
     /// <summary>连接是否活动</summary>
-    public Boolean Active { get; private set; }
+    public Boolean Active { get; internal set; }
 
     /// <summary>服务器支持的最大数据包大小</summary>
     public Int64 MaxPacketSize { get; private set; }
@@ -53,6 +53,9 @@ public class SqlClient : DisposeBase
     /// <summary>最后活跃时间。最后一次发送指令的时间</summary>
     public DateTime LastActive { get; set; }
 
+    /// <summary>连接创建时间。认证成功打开连接时赋值，用于连接最大存活期判定</summary>
+    public DateTime CreatedTime { get; internal set; }
+
     /// <summary>当前数据库名。记录正在使用的数据库，首次打开连接时赋值，调用 SetDatabaseAsync 后会更新</summary>
     public String Database { get; set; } = null!;
 
@@ -60,6 +63,9 @@ public class SqlClient : DisposeBase
     public ITracer? Tracer { get; set; } = MySqlClientFactory.Instance.Tracer;
 
     private TcpClient? _client;
+    /// <summary>底层 TCP 客户端。供连接池探活与单元测试注入</summary>
+    internal TcpClient? Tcp { get => _client; set => _client = value; }
+
     private Byte _seq = 1;
     private TimerX? _timer;
 
@@ -230,6 +236,7 @@ public class SqlClient : DisposeBase
 
             // 认证成功后才标记为活动状态
             Active = true;
+            CreatedTime = DateTime.Now;
         }
         catch (Exception ex)
         {
@@ -380,46 +387,53 @@ public class SqlClient : DisposeBase
     #endregion
 
     #region 网络操作
-    /// <summary>重置连接状态，清除网络流中的残留数据</summary>
+    /// <summary>重置连接状态。探测底层 socket 是否仍可复用</summary>
     /// <returns>连接是否仍然可用</returns>
+    /// <remarks>探测职责完全由 <see cref="IsSocketAlive"/> 接管，对 NetworkStream 与 SslStream 同样有效（探测底层 socket），
+    /// 不再像旧实现那样仅排空 NetworkStream 残留而漏过 SSL 连接与半开 socket。</remarks>
     public Boolean Reset()
     {
-        var ns = _stream;
-        if (ns == null || !Active) return false;
+        if (!Active) return false;
 
-        // 清除读前置缓冲区中的残留数据
-        _reader.Reset();
+        if (IsSocketAlive() != SocketHealth.Alive)
+        {
+            // 对端已关闭、连接重置、或存在残留脏数据，标记失效不再复用
+            Active = false;
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>探测底层 socket 健康状态。非阻塞、微秒级，取代旧 Reset 的排残留逻辑</summary>
+    /// <returns>socket 健康状态</returns>
+    /// <remarks>
+    /// 基于 <see cref="Socket.Poll(Int32, SelectMode)"/> + <see cref="Socket.Available"/> 判定：
+    /// 串行请求-响应模型下，连接借出时不应有任何可读数据。
+    /// Poll(SelectRead) 为 true 表示有数据可读或连接已关闭/重置：
+    /// Available==0 说明对端已关闭/重置 socket；Available&gt;0 说明残留了上一次未读尽的响应（协议错位脏连接）。
+    /// 对 SSL 连接同样有效，因为探测的是底层 socket 而非加密流。
+    /// 注意：无 FIN 的黑洞型断连（NAT/防火墙静默丢弃）此探测无法发现，由空闲 PING 与最大存活期兜底。
+    /// </remarks>
+    public SocketHealth IsSocketAlive()
+    {
+        var socket = _client?.Client;
+        if (socket == null || !socket.Connected) return SocketHealth.Closed;
 
         try
         {
-            // 清除网络流中的残留数据
-            if (ns is NetworkStream { DataAvailable: true } nss)
-            {
-                var buf = Pool.Shared.Rent(8192);
-                try
-                {
-                    while (nss.DataAvailable && ns.Read(buf, 0, buf.Length) > 0)
-                    {
-                        // 持续读取直到没有可用数据
-                    }
-                }
-                finally
-                {
-                    Pool.Shared.Return(buf);
-                }
-            }
+            if (socket.Poll(0, SelectMode.SelectRead))
+                return socket.Available == 0 ? SocketHealth.Closed : SocketHealth.HasResidualData;
 
-            return true;
+            return SocketHealth.Alive;
         }
         catch (ObjectDisposedException)
         {
-            Active = false;
-            return false;
+            return SocketHealth.Closed;
         }
-        catch (IOException)
+        catch (SocketException)
         {
-            Active = false;
-            return false;
+            return SocketHealth.Closed;
         }
     }
 
@@ -483,9 +497,22 @@ public class SqlClient : DisposeBase
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            // 超时导致的取消，标记连接不可用
+            // 内部读超时导致的取消，标记连接不可用
             Active = false;
             throw new TimeoutException($"读取数据包超时({timeout}s)");
+        }
+        catch (OperationCanceledException)
+        {
+            // 调用方主动取消：半截响应残留在 socket 上，连接已不可复用，标记失效避免带毒归还连接池后 seq 错位
+            Active = false;
+            throw;
+        }
+        catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
+        {
+            // 连接断开/EOF/IO 错误（EndOfStreamException 派生自 IOException）：标记失效，
+            // 避免脏连接归还连接池后被后续查询复用导致协议错位、读取超时
+            Active = false;
+            throw;
         }
     }
 
