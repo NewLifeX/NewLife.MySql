@@ -31,6 +31,12 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// <summary>SSL模式。None/Preferred/Required，默认None</summary>
     public String? SslMode { get => this[nameof(SslMode)] as String; set => this[nameof(SslMode)] = value; }
 
+    /// <summary>Unix域套接字路径。设置后将通过 Unix domain socket 而非 TCP 连接，仅 .NET Core 5.0+ 且 Linux/macOS 生效</summary>
+    public String? Socket { get => this[nameof(Socket)] as String; set => this[nameof(Socket)] = value; }
+
+    /// <summary>是否启用压缩协议。启用后客户端和服务器之间的通信使用 zlib 压缩，减少网络流量，默认false</summary>
+    public Boolean UseCompression { get => this[nameof(UseCompression)].ToBoolean(); set => this[nameof(UseCompression)] = value; }
+
     /// <summary>是否使用服务端预编译执行。启用后参数化查询走 COM_STMT_PREPARE/EXECUTE 二进制协议，默认false</summary>
     public Boolean UseServerPrepare { get => this[nameof(UseServerPrepare)].ToBoolean(); set => this[nameof(UseServerPrepare)] = value; }
 
@@ -91,6 +97,8 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
             [nameof(ConnectionTimeout)] = ["connectiontimeout", "connection timeout"],
             [nameof(CommandTimeout)] = ["commandtimeout", "defaultcommandtimeout", "command timeout", "default command timeout"],
             [nameof(SslMode)] = ["sslmode", "ssl mode", "ssl-mode"],
+            [nameof(Socket)] = ["socket", "unixsocket", "unix socket", "pipe name", "pipename"],
+            [nameof(UseCompression)] = ["usecompression", "use compression", "compress", "compressed"],
             [nameof(UseServerPrepare)] = ["useserverprepare", "use server prepare", "use_server_prepare"],
             [nameof(Pipeline)] = ["pipeline", "pipelining"],
             [nameof(TracePackets)] = ["tracepackets", "trace packets", "packettrace", "packet trace"],

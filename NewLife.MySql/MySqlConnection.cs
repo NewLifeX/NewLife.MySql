@@ -225,6 +225,10 @@ public sealed partial class MySqlConnection : DbConnection
                                         _DatabaseType = DatabaseType.OceanBase;
                                     else if (comment.Contains("TiDB", StringComparison.OrdinalIgnoreCase))
                                         _DatabaseType = DatabaseType.TiDB;
+                                    else if (comment.Contains("Aurora", StringComparison.OrdinalIgnoreCase))
+                                        _DatabaseType = DatabaseType.AmazonAurora;
+                                    else if (comment.Contains("Cloud SQL", StringComparison.OrdinalIgnoreCase))
+                                        _DatabaseType = DatabaseType.GoogleCloudSql;
 
                                     // 第二段包含'.'则视为版本号，非MySQL产品拼接产品后缀；否则回退到完整注释
                                     if (parts.Length > 1 && parts[1].Contains('.'))
@@ -402,10 +406,12 @@ public sealed partial class MySqlConnection : DbConnection
     #region 辅助
     /// <summary>根据服务器版本字符串检测数据库类型</summary>
     /// <param name="serverVersion">服务器版本字符串，来自 HandshakeV10 握手包</param>
-    /// <returns>数据库类型（MySQL/OceanBase/TiDB）</returns>
+    /// <returns>数据库类型（MySQL/OceanBase/TiDB/AmazonAurora/GoogleCloudSql）</returns>
     /// <remarks>
     /// OceanBase 版本格式：5.7.x-OceanBase... 或 8.0.x-OceanBase...
     /// TiDB 版本格式：5.7.x-TiDB... 或类似格式
+    /// Amazon Aurora 版本格式：含 "Aurora" 关键词
+    /// Google Cloud SQL 版本格式：含 "Cloud SQL" 关键词
     /// </remarks>
     private static DatabaseType DetectDatabaseType(String serverVersion)
     {
@@ -418,6 +424,14 @@ public sealed partial class MySqlConnection : DbConnection
         // TiDB 检测（不区分大小写）
         if (serverVersion.Contains("TiDB", StringComparison.OrdinalIgnoreCase))
             return DatabaseType.TiDB;
+
+        // Amazon Aurora 检测（不区分大小写）
+        if (serverVersion.Contains("Aurora", StringComparison.OrdinalIgnoreCase))
+            return DatabaseType.AmazonAurora;
+
+        // Google Cloud SQL 检测（不区分大小写）
+        if (serverVersion.Contains("Cloud SQL", StringComparison.OrdinalIgnoreCase))
+            return DatabaseType.GoogleCloudSql;
 
         // 默认为标准 MySQL
         return DatabaseType.MySQL;

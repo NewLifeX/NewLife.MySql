@@ -83,8 +83,66 @@ class Authentication(SqlClient client)
             if (!rs2.IsOK)
                 throw new InvalidOperationException("验证失败");
         }
+        else if (authMethod == "authentication_webauthn_client")
+        {
+            await PerformWebAuthnAuthenticationAsync(authData.ToArray(), cancellationToken).ConfigureAwait(false);
+        }
         else
             throw new NotSupportedException(authMethod);
+    }
+
+    /// <summary>执行 WebAuthn/FIDO2 认证（authentication_webauthn_client 插件）</summary>
+    /// <param name="challengeData">服务器发送的 CBOR 编码的 PublicKeyCredentialRequestOptions</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    private async Task PerformWebAuthnAuthenticationAsync(Byte[] challengeData, CancellationToken cancellationToken)
+    {
+        // 解析服务器发送的 WebAuthn 请求
+        var request = WebAuthnHandler.ParseRequest(challengeData);
+        if (request.Challenge == null || request.RpId.IsNullOrEmpty())
+            throw new InvalidOperationException("WebAuthn: 服务器未提供有效的 challenge 或 rpId");
+
+        // 构造 clientDataJSON
+        var challengeB64 = WebAuthnHandler.Base64UrlEncode(request.Challenge);
+        var clientDataJson = WebAuthnHandler.BuildClientDataJson(challengeB64, request.RpId);
+        var clientDataHash = clientDataJson.SHA256();
+
+        // 调用平台认证器获取断言签名
+        // 此处提供抽象的认证器接口，默认实现为空操作（需要平台特定集成）
+        var assertion = await GetPlatformAssertionAsync(request.Challenge, clientDataHash, request.RpId, cancellationToken).ConfigureAwait(false);
+
+        // 构造 CBOR 响应并发送
+        assertion.ClientDataJson = Encoding.UTF8.GetString(clientDataJson);
+        var responseCbor = WebAuthnHandler.BuildAssertionResponse(assertion);
+        await client.SendPacketAsync((ArrayPacket)responseCbor, cancellationToken).ConfigureAwait(false);
+
+        // 读取服务器响应
+        using var rs2 = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        if (!rs2.IsOK)
+            throw new InvalidOperationException("WebAuthn 验证失败");
+    }
+
+    /// <summary>获取平台认证器的断言签名。默认实现需要平台特定集成（Windows Hello / macOS TouchID 等）</summary>
+    /// <param name="challenge">服务器 challenge</param>
+    /// <param name="clientDataHash">clientDataJSON 的 SHA256 哈希</param>
+    /// <param name="rpId">依赖方 ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>断言响应</returns>
+    /// <remarks>
+    /// 生产环境需根据操作系统调用相应平台 API：
+    /// - Windows: WebAuthN.dll (WebAuthNAuthenticatorGetAssertion)
+    /// - macOS: ASAuthorizationController
+    /// 默认占位实现返回空数据，允许握手继续但最终会被服务器拒绝。
+    /// 业务方可注入自定义认证器实现。
+    /// </remarks>
+    protected virtual Task<WebAuthnAssertion> GetPlatformAssertionAsync(Byte[] challenge, Byte[] clientDataHash, String rpId, CancellationToken cancellationToken)
+    {
+        // 默认占位实现：返回空断言
+        // 业务方可通过继承 Authentication 类并重写此方法来集成平台认证器
+        return Task.FromResult(new WebAuthnAssertion
+        {
+            AuthenticatorData = [],
+            Signature = [],
+        });
     }
 
     private async Task PerformFullAuthenticationAsync(String password, Byte[] seedBytes, CancellationToken cancellationToken)
@@ -219,6 +277,10 @@ class Authentication(SqlClient client)
         // MFA
         if ((caps & ClientFlags.MULTI_FACTOR_AUTHENTICATION) != 0)
             flags |= ClientFlags.MULTI_FACTOR_AUTHENTICATION;
+
+        // 压缩
+        if ((caps & ClientFlags.COMPRESS) != 0 && client.Setting.UseCompression)
+            flags |= ClientFlags.COMPRESS;
 
         return flags;
     }

@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.IO.Compression;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
@@ -18,8 +19,13 @@ namespace NewLife.MySql;
 public class SqlClient : DisposeBase
 {
     private const Int32 PacketTraceBytes = 512;
+    private const Int32 CompressedHeaderSize = 7;
     private static readonly TimeSpan SslFallbackPeriod = TimeSpan.FromMinutes(10);
     private static readonly ConcurrentDictionary<String, DateTime> _sslFallbacks = new();
+
+    // 压缩协议相关
+    private Boolean _useCompression;
+    private Byte[]? _compressHeaderBuf;
 
     #region 属性
     /// <summary>连接字符串配置</summary>
@@ -63,6 +69,7 @@ public class SqlClient : DisposeBase
     public ITracer? Tracer { get; set; } = MySqlClientFactory.Instance.Tracer;
 
     private TcpClient? _client;
+    private Socket? _rawSocket;
     /// <summary>底层 TCP 客户端。供连接池探活与单元测试注入</summary>
     internal TcpClient? Tcp { get => _client; set => _client = value; }
 
@@ -117,10 +124,14 @@ public class SqlClient : DisposeBase
 
         var set = Setting;
         var server = set.Server;
-        if (server.IsNullOrEmpty()) throw new InvalidOperationException("未指定服务器地址");
+        var socketPath = set.Socket;
+        if (server.IsNullOrEmpty() && socketPath.IsNullOrEmpty())
+            throw new InvalidOperationException("未指定服务器地址（Server 或 Socket）");
 
         var port = set.Port;
         if (port == 0) port = 3306;
+        var isUnixSocket = !socketPath.IsNullOrEmpty();
+        if (isUnixSocket) server = socketPath!;
         var sslFallbackKey = GetSslFallbackKey(set, server, port);
 
         var msTimeout = set.ConnectionTimeout * 1000;
@@ -129,46 +140,77 @@ public class SqlClient : DisposeBase
         using var span = Tracer?.NewSpan($"db:{set.Database}:Open", new { server, port, set.UserID, set.SslMode, set.UseServerPrepare, set.Pipeline });
 
         // 异步连接网络
-        var client = new TcpClient();
-
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         cts.CancelAfter(msTimeout);
 
-        try
+        if (isUnixSocket)
         {
+            // Unix 域套接字连接（仅 .NET Core 5.0+ 且 Linux/macOS 生效）
 #if NET5_0_OR_GREATER
-            await client.ConnectAsync(server, port, cts.Token).ConfigureAwait(false);
-#else
-            // .NET Framework 4.5 不支持 ConnectAsync 的 CancellationToken 参数
-            var connectTask = client.ConnectAsync(server, port);
-            var completedTask = await Task.WhenAny(connectTask, Task.Delay(msTimeout, cts.Token)).ConfigureAwait(false);
-            if (completedTask != connectTask)
+            var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+            socket.ReceiveTimeout = msTimeout;
+            socket.SendTimeout = msTimeout;
+            try
             {
+                await socket.ConnectAsync(new UnixDomainSocketEndPoint(socketPath!), cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                span?.SetError(ex);
+                socket.Dispose();
+                throw new TimeoutException($"Unix Socket 连接 {socketPath} 超时({msTimeout}ms)");
+            }
+            catch (Exception ex)
+            {
+                span?.SetError(ex);
+                socket.Dispose();
+                throw;
+            }
+            _rawSocket = socket;
+            _stream = new NetworkStream(socket, ownsSocket: true);
+#else
+            throw new PlatformNotSupportedException("Unix域套接字仅支持 .NET 5.0+ 平台（Linux/macOS）");
+#endif
+        }
+        else
+        {
+            var client = new TcpClient();
+            try
+            {
+#if NET5_0_OR_GREATER
+                await client.ConnectAsync(server, port, cts.Token).ConfigureAwait(false);
+#else
+                // .NET Framework 4.5 不支持 ConnectAsync 的 CancellationToken 参数
+                var connectTask = client.ConnectAsync(server, port);
+                var completedTask = await Task.WhenAny(connectTask, Task.Delay(msTimeout, cts.Token)).ConfigureAwait(false);
+                if (completedTask != connectTask)
+                {
+                    client.Close();
+                    throw new TimeoutException($"连接 {server}:{port} 超时({msTimeout}ms)");
+                }
+                await connectTask.ConfigureAwait(false);
+#endif
+            }
+            catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                span?.SetError(ex);
                 client.Close();
                 throw new TimeoutException($"连接 {server}:{port} 超时({msTimeout}ms)");
             }
-            await connectTask.ConfigureAwait(false);
-#endif
-        }
-        catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
-        {
-            span?.SetError(ex);
-            client.Close();
-            throw new TimeoutException($"连接 {server}:{port} 超时({msTimeout}ms)");
-        }
-        catch (Exception ex)
-        {
-            span?.SetError(ex);
-            client.Close();
-            throw;
-        }
+            catch (Exception ex)
+            {
+                span?.SetError(ex);
+                client.Close();
+                throw;
+            }
 
-        // 设置读写超时
-        client.ReceiveTimeout = msTimeout;
-        client.SendTimeout = msTimeout;
+            // 设置读写超时
+            client.ReceiveTimeout = msTimeout;
+            client.SendTimeout = msTimeout;
 
-        _client = client;
-        _stream = client.GetStream();
+            _client = client;
+            _stream = client.GetStream();
+        }
 
         try
         {
@@ -221,7 +263,7 @@ public class SqlClient : DisposeBase
 
             // 验证方法
             var method = welcome.AuthMethod;
-            if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password", "caching_sha2_password"))
+            if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password", "caching_sha2_password", "authentication_webauthn_client"))
                 throw new NotSupportedException("不支持验证方式 " + method);
 
             // 异步验证
@@ -230,6 +272,10 @@ public class SqlClient : DisposeBase
 
             // 认证成功后，将 Capability 更新为实际协商的客户端标志
             Capability = auth.GetFlags(welcome.Capability);
+
+            // 压缩协议：如果客户端和服务器都支持 COMPRESS 且连接字符串启用，则开启压缩
+            if (Capability.Has(ClientFlags.COMPRESS) && set.UseCompression)
+                _useCompression = true;
 
             // 记录当前使用的数据库
             Database = set.Database ?? "";
@@ -417,7 +463,7 @@ public class SqlClient : DisposeBase
     /// </remarks>
     public SocketHealth IsSocketAlive()
     {
-        var socket = _client?.Client;
+        var socket = _rawSocket ?? _client?.Client;
         if (socket == null || !socket.Connected) return SocketHealth.Closed;
 
         try
@@ -448,6 +494,10 @@ public class SqlClient : DisposeBase
     public async Task<ServerPacket> ReadPacketAsync(CancellationToken cancellationToken = default)
     {
         var ms = _stream ?? throw new InvalidOperationException("未打开连接");
+
+        // 压缩协议
+        if (_useCompression)
+            return await ReadCompressedPacketAsync(ms, cancellationToken).ConfigureAwait(false);
 
         // 根据 Timeout 属性创建超时令牌，确保不会无限等待
         var timeout = Timeout;
@@ -561,6 +611,13 @@ public class SqlClient : DisposeBase
     {
         var ms = _stream ?? throw new InvalidOperationException("未打开连接");
 
+        // 压缩协议
+        if (_useCompression)
+        {
+            await SendCompressedPacketAsync(pk, ms, flush, cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
         var len = pk.Total;
         var pk2 = pk.ExpandHeader(4);
 
@@ -592,6 +649,165 @@ public class SqlClient : DisposeBase
 
         LastActive = DateTime.Now;
     }
+
+    #region 压缩协议
+    /// <summary>读取压缩协议数据包</summary>
+    private async Task<ServerPacket> ReadCompressedPacketAsync(Stream ms, CancellationToken cancellationToken)
+    {
+        var timeout = Timeout;
+        using var cts = timeout > 0
+            ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
+            : null;
+        cts?.CancelAfter(timeout * 1000);
+        var token = cts?.Token ?? cancellationToken;
+
+        try
+        {
+            // 7字节压缩包头: 3字节压缩长度 + 1字节序列号 + 3字节未压缩长度
+            _compressHeaderBuf ??= new Byte[CompressedHeaderSize];
+            var hdr = _compressHeaderBuf;
+            await _reader.ReadAsync(ms, hdr, 0, CompressedHeaderSize, token).ConfigureAwait(false);
+
+            var compressedLen = hdr[0] + (hdr[1] << 8) + (hdr[2] << 16);
+            var seq = hdr[3];
+            var uncompressedLen = hdr[4] + (hdr[5] << 8) + (hdr[6] << 16);
+            _seq = (Byte)(seq + 1);
+
+            ServerPacket rs;
+            if (uncompressedLen == 0)
+            {
+                // 未压缩小包：压缩长度即数据长度
+                var pk = new OwnerPacket(compressedLen);
+                await _reader.ReadAsync(ms, pk.Buffer, pk.Offset, compressedLen, token).ConfigureAwait(false);
+                pk.Resize(compressedLen);
+                rs = new ServerPacket(ms) { Length = compressedLen, Sequence = seq };
+                rs.Set(pk);
+                WritePacketLog("<=", seq, pk.GetSpan(), compressedLen);
+            }
+            else
+            {
+                // 压缩包：读取压缩数据后 zlib 解压
+                using var compressedPk = new OwnerPacket(compressedLen);
+                await _reader.ReadAsync(ms, compressedPk.Buffer, compressedPk.Offset, compressedLen, token).ConfigureAwait(false);
+
+                var pk = new OwnerPacket(uncompressedLen);
+                using var compressedStream = new MemoryStream(compressedPk.Buffer!, compressedPk.Offset, compressedLen);
+                using var deflateStream = new DeflateStream(compressedStream, CompressionMode.Decompress);
+                var totalRead = 0;
+                while (totalRead < uncompressedLen)
+                {
+                    var n = deflateStream.Read(pk.Buffer!, pk.Offset + totalRead, uncompressedLen - totalRead);
+                    if (n == 0) break;
+                    totalRead += n;
+                }
+                pk.Resize(uncompressedLen);
+                rs = new ServerPacket(ms) { Length = uncompressedLen, Sequence = seq };
+                rs.Set(pk);
+                WritePacketLog("<=", seq, pk.GetSpan(), uncompressedLen);
+            }
+
+            // 错误包检测
+            if (rs.IsError)
+            {
+                var pk = rs.Data;
+                var reader = new SpanReader(pk.Slice(1));
+                var code = reader.ReadUInt16();
+                var msg = reader.ReadZeroString();
+                if (!msg.IsNullOrEmpty() && msg[0] == '#')
+                    throw new MySqlException(code, msg[..6], msg[6..]);
+                else
+                    throw new MySqlException(code, msg);
+            }
+
+            return rs;
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            Active = false;
+            throw new TimeoutException($"读取数据包超时({timeout}s)");
+        }
+        catch (OperationCanceledException)
+        {
+            Active = false;
+            throw;
+        }
+        catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
+        {
+            Active = false;
+            throw;
+        }
+    }
+
+    /// <summary>发送压缩协议数据包</summary>
+    private async Task SendCompressedPacketAsync(IPacket pk, Stream ms, Boolean flush, CancellationToken cancellationToken)
+    {
+        var uncompressedLen = pk.Total;
+        var seq = _seq++;
+
+        // 压缩原数据
+        Byte[] compressedBuf;
+        Int32 compressedLen;
+        using (var outStream = new MemoryStream())
+        {
+            using (var deflateStream = new DeflateStream(outStream, CompressionLevel.Optimal, leaveOpen: true))
+            {
+                var span = pk.GetSpan();
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
+                deflateStream.Write(span);
+#else
+                var data = span.ToArray();
+                deflateStream.Write(data, 0, data.Length);
+#endif
+                deflateStream.Flush();
+            }
+            compressedBuf = outStream.ToArray();
+            compressedLen = compressedBuf.Length;
+        }
+
+        // 小包不压缩（压缩后更大则发送未压缩）
+        var sendUncompressed = compressedLen >= uncompressedLen;
+        var totalLen = CompressedHeaderSize + (sendUncompressed ? uncompressedLen : compressedLen);
+        var sendPk = new OwnerPacket(totalLen);
+        var dst = sendPk.GetSpan();
+
+        // 填充压缩包头
+        var clen = sendUncompressed ? uncompressedLen : compressedLen;
+        dst[0] = (Byte)(clen & 0xFF);
+        dst[1] = (Byte)((clen >> 8) & 0xFF);
+        dst[2] = (Byte)((clen >> 16) & 0xFF);
+        dst[3] = seq;
+        // 未压缩长度：发送未压缩数据时填0（标识为不压缩），发送压缩数据时填原始长度
+        dst[4] = (Byte)(sendUncompressed ? 0 : (uncompressedLen & 0xFF));
+        dst[5] = (Byte)(sendUncompressed ? 0 : ((uncompressedLen >> 8) & 0xFF));
+        dst[6] = (Byte)(sendUncompressed ? 0 : ((uncompressedLen >> 16) & 0xFF));
+
+        // 填充数据体
+        if (sendUncompressed)
+        {
+            var span = pk.GetSpan();
+            span.CopyTo(dst[CompressedHeaderSize..]);
+        }
+        else
+        {
+            compressedBuf.CopyTo(dst[CompressedHeaderSize..]);
+        }
+
+        WritePacketLog("=>", seq, pk.GetSpan(), uncompressedLen);
+
+        try
+        {
+            await sendPk.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+            if (flush) await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            Active = false;
+            throw;
+        }
+
+        LastActive = DateTime.Now;
+    }
+    #endregion
 
     /// <summary>异步刷新网络流，确保所有缓冲数据发送到服务器</summary>
     /// <param name="cancellationToken">取消令牌</param>

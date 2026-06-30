@@ -11,4 +11,10 @@ public enum DatabaseType
 
     /// <summary>TiDB 分布式数据库（MySQL 协议兼容）</summary>
     TiDB = 2,
+
+    /// <summary>Amazon Aurora MySQL（MySQL 协议兼容）</summary>
+    AmazonAurora = 3,
+
+    /// <summary>Google Cloud SQL MySQL（MySQL 协议兼容）</summary>
+    GoogleCloudSql = 4,
 }
