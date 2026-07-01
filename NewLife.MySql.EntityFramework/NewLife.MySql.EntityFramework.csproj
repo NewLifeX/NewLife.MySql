@@ -29,7 +29,7 @@
     <RepositoryUrl>https://github.com/NewLifeX/NewLife.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>新生命团队;X组件;NewLife;MySql;MySQL;ADO.NET;国产;EntityFramework;EF6;$(AssemblyName)</PackageTags>
-    <PackageReleaseNotes>v1.1 同步主驱动更新：新增断线自动重连、增强超时管理、修复并发安全与空密码连接问题</PackageReleaseNotes>
+    <PackageReleaseNotes>同步主驱动 v1.3：Unix Socket 连接、zlib/zstd 压缩协议、WebAuthn 认证、MySqlBulkCopy、Geometry 空间类型、Aurora/CloudSQL 兼容、连接池存活期与空闲验活</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>

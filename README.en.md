@@ -4,11 +4,11 @@
 [![License](https://img.shields.io/github/license/NewLifeX/NewLife.MySql)](https://github.com/NewLifeX/NewLife.MySql/blob/master/LICENSE)
 [![Downloads](https://img.shields.io/nuget/dt/NewLife.MySql.svg)](https://www.nuget.org/packages/NewLife.MySql)
 
+> 🌐 [中文](Readme.MD) | **English** | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Português](README.pt.md)
+
 **NewLife.MySql** is a pure C# MySQL ADO.NET driver built by the NewLife team. It implements the MySQL wire protocol (Protocol Version 10) directly over TCP, with **zero third-party dependencies**, **full async/await support**, and an **MIT license** for worry-free commercial use.
 
 Its innovative **Pipelined Batch Execution** delivers **2–3× faster batch DML** than competing drivers — ideal for big data processing and scenarios where Chinese domestic software compliance (信创) is required.
-
-> 📖 [中文文档](Readme.MD)
 
 ---
 
@@ -22,11 +22,16 @@ Its innovative **Pipelined Batch Execution** delivers **2–3× faster batch DML
 | Pipelined Batch | ✅ **Unique** | ❌ | ❌ |
 | Array Bind Batch | ✅ | ❌ | ❌ |
 | Dictionary Batch | ✅ | ❌ | ❌ |
+| MySqlBulkCopy | ✅ | ✅ | ✅ |
 | DbBatch (.NET 6+) | ✅ | ✅ | ❌ |
+| DbDataSource | ✅ | ❌ | ❌ |
+| Compression (zlib/zstd) | ✅ | ✅ | ❌ |
+| Unix Socket | ✅ | ✅ | ❌ |
+| WebAuthn Auth | ✅ | ✅ | ❌ |
 | DataAdapter | ✅ | ❌ | ✅ |
 | EF Core Provider | ✅ Own | ✅ (Pomelo) | ✅ Official |
 | XCode ORM Native | ✅ | ❌ | ❌ |
-| OceanBase / TiDB | ✅ Auto-detect | ❌ | ❌ |
+| OceanBase / TiDB / Aurora | ✅ Auto-detect | ❌ | ❌ |
 | Target Frameworks | net45 ~ net10 | net462+ | net462+ |
 | Code Size | ~3,000 lines | ~30,000 lines | ~50,000 lines |
 
@@ -183,6 +188,11 @@ while (await reader.ReadAsync())
 | SslMode | Ssl Mode | None | None / Preferred / Required |
 | UseServerPrepare | Use Server Prepare | false | Global server-side prepare |
 | Pipeline | Pipelining | false | Pipelined batch execution |
+| MinPoolSize | Min Pool Size | 0 | Minimum pool size |
+| MaxPoolSize | Max Pool Size | 100 | Maximum pool size |
+| ConnectionLifeTime | Connection Lifetime | 0 | Connection lifetime in seconds (0 = never expire) |
+| ConnectionIdleTime | Connection Idle Time | 300 | Idle timeout in seconds |
+| ValidationInterval | Validation Interval | 30 | Idle validation interval in seconds |
 
 ---
 
@@ -202,7 +212,7 @@ while (await reader.ReadAsync())
 | `DateTimeOffset` | DATETIME | UTC conversion |
 | `TimeSpan` | TIME | Supports -838:59:59 ~ 838:59:59 |
 | `Byte[]` | BLOB / BINARY / VARBINARY | |
-| `MySqlGeometry` | GEOMETRY | WKB format |
+| `MySqlGeometry` | GEOMETRY | WKB format, `MySqlGeometry` wrapper |
 | `Guid` | CHAR(36) | |
 | `Enum` | INT | Converted to Int64 |
 
@@ -226,9 +236,10 @@ while (await reader.ReadAsync())
 
 | Database | Detection | Notes |
 |----------|:---------:|-------|
-| MySQL 5.x ~ 9.0+ | Auto | `mysql_native_password` + `caching_sha2_password` |
+| MySQL 5.x ~ 9.0+ | Auto | `mysql_native_password` + `caching_sha2_password` + `authentication_webauthn` |
 | OceanBase | Auto-detect from handshake | Full CRUD + transactions compatible |
 | TiDB | Auto-detect from handshake | Full CRUD + transactions compatible |
+| Aurora / CloudSQL | Auto-detect from handshake | AWS Aurora / GCP Cloud SQL compatible |
 | MariaDB | Basic | No `ed25519` auth support |
 
 ---
@@ -239,7 +250,10 @@ while (await reader.ReadAsync())
 - **Fully pooled**: `Pool.StringBuilder` / `Pool.MemoryStream` throughout
 - **True async**: Full-chain `async/await` with `ConfigureAwait(false)`, no `sync-over-async`
 - **Lean protocol**: Only parses necessary fields, skips redundant data
-- **Connection pooling**: Auto-managed per connection string, health checks and idle recycling
+- **Connection pooling**: Auto-managed per connection string, configurable lifetime and idle validation, health checks and idle recycling
+- **Compression**: zlib/zstd protocol compression to reduce bandwidth
+- **Unix Socket**: Local Unix Domain Socket connection support for zero-TCP-overhead on Linux
+- **WebAuthn**: FIDO2/WebAuthn passwordless authentication support
 
 ---
 
@@ -250,6 +264,8 @@ while (await reader.ReadAsync())
 | [Architecture](Doc/架构设计.md) | Architecture overview, protocol implementation, design decisions (Chinese) |
 | [Performance Report](Doc/性能测试报告.md) | Detailed benchmark data and analysis (Chinese) |
 | [Requirements](Doc/需求文档.md) | Feature requirements, acceptance criteria, iteration plan (Chinese) |
+| [Changelog (中文)](Doc/ChangeLog.md) | Chinese release changelog |
+| [Changelog (EN)](Doc/ChangeLog.en.md) | English release changelog |
 | [Migration Guide (MySql.Data)](Doc/迁移指南_MySqlData.md) | Step-by-step migration from MySql.Data to NewLife.MySql |
 | [Migration Guide (MySqlConnector)](Doc/迁移指南_MySqlConnector.md) | Step-by-step migration from MySqlConnector to NewLife.MySql |
 

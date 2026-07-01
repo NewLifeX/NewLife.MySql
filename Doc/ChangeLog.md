@@ -4,6 +4,35 @@
 
 ---
 
+## v1.3.2026.0702（2026-07-02）
+
+### 新功能
+- **Unix Socket 连接**：支持 Unix Domain Socket 本地连接，Linux 环境零 TCP 开销
+- **压缩协议**：支持 zlib / zstd 协议层压缩传输，大幅减少网络带宽消耗
+- **WebAuthn 认证**：支持 MySQL 8.4+ `authentication_webauthn`（FIDO2）免密认证
+- **MySqlBulkCopy**：实现 `MySqlBulkCopy` 批量导入 API，支持 DataTable / IDataReader 数据源
+- **DbDataSource**：新增 `MySqlDataSource`，支持 .NET 依赖注入风格的数据源管理
+- **空间数据类型**：支持 MySQL Geometry 类型，提供 `MySqlGeometry` WKB 封装
+- **Aurora / CloudSQL 兼容**：自动检测 AWS Aurora 和 GCP Cloud SQL，增强云数据库兼容性
+
+### 连接池增强
+- **存活期管理**：新增 `ConnectionLifeTime` 参数，支持连接定期回收
+- **空闲验活**：新增 `ConnectionIdleTime` / `ValidationInterval` 参数，空闲连接自动验活剔除
+- **可配置参数**：`MinPoolSize` / `MaxPoolSize` 等连接池参数全面支持连接字符串配置
+
+### Schema 扩展
+- **扩展元数据查询**：增强 `GetSchema` 支持索引、外键等扩展元数据查询
+
+### 性能与测试
+- **性能数据更新**：重跑全部性能测试并更新基准数据，Pipeline(tx) 领先竞品 41~59%
+- **测试覆盖率提升**：新增大量单元测试，覆盖核心组件和边界场景
+
+### Bug 修复
+- **[fix]** 修复批量插入场景下读取包超时的问题
+- **[fix]** 修复因连接池重构导致的两个已有测试失败
+
+---
+
 ## v1.2.2026.0601（2026-06-01）
 
 ### 追踪与可观测性

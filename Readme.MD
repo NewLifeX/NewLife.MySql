@@ -3,11 +3,11 @@
 [![NuGet](https://img.shields.io/nuget/v/NewLife.MySql.svg)](https://www.nuget.org/packages/NewLife.MySql)
 [![License](https://img.shields.io/github/license/NewLifeX/NewLife.MySql)](https://github.com/NewLifeX/NewLife.MySql/blob/master/LICENSE)
 
+> 🌐 **中文** | [English](README.en.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Português](README.pt.md)
+
 **NewLife.MySql** 是新生命团队出品的纯国产 MySQL 客户端驱动，基于 ADO.NET 标准接口，直接通过 TCP 实现 MySQL 协议层（Protocol Version 10）。仅依赖 `NewLife.Core`，**零第三方依赖**、**全链路真异步**、**MIT 协议商用无忧**。
 
 独创的**管道化批量执行**（Pipeline）在万级行批量写入场景下领先竞品 **2×~3×**，是大数据批量操作、信创国产化替代的理想选择。
-
-> 📖 [English Documentation](README.en.md)
 
 ---
 
@@ -25,19 +25,23 @@
 
 | 功能 | 说明 |
 |------|------|
-| 连接管理 | MySQL 5.x / 8.0 / 9.0+，`mysql_native_password` + `caching_sha2_password` 双认证 |
+| 连接管理 | MySQL 5.x / 8.0 / 9.0+，`mysql_native_password` + `caching_sha2_password` + `authentication_webauthn` 多认证 |
+| Unix Socket | 支持 Unix Domain Socket 本地连接，零 TCP 开销 |
+| 压缩协议 | 支持 zlib / zstd 压缩传输，减少网络带宽消耗 |
 | 查询执行 | `ExecuteReader` / `ExecuteScalar` / `ExecuteNonQuery`，完整 ADO.NET 接口 |
 | 参数化查询 | 客户端参数替换，`@参数名` 语法，自动转义防注入 |
 | 预编译语句 | `Prepare()` 走 `COM_STMT_PREPARE` 二进制协议，可选 `UseServerPrepare` 全局开关 |
-| 批量操作 | `ExecuteBatch` / `ExecuteArrayBatch` / 管道化 / 多行 VALUES / DbBatch |
+| 批量操作 | `ExecuteBatch` / `ExecuteArrayBatch` / 管道化 / 多行 VALUES / DbBatch / `MySqlBulkCopy` |
 | 管道化执行 | `Pipeline=true` 批量发送后批量接收，网络延迟仅一次，万级行性能提升 3~10× |
 | 事务支持 | `BeginTransaction` / `Commit` / `Rollback`，四种隔离级别，自动回滚 |
 | 存储过程 | `CommandType.StoredProcedure`，支持 IN/OUT 参数 |
 | SSL/TLS | `SslMode=Preferred/Required`，支持 TLS 1.2/1.3 |
-| 连接池 | 默认开启，按连接字符串分池，自动健康检查与回收 |
+| 连接池 | 默认开启，按连接字符串分池，可配置存活期与空闲验活，自动健康检查与回收 |
 | 异步方法 | 全链路 `async/await`，`OpenAsync` / `ExecuteReaderAsync` / `ReadAsync` 等 |
-| Schema 查询 | Tables / Columns / Indexes / Databases 等元数据 |
+| Schema 查询 | Tables / Columns / Indexes / Databases 等元数据，扩展索引/外键查询 |
+| DbDataSource | .NET 7+ 风格 `MySqlDataSource`，支持依赖注入 |
 | DbBatch | .NET 6+ ADO.NET 标准批量 API |
+| 空间数据 | MySQL Geometry 类型，`MySqlGeometry` WKB 封装 |
 | EF Core | 通过 `NewLife.MySql.EntityFrameworkCore` 独立包支持 |
 | XCode 集成 | 通过 `MySqlClientFactory` 自动注册，无缝对接 XCode ORM |
 
@@ -97,7 +101,7 @@
 
 - **框架**：`net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net10.0`
 - **MySQL**：5.5 ~ 9.0+，`mysql_native_password` + `caching_sha2_password`
-- **兼容库**：OceanBase、TiDB（自动检测）、MariaDB（基础）
+- **兼容库**：OceanBase、TiDB（自动检测）、Aurora / CloudSQL（云数据库）、MariaDB（基础）
 - **条件编译**：针对不同框架自动选择最优实现
 
 ---
@@ -118,7 +122,12 @@
 | **EF Core** | ✅ | ✅ (Pomelo) | ✅ |
 | **XCode ORM 集成** | ✅ | ❌ | ❌ |
 | **多目标框架** | net45~net10 | netstandard2.0+ | net462+ |
-| **OceanBase / TiDB** | ✅ 自动检测 | ❌ | ❌ |
+| **OceanBase / TiDB / Aurora** | ✅ 自动检测 | ❌ | ❌ |
+| **MySqlBulkCopy** | ✅ | ✅ | ✅ |
+| **压缩协议 (zlib/zstd)** | ✅ | ✅ | ❌ |
+| **Unix Socket** | ✅ | ✅ | ❌ |
+| **WebAuthn 认证** | ✅ | ✅ | ❌ |
+| **DbDataSource** | ✅ | ❌ | ❌ |
 
 > 完整对比和架构分析参见 [架构设计](Doc/架构设计.md)。
 
@@ -241,6 +250,7 @@ cmd.Parameters.AddWithValue("email", DBNull.Value);
 | `Boolean` | `1` 或 `0` |
 | `DateTime` | `'2025-07-01 12:30:00'` |
 | `Byte[]` | `X'CAFE'` |
+| `MySqlGeometry` | WKB 格式几何数据 |
 | `Guid` | `'01234567-89ab-cdef-...'` |
 | `Enum` | 转为数字 |
 | `null` / `DBNull.Value` | `NULL` |
@@ -495,6 +505,20 @@ while (await reader.ReadAsync())
 - 新连接按需创建
 - **网络断线自动重连**：检测到连接断开时自动重试，提升长连接场景稳定性
 
+### 连接池参数配置
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| MinPoolSize | 0 | 最小连接数 |
+| MaxPoolSize | 100 | 最大连接数 |
+| ConnectionLifeTime | 0 | 连接存活期（秒），0 表示永不过期 |
+| ConnectionIdleTime | 300 | 空闲超时（秒），超时后回收 |
+| ValidationInterval | 30 | 空闲验活间隔（秒） |
+
+```csharp
+var connStr = "Server=localhost;Database=mydb;...;MinPoolSize=5;MaxPoolSize=50;ConnectionLifeTime=3600;";
+```
+
 ---
 
 ## XCode ORM 集成
@@ -583,6 +607,8 @@ Console.WriteLine($"数据库类型: {conn2.DatabaseType}");  // TiDB
 | [需求文档](Doc/需求文档.md) | 功能需求、验收条件、迭代计划 |
 | [架构设计](Doc/架构设计.md) | 架构概览、协议实现、技术选型、设计决策、驱动对比 |
 | [性能测试报告](Doc/性能测试报告.md) | 批量操作基准性能测试详细数据 |
+| [更新日志 (中文)](Doc/ChangeLog.md) | 中文版版本更新记录 |
+| [Changelog (EN)](Doc/ChangeLog.en.md) | English release changelog |
 | [英文 README](README.en.md) | English documentation with performance charts |
 | [迁移指南：MySql.Data → NL](Doc/迁移指南_MySqlData.md) | 从 Oracle 官方驱动迁移的步骤和注意事项 |
 | [迁移指南：MySqlConnector → NL](Doc/迁移指南_MySqlConnector.md) | 从社区主流驱动迁移的步骤和注意事项 |
