@@ -8,6 +8,10 @@ namespace NewLife.MySql;
 /// <summary>连接池。每个连接字符串一个连接池，管理多个可重用连接</summary>
 public class MySqlPool : ObjectPool<SqlClient>
 {
+    /// <summary>连接池 PING 阈值系数。空闲超过 IdlePoolTime×PingRatio 的连接借出前补一次 PING 验活
+    /// （0.8 表示闲置达 80% 清理阈值时触发 PING，剩余 20% 窗口防误清理）</summary>
+    private const Double PingRatio = 0.8;
+
     /// <summary>设置</summary>
     public MySqlConnectionStringBuilder? Setting { get; set; }
 
@@ -86,8 +90,9 @@ public class MySqlPool : ObjectPool<SqlClient>
         if (value.Welcome == null) return true;
 
         var set = Setting;
+        var idlePing = set != null && set.IdlePoolTime > 0 ? (Int32)(set.IdlePoolTime * PingRatio) : 0;
         var decision = ConnectionHealth.Evaluate(value.Active, value.CreatedTime, value.LastActive, DateTime.Now,
-            set?.ConnectionLifeTime ?? 0, set?.ConnectionIdlePingTime ?? 0);
+            set?.ConnectionLifeTime ?? 0, idlePing);
 
         // 已失效或超过最大存活期，丢弃（基类随后调用 OnDispose 关闭连接）
         if (decision == ConnectionDecision.Discard) return false;
@@ -105,8 +110,9 @@ public class MySqlPool : ObjectPool<SqlClient>
     protected override Boolean OnReturn(SqlClient value)
     {
         var set = Setting;
+        var idlePing = set != null && set.IdlePoolTime > 0 ? (Int32)(set.IdlePoolTime * PingRatio) : 0;
         var decision = ConnectionHealth.Evaluate(value.Active, value.CreatedTime, value.LastActive, DateTime.Now,
-            set?.ConnectionLifeTime ?? 0, set?.ConnectionIdlePingTime ?? 0);
+            set?.ConnectionLifeTime ?? 0, idlePing);
 
         var reusable = decision != ConnectionDecision.Discard && value.IsSocketAlive() == SocketHealth.Alive;
 
@@ -116,34 +122,41 @@ public class MySqlPool : ObjectPool<SqlClient>
         return reusable;
     }
 
-    /// <summary>异步获取连接。基类 OnGet 已完成同步校验（活性/存活期/socket 探活）；
-    /// 此处仅对空闲较久的连接补一次 PING 验活，兜底无 FIN 的黑洞型断连</summary>
+    /// <summary>异步检查借出时资源是否可用。对空闲较久的连接补一次 PING 验活；
+    /// 任何异常视为连接不可用，由基类自动丢弃并重试。</summary>
+    /// <param name="value">待检查连接</param>
     /// <param name="cancellationToken">取消令牌</param>
-    /// <returns>可用的数据库连接</returns>
-    public new async Task<SqlClient> GetAsync(CancellationToken cancellationToken = default)
+    /// <returns>是否可用</returns>
+    protected override async Task<Boolean> OnGetAsync(SqlClient value, CancellationToken cancellationToken)
     {
-        var set = Setting;
-        var lifetime = set?.ConnectionLifeTime ?? 0;
-        var idlePing = set?.ConnectionIdlePingTime ?? 0;
-
-        var retryCount = 0;
-        while (true)
+        try
         {
-            // base.Get() 内部已通过 OnGet 过滤失效/到龄/socket 异常连接，并正确维护 _busy 记账
-            var client = base.Get();
+            // 新建连接尚未打开，交由调用方打开
+            if (value.Welcome == null) return true;
 
-            // 新建连接尚未打开，直接返回由调用方打开
-            if (client.Welcome == null) return client;
+            // 评估连接健康度：是否已失效、是否到达存活期、是否需要 PING
+            var set = Setting;
+            var lifetime = set?.ConnectionLifeTime ?? 0;
+            var idlePing = set != null && set.IdlePoolTime > 0 ? (Int32)(set.IdlePoolTime * PingRatio) : 0;
 
-            // 仅空闲超阈值的连接需要补一次 PING；其余直接复用
-            var decision = ConnectionHealth.Evaluate(client.Active, client.CreatedTime, client.LastActive, DateTime.Now, lifetime, idlePing);
-            if (decision != ConnectionDecision.NeedPing) return client;
+            var decision = ConnectionHealth.Evaluate(value.Active, value.CreatedTime, value.LastActive, DateTime.Now, lifetime, idlePing);
+            if (decision == ConnectionDecision.Discard) return false;
 
-            if (await PingWithTimeoutAsync(client, cancellationToken).ConfigureAwait(false)) return client;
+            // 廉价非阻塞 socket 探活：对端已关或残留脏数据一律丢弃（OnGet 同步路径同样做此检查）
+            if (value.IsSocketAlive() != SocketHealth.Alive) return false;
 
-            // PING 失败：PingAsync 已标记 Active=false，归还走 OnReturn 丢弃并修正 BusyCount 记账（不再裸 TryDispose 泄漏 busy 槽）
-            Return(client);
-            if (retryCount++ > 10) throw new InvalidOperationException("无法从连接池获取可用连接");
+            if (decision == ConnectionDecision.Reusable) return true;
+
+            // decision == NeedPing：空闲较久，补一次异步 PING 验活
+            if (await PingWithTimeoutAsync(value, cancellationToken).ConfigureAwait(false))
+                return true;
+
+            return false;
+        }
+        catch
+        {
+            // 任何异常（Evaluate AddSeconds 越界/Ping 未捕获异常）视为连接不可用
+            return false;
         }
     }
 
@@ -174,16 +187,12 @@ public class MySqlPoolManager
 
         var pool = new MySqlPool
         {
-            //Name = Name + "Pool",
-            //Instance = this,
             Setting = setting,
             Min = setting.MinPoolSize > 0 ? setting.MinPoolSize : 0,
             Max = setting.MaxPoolSize > 0 ? setting.MaxPoolSize : 100,
-            IdleTime = 30,
-            AllIdleTime = 300,
-            //Log = ClientLog,
-
-            //Callback = OnCreate,
+            IdleTime = setting.IdlePoolTime > 0 ? setting.IdlePoolTime : 60,
+            // MaxLifetime 对接 ConnectionLifeTime，超龄连接由基类自动回收（>0 时生效）
+            MaxLifetime = setting.ConnectionLifeTime > 0 ? setting.ConnectionLifeTime : 0,
         };
 
         return pool;

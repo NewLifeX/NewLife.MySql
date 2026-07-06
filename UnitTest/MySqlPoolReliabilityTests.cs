@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Net.Sockets;
 using NewLife;
 using NewLife.MySql;
@@ -142,6 +144,150 @@ public class MySqlPoolReliabilityTests
         {
             pool.Clear();
             foreach (var s in servers) s.TryDispose();
+        }
+    }
+
+    [Fact]
+    [DisplayName("连接池_满时GetAsync信号量阻塞等待槽位释放")]
+    public async Task Pool_Full_GetAsyncBlocksUntilSlotReleased()
+    {
+        var servers = new List<TcpClient>();
+        var pool = new ReliabilityTestPool(servers) { Max = 3 };
+        try
+        {
+            // 借出全部 3 个连接使池满
+            var clients = new List<SqlClient>();
+            for (var i = 0; i < 3; i++)
+                clients.Add(pool.Get());
+            Assert.Equal(3, pool.BusyCount);
+
+            // 延迟归还一个连接释放信号量槽位
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(300);
+                pool.Return(clients[0]);
+            });
+
+            // base.GetAsync 阻塞在 SemaphoreSlim 上，槽位释放后唤醒
+            var sw = Stopwatch.StartNew();
+            var got = await pool.GetAsync();
+            sw.Stop();
+
+            Assert.NotNull(got);
+            Assert.True(sw.ElapsedMilliseconds >= 200,
+                $"信号量等待时间应 >=200ms，实际 {sw.ElapsedMilliseconds}ms");
+            // 归还的连接应被复用（Welcome 非 null 且 socket 健康）
+            Assert.NotNull(got.Welcome);
+        }
+        finally
+        {
+            pool.Clear();
+            foreach (var s in servers) s.TryDispose();
+        }
+    }
+
+    [Fact]
+    [DisplayName("连接池_失效空闲连接全部丢弃后可等额重建不缩水")]
+    public async Task Pool_DeadFreeItems_CanBeReplacedWithoutShrinking()
+    {
+        var servers = new List<TcpClient>();
+        // Max=3，池全部空闲连接失效后应能全部重建
+        var pool = new ReliabilityTestPool(servers) { Max = 3 };
+        try
+        {
+            // 借出并归还 3 个连接，全部进入空闲池
+            var clients = new List<SqlClient>();
+            for (var i = 0; i < 3; i++)
+                clients.Add(pool.Get());
+            foreach (var c in clients)
+                pool.Return(c);
+            Assert.Equal(0, pool.BusyCount);
+            Assert.Equal(3, pool.FreeCount);
+
+            // 服务端杀死所有空闲连接
+            foreach (var s in servers) s.Close();
+            foreach (var c in clients) ConnectionTestKit.WaitHealth(c, SocketHealth.Closed);
+
+            // 连续借出 3 次：每轮先遇到失效空闲连接→丢弃→借用下一空闲→再失效→再丢弃→最终无空闲→需重建。
+            // 修复前：失效项被丢弃但 BusyCount 未减、且 Max 检查阻止重建 → 第二个连接开始抛"申请失败"。
+            // 修复后：_freeDiscarded 记录丢弃额度，允许等额超 Max 创建替换连接。
+            var gotAll = new List<SqlClient>();
+            for (var i = 0; i < 3; i++)
+            {
+                var got = await pool.GetAsync();
+                Assert.NotNull(got);
+                gotAll.Add(got);
+            }
+
+            Assert.Equal(3, pool.BusyCount);
+            Assert.Equal(0, pool.FreeCount);
+        }
+        finally
+        {
+            pool.Clear();
+            foreach (var s in servers) s.TryDispose();
+        }
+    }
+
+    [Fact]
+    [DisplayName("连接池_满时并发借出归还BusyCount不异常增长")]
+    public async Task Pool_ConcurrentAcquireReturn_BusyCountStaysInRange()
+    {
+        var servers = new List<TcpClient>();
+        var pool = new ReliabilityTestPool(servers) { Max = 5 };
+        try
+        {
+            var tasks = new List<Task>();
+            var errors = new ConcurrentBag<Exception>();
+            var maxObservedBusy = 0;
+
+            // 多线程并发借出+归还，模拟高并发场景
+            for (var t = 0; t < 10; t++)
+            {
+                tasks.Add(Task.Run(async () =>
+                {
+                    for (var i = 0; i < 20; i++)
+                    {
+                        try
+                        {
+                            var client = await pool.GetAsync();
+                            InterlockedMax(ref maxObservedBusy, pool.BusyCount);
+
+                            // 短暂持有后归还
+                            await Task.Delay(10);
+                            pool.Return(client);
+                        }
+                        catch (Exception ex)
+                        {
+                            errors.Add(ex);
+                        }
+                    }
+                }));
+            }
+
+            await Task.WhenAll(tasks);
+
+            Assert.Empty(errors);
+            // 信号量保证总连接数恒 ≤ Max，BusyCount 不应持续超过 Max（短暂竞态允许 ≤Max+1）
+            Assert.True(maxObservedBusy <= pool.Max + 1,
+                $"最大观察 BusyCount={maxObservedBusy} 不应超过 Max={pool.Max}+1");
+            Assert.True(pool.BusyCount <= pool.Max,
+                $"最终 BusyCount={pool.BusyCount} 应回归 Max={pool.Max} 以内");
+        }
+        finally
+        {
+            pool.Clear();
+            foreach (var s in servers) s.TryDispose();
+        }
+    }
+
+    private static void InterlockedMax(ref Int32 target, Int32 newValue)
+    {
+        while (true)
+        {
+            var current = Volatile.Read(ref target);
+            if (newValue <= current) return;
+            if (Interlocked.CompareExchange(ref target, newValue, current) == current) return;
         }
     }
 

@@ -54,9 +54,6 @@ public class MySqlPoolTests
         Assert.Equal(ConnectionState.Open, conn.State);
         Assert.NotNull(conn.Client);
 
-        var pool = conn.Factory.PoolManager.GetPool(conn.Setting);
-        var totalBefore = pool.Total;
-
         conn.Close();
 
         Assert.Equal(ConnectionState.Closed, conn.State);
@@ -164,8 +161,7 @@ public class MySqlPoolTests
         Assert.Same(setting, pool.Setting);
         Assert.Equal(0, pool.Min);
         Assert.Equal(100, pool.Max);
-        Assert.Equal(30, pool.IdleTime);
-        Assert.Equal(300, pool.AllIdleTime);
+        Assert.Equal(60, pool.IdleTime);
     }
 
     [Fact]

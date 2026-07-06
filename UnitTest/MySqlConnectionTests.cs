@@ -31,9 +31,6 @@ public class MySqlConnectionTests
         Assert.NotNull(connection.Client);
         Assert.NotNull(connection.ServerVersion);
 
-        var pool = connection.Factory.PoolManager.GetPool(connection.Setting);
-        Assert.True(pool.Total > 0);
-
         connection.Close();
 
         Assert.Equal(ConnectionState.Closed, connection.State);

@@ -1,4 +1,4 @@
-using NewLife.MySql;
+﻿using NewLife.MySql;
 
 namespace UnitTest;
 
@@ -133,29 +133,29 @@ public class ConnectionPoolParameterTests
         Assert.Equal(0, builder.ConnectionLifeTime);
     }
 
-    [Fact(DisplayName = "连接字符串_ConnectionIdlePingTime默认值为30")]
-    public void ConnectionIdlePingTime_DefaultValue()
+    [Fact(DisplayName = "连接字符串_IdlePoolTime默认值为60")]
+    public void IdlePoolTime_DefaultValue()
     {
         var builder = new MySqlConnectionStringBuilder();
 
-        Assert.Equal(30, builder.ConnectionIdlePingTime);
+        Assert.Equal(60, builder.IdlePoolTime);
     }
 
-    [Fact(DisplayName = "连接字符串_ConnectionIdlePingTime通过连接字符串设置")]
-    public void ConnectionIdlePingTime_SetViaConnectionString()
+    [Fact(DisplayName = "连接字符串_IdlePoolTime通过连接字符串设置")]
+    public void IdlePoolTime_SetViaConnectionString()
     {
-        var builder = new MySqlConnectionStringBuilder("server=localhost;port=3306;ConnectionIdlePingTime=15");
+        var builder = new MySqlConnectionStringBuilder("server=localhost;port=3306;IdlePoolTime=60");
 
-        Assert.Equal(15, builder.ConnectionIdlePingTime);
+        Assert.Equal(60, builder.IdlePoolTime);
     }
 
-    [Fact(DisplayName = "连接字符串_ConnectionIdlePingTime支持别名idle ping time")]
-    public void ConnectionIdlePingTime_AliasIdlePingTime()
+    [Fact(DisplayName = "连接字符串_IdlePoolTime支持别名idle time")]
+    public void IdlePoolTime_AliasIdleTime()
     {
         var builder = new MySqlConnectionStringBuilder();
-        builder["idle ping time"] = 45;
+        builder["idle time"] = 45;
 
-        Assert.Equal(45, builder.ConnectionIdlePingTime);
+        Assert.Equal(45, builder.IdlePoolTime);
     }
 
     [Fact(DisplayName = "连接池_MinPoolSize=0时不预创建连接")]
@@ -233,8 +233,8 @@ public class ConnectionPoolParameterTests
 
         var pool = poolManager.GetPool(setting);
 
-        Assert.Equal(30, pool.IdleTime);
-        Assert.Equal(300, pool.AllIdleTime);
+        Assert.Equal(60, pool.IdleTime);
+        // AllIdleTime 已废弃，不再设置
     }
 
     [Fact(DisplayName = "连接池_不同连接字符串创建不同池")]
