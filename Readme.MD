@@ -19,7 +19,7 @@
 | **高性能** | 零额外内存分配（`ArrayPool` / `OwnerPacket`）、真异步 IO、管道化批量执行 |
 | **纯国产** | 核心代码完全自主可控，无 GPL 许可风险，适合信创环境 |
 | **大数据友好** | 字典参数集 / 数组绑定 / 管道化 / 多行 VALUES / DbBatch，覆盖万级到百万级行 |
-| **广泛兼容** | `net45` ~ `net10` 全版本，MySQL 5.x ~ 9.0+，兼容 OceanBase / TiDB |
+| **广泛兼容** | `net45` ~ `net10` 全版本，MySQL 5.x ~ 9.0+，兼容 OceanBase / TiDB / Doris / Aurora / CloudSQL |
 
 ## 核心功能
 
@@ -101,7 +101,7 @@
 
 - **框架**：`net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net10.0`
 - **MySQL**：5.5 ~ 9.0+，`mysql_native_password` + `caching_sha2_password`
-- **兼容库**：OceanBase、TiDB（自动检测）、Aurora / CloudSQL（云数据库）、MariaDB（基础）
+- **兼容库**：OceanBase、TiDB、Doris（自动检测）、Aurora / CloudSQL（云数据库）、MariaDB（基础）
 - **条件编译**：针对不同框架自动选择最优实现
 
 ---
@@ -122,7 +122,7 @@
 | **EF Core** | ✅ | ✅ (Pomelo) | ✅ |
 | **XCode ORM 集成** | ✅ | ❌ | ❌ |
 | **多目标框架** | net45~net10 | netstandard2.0+ | net462+ |
-| **OceanBase / TiDB / Aurora** | ✅ 自动检测 | ❌ | ❌ |
+| **OceanBase / TiDB / Aurora / Doris** | ✅ 自动检测 | ❌ | ❌ |
 | **MySqlBulkCopy** | ✅ | ✅ | ✅ |
 | **压缩协议 (zlib/zstd)** | ✅ | ✅ | ❌ |
 | **Unix Socket** | ✅ | ✅ | ❌ |

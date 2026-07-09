@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFrameworks>net45;net461;netstandard2.0;netstandard2.1;net6.0;net8.0;net10.0</TargetFrameworks>
     <AssemblyTitle>新生命MySQL驱动</AssemblyTitle>
-    <Description>Pure C# high-performance MySQL ADO.NET driver. Zero third-party dependencies, full async/await, 2~3× faster batch DML than MySql.Data/MySqlConnector with unique Pipelined Batch Execution. MIT license. Supports net45~net10, MySQL 5.x~9.0+, OceanBase, TiDB.</Description>
+    <Description>Pure C# high-performance MySQL ADO.NET driver. Zero third-party dependencies, full async/await, 2~3× faster batch DML than MySql.Data/MySqlConnector with unique Pipelined Batch Execution. MIT license. Supports net45~net10, MySQL 5.x~9.0+, OceanBase, TiDB, Doris, Aurora, CloudSQL.</Description>
     <Company>新生命开发团队</Company>
     <Copyright>©2002-2026 NewLife</Copyright>
     <VersionPrefix>1.3</VersionPrefix>
@@ -28,8 +28,8 @@
     <PackageIcon>leaf.png</PackageIcon>
     <RepositoryUrl>https://github.com/NewLifeX/NewLife.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>MySQL;ADO.NET;database;driver;client;batch;bulk;MySqlBulkCopy;high-performance;async;MIT;XCode;国产;信创;高性能;批量;管道化;pipeline;OceanBase;TiDB;Aurora;CloudSQL;Geometry;compression;zlib;zstd;UnixSocket;WebAuthn;ORM;EF Core;DataReader;DataAdapter;DbBatch;$(AssemblyName)</PackageTags>
-    <PackageReleaseNotes>新增 Unix Socket 本地连接与 zlib/zstd 压缩协议支持；新增 WebAuthn（FIDO2）免密认证；实现 MySqlBulkCopy 批量导入与 MySqlDataSource 依赖注入支持；支持 MySQL Geometry 空间数据类型（MySqlGeometry）；自动检测 AWS Aurora / GCP Cloud SQL；连接池支持存活期与空闲验活可配置参数；扩展 Schema 元数据查询；Pipeline(tx) 批量性能领先竞品 41~59%</PackageReleaseNotes>
+    <PackageTags>MySQL;ADO.NET;database;driver;client;batch;bulk;MySqlBulkCopy;high-performance;async;MIT;XCode;国产;信创;高性能;批量;管道化;pipeline;OceanBase;TiDB;Doris;Aurora;CloudSQL;Geometry;compression;zlib;zstd;UnixSocket;WebAuthn;ORM;EF Core;DataReader;DataAdapter;DbBatch;$(AssemblyName)</PackageTags>
+    <PackageReleaseNotes>新增 Apache Doris 兼容；新增 Unix Socket 本地连接与 zlib/zstd 压缩协议支持；新增 WebAuthn（FIDO2）免密认证；实现 MySqlBulkCopy 批量导入与 MySqlDataSource 依赖注入支持；支持 MySQL Geometry 空间数据类型（MySqlGeometry）；自动检测 AWS Aurora / GCP Cloud SQL；连接池支持存活期与空闲验活可配置参数；扩展 Schema 元数据查询；Pipeline(tx) 批量性能领先竞品 41~59%</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>

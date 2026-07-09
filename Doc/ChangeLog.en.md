@@ -4,6 +4,11 @@ Pure C# high-performance MySQL driver. Zero third-party dependencies, pipelined 
 
 ---
 
+## v1.3.2026.0709 (2026-07-09)
+
+### New Features
+- **Apache Doris Compatibility**: Auto-detect Apache Doris analytical database, new `Doris` enum in `DatabaseType`
+
 ## v1.3.2026.0702 (2026-07-02)
 
 ### New Features

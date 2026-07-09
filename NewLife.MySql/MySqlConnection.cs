@@ -31,7 +31,7 @@ public sealed partial class MySqlConnection : DbConnection
     public String? ServerVersionComment { get; private set; }
 
     private DatabaseType _DatabaseType;
-    /// <summary>数据库类型。根据服务器版本字符串自动检测（MySQL/OceanBase/TiDB）</summary>
+    /// <summary>数据库类型。根据服务器版本字符串自动检测（MySQL/OceanBase/TiDB/Doris/Aurora/CloudSQL）</summary>
     public DatabaseType DatabaseType => _DatabaseType;
 
     private ConnectionState _State;
@@ -408,7 +408,7 @@ public sealed partial class MySqlConnection : DbConnection
     #region 辅助
     /// <summary>根据服务器版本字符串检测数据库类型</summary>
     /// <param name="serverVersion">服务器版本字符串，来自 HandshakeV10 握手包</param>
-    /// <returns>数据库类型（MySQL/OceanBase/TiDB/AmazonAurora/GoogleCloudSql）</returns>
+    /// <returns>数据库类型（MySQL/OceanBase/TiDB/AmazonAurora/GoogleCloudSql/ApacheDoris）</returns>
     /// <remarks>
     /// OceanBase 版本格式：5.7.x-OceanBase... 或 8.0.x-OceanBase...
     /// TiDB 版本格式：5.7.x-TiDB... 或类似格式

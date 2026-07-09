@@ -27,7 +27,7 @@ Su innovadora **ejecución por lotes en pipeline** ofrece un rendimiento DML por
 | Unix Socket | ✅ | ✅ | ❌ |
 | Autenticación WebAuthn | ✅ | ✅ | ❌ |
 | DbDataSource | ✅ | ❌ | ❌ |
-| OceanBase / TiDB / Aurora | ✅ Detección automática | ❌ | ❌ |
+| OceanBase / TiDB / Aurora / Doris | ✅ Detección automática | ❌ | ❌ |
 | Frameworks soportados | net45 ~ net10 | net462+ | net462+ |
 
 ---

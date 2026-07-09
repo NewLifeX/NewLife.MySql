@@ -27,7 +27,7 @@
 | Unix Socket | ✅ | ✅ | ❌ |
 | WebAuthn 認証 | ✅ | ✅ | ❌ |
 | DbDataSource | ✅ | ❌ | ❌ |
-| OceanBase / TiDB / Aurora | ✅ 自動検出 | ❌ | ❌ |
+| OceanBase / TiDB / Aurora / Doris | ✅ 自動検出 | ❌ | ❌ |
 | 対象フレームワーク | net45 ~ net10 | net462+ | net462+ |
 
 ---
