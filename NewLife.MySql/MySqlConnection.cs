@@ -229,6 +229,8 @@ public sealed partial class MySqlConnection : DbConnection
                                         _DatabaseType = DatabaseType.AmazonAurora;
                                     else if (comment.Contains("Cloud SQL", StringComparison.OrdinalIgnoreCase))
                                         _DatabaseType = DatabaseType.GoogleCloudSql;
+                                    else if (comment.Contains("Doris", StringComparison.OrdinalIgnoreCase))
+                                        _DatabaseType = DatabaseType.Doris;
 
                                     // 第二段包含'.'则视为版本号，非MySQL产品拼接产品后缀；否则回退到完整注释
                                     if (parts.Length > 1 && parts[1].Contains('.'))
@@ -412,6 +414,7 @@ public sealed partial class MySqlConnection : DbConnection
     /// TiDB 版本格式：5.7.x-TiDB... 或类似格式
     /// Amazon Aurora 版本格式：含 "Aurora" 关键词
     /// Google Cloud SQL 版本格式：含 "Cloud SQL" 关键词
+    /// Apache Doris 版本格式：5.7.99 Doris version doris-...
     /// </remarks>
     private static DatabaseType DetectDatabaseType(String serverVersion)
     {
@@ -432,6 +435,10 @@ public sealed partial class MySqlConnection : DbConnection
         // Google Cloud SQL 检测（不区分大小写）
         if (serverVersion.Contains("Cloud SQL", StringComparison.OrdinalIgnoreCase))
             return DatabaseType.GoogleCloudSql;
+
+        // Apache Doris 检测（不区分大小写）。版本格式：5.7.99 Doris version doris-x.x.x
+        if (serverVersion.Contains("Doris", StringComparison.OrdinalIgnoreCase))
+            return DatabaseType.Doris;
 
         // 默认为标准 MySQL
         return DatabaseType.MySQL;

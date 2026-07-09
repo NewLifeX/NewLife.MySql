@@ -72,6 +72,29 @@ public class DatabaseTypeDetectionTests
         Assert.Equal(DatabaseType.TiDB, conn.DatabaseType);
     }
 
+    [Fact(DisplayName = "检测Apache Doris版本字符串")]
+    public void DetectDoris()
+    {
+        var connStr = "Server=localhost;Database=test;User Id=root;Password=pass;";
+        using var conn = new MySqlConnection(connStr);
+
+        // 模拟 Doris 2.0 版本字符串
+        SetServerVersion(conn, "5.7.99 Doris version doris-2.0.3-rc06-37d31a5");
+        Assert.Equal(DatabaseType.Doris, conn.DatabaseType);
+
+        // 模拟 Doris 3.0 版本字符串
+        SetServerVersion(conn, "5.7.99 Doris version doris-3.0.0");
+        Assert.Equal(DatabaseType.Doris, conn.DatabaseType);
+
+        // 模拟 Doris 4.0 版本字符串
+        SetServerVersion(conn, "5.7.99 Doris version doris-4.1.2");
+        Assert.Equal(DatabaseType.Doris, conn.DatabaseType);
+
+        // 测试大小写不敏感
+        SetServerVersion(conn, "5.7.99 dORIS version doris-2.0.0");
+        Assert.Equal(DatabaseType.Doris, conn.DatabaseType);
+    }
+
     [Fact(DisplayName = "空版本字符串应返回MySQL")]
     public void EmptyVersionShouldReturnMySQL()
     {
