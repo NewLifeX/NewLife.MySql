@@ -522,6 +522,15 @@ public class SqlClient : DisposeBase
 
             // 读取数据。长度必须刚好，因为可能有多帧数据包
             var len = rs.Length;
+
+            // 数据包大小上限检测，防止恶意超大包导致 OOM
+            var maxPacketSize = MaxPacketSize > 0 ? MaxPacketSize : 64 * 1024 * 1024;
+            if (len > maxPacketSize)
+            {
+                Active = false;
+                throw new InvalidOperationException($"数据包大小 ({len}) 超过上限 ({maxPacketSize})");
+            }
+
             var pk = new OwnerPacket(len);
             await _reader.ReadAsync(ms, pk.Buffer, pk.Offset, len, token).ConfigureAwait(false);
 
@@ -672,6 +681,19 @@ public class SqlClient : DisposeBase
             var seq = hdr[3];
             var uncompressedLen = hdr[4] + (hdr[5] << 8) + (hdr[6] << 16);
             _seq = (Byte)(seq + 1);
+
+            // 压缩/解压后数据包大小上限检测
+            var maxPacketSize = MaxPacketSize > 0 ? MaxPacketSize : 64 * 1024 * 1024;
+            if (uncompressedLen > maxPacketSize)
+            {
+                Active = false;
+                throw new InvalidOperationException($"解压后数据包大小 ({uncompressedLen}) 超过上限 ({maxPacketSize})");
+            }
+            if (compressedLen > maxPacketSize)
+            {
+                Active = false;
+                throw new InvalidOperationException($"压缩数据包大小 ({compressedLen}) 超过上限 ({maxPacketSize})");
+            }
 
             ServerPacket rs;
             if (uncompressedLen == 0)
@@ -1125,7 +1147,16 @@ public class SqlClient : DisposeBase
             _seq = (Byte)(_rowBuffer[3] + 1);
 
             if (_rowBuffer.Length < len)
+            {
+                // 行数据包大小上限检测
+                var maxPacketSize = MaxPacketSize > 0 ? MaxPacketSize : 64 * 1024 * 1024;
+                if (len > maxPacketSize)
+                {
+                    Active = false;
+                    throw new InvalidOperationException($"行数据包大小 ({len}) 超过上限 ({maxPacketSize})");
+                }
                 _rowBuffer = new Byte[len];
+            }
 
             await _reader.ReadAsync(ms, _rowBuffer, 0, len, token).ConfigureAwait(false);
             WritePacketLog("<=", (Byte)(_seq - 1), new ReadOnlySpan<Byte>(_rowBuffer, 0, len), len);

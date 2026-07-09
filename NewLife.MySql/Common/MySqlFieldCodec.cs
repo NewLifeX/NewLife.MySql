@@ -13,6 +13,10 @@ namespace NewLife.MySql.Common;
 /// </remarks>
 public static class MySqlFieldCodec
 {
+    /// <summary>单个字段值的最大允许大小（字节）。默认 64MB，超过时抛出 InvalidDataException。
+    /// 防止恶意超大 BLOB/TEXT 字段导致 OOM，可在应用启动时按需调整</summary>
+    public static Int32 MaxFieldSize { get; set; } = 64 * 1024 * 1024;
+
     #region 文本协议读取
     /// <summary>从文本协议数据中解析字段值。文本协议中所有值以 UTF-8 字符串传输</summary>
     /// <remarks>
@@ -32,6 +36,10 @@ public static class MySqlFieldCodec
     /// <returns>解析后的 .NET 对象</returns>
     public static Object ReadTextValue(ref SpanReader reader, MySqlColumn column, Int32 len)
     {
+        // 字段值大小上限检测，防止超大 BLOB/TEXT 导致 OOM
+        if (len > MaxFieldSize)
+            throw new InvalidDataException($"字段值长度 ({len}) 超过上限 ({MaxFieldSize})");
+
         var span = reader.ReadBytes(len);
         //var reader2 = new SpanReader(span);
 
@@ -184,7 +192,7 @@ public static class MySqlFieldCodec
             MySqlDbType.Double => ReadBinaryDouble(ref reader),
 
             // 高精度小数：MySQL 长度编码字符串
-            MySqlDbType.Decimal or MySqlDbType.NewDecimal => ParseDecimalUtf8(reader.ReadBytes((Int32)reader.ReadLength())),
+            MySqlDbType.Decimal or MySqlDbType.NewDecimal => ParseDecimalUtf8(reader.ReadBytes(ReadCheckedLength(ref reader))),
 
             // 日期时间：自定义二进制格式
             MySqlDbType.DateTime or MySqlDbType.Timestamp or MySqlDbType.Date => ReadBinaryDateTime(ref reader),
@@ -192,19 +200,30 @@ public static class MySqlFieldCodec
             MySqlDbType.Year => (Int32)reader.ReadUInt16(),
 
             // 位字段：length-encoded bytes → Int64
-            MySqlDbType.Bit => (UInt64)reader.ReadBytes((Int32)reader.ReadLength()).ToArray().ToLong(),
+            MySqlDbType.Bit => (UInt64)reader.ReadBytes(ReadCheckedLength(ref reader)).ToArray().ToLong(),
 
             // 二进制类型：length-encoded bytes
             MySqlDbType.Blob or MySqlDbType.TinyBlob or MySqlDbType.MediumBlob or MySqlDbType.LongBlob
                 or MySqlDbType.Binary or MySqlDbType.VarBinary or MySqlDbType.Vector
-                => reader.ReadBytes((Int32)reader.ReadLength()).ToArray(),
+                => reader.ReadBytes(ReadCheckedLength(ref reader)).ToArray(),
 
             // Geometry：封装为 MySqlGeometry 类型
-            MySqlDbType.Geometry => (Object)new MySqlGeometry(reader.ReadBytes((Int32)reader.ReadLength()).ToArray()),
+            MySqlDbType.Geometry => (Object)new MySqlGeometry(reader.ReadBytes(ReadCheckedLength(ref reader)).ToArray()),
 
             // 字符串类型（VarString, String, VarChar, Text, JSON, Guid, Enum, Set 等）：MySQL 长度编码字符串
-            _ => reader.ReadString((Int32)reader.ReadLength()),
+            _ => reader.ReadString(ReadCheckedLength(ref reader)),
         };
+    }
+
+    /// <summary>读取 length-encoded 整数并检查大小上限，防止超大字段导致 OOM</summary>
+    /// <param name="reader">数据读取器</param>
+    /// <returns>长度值（已检查不超过 MaxFieldSize）</returns>
+    private static Int32 ReadCheckedLength(ref SpanReader reader)
+    {
+        var len = (Int32)reader.ReadLength();
+        if (len > MaxFieldSize)
+            throw new InvalidDataException($"字段值长度 ({len}) 超过上限 ({MaxFieldSize})");
+        return len;
     }
 
     /// <summary>读取二进制 DATETIME/TIMESTAMP/DATE 值</summary>
