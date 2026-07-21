@@ -1,21 +1,21 @@
 # 从 MySqlConnector 迁移到 NewLife.MySql
 
-> MySqlConnector 是社区主流的高性能 MySQL ADO.NET 驱动，NewLife.MySql 在批量操作和国产化方面具有显著优势。
+> MySqlConnector 是社区主流的高性能 MySQL ADO.NET 驱动，NewLife.MySql 在批量操作和国产化方面具有差异化能力。
 
 ## 为什么要迁移？
 
 | 对比维度 | MySqlConnector | NewLife.MySql |
 |---------|:---:|:---:|
-| 批量 DML 性能 | 基线 | **2~3× 更快** 🚀 |
-| 管道化批量执行 | ❌ | ✅ **独创** |
+| 批量 DML 性能 | 基线 | 管道化加速 |
+| 管道化批量执行 | ❌ | ✅ |
 | 数组绑定批量 | ❌ | ✅ |
 | 字典参数集批量 | ❌ | ✅ |
-| 批量方案数量 | 1 种（DbBatch） | **5 种**（覆盖百级到百万级行） |
+| 批量方案数量 | 1 种（DbBatch） | 5 种 |
 | OceanBase / TiDB / Doris | ❌ | ✅ 自动检测 |
 | 国产自主可控 | ❌ | ✅ |
 | Binlog 解析 | ❌ | ✅ |
-| 框架下限 | net462 | **net45** |
-| 代码体积 | ~30,000 行 | **~3,000 行** |
+| 框架下限 | net462 | net45 |
+| 代码体积 | ~30,000 行 | ~3,000 行 |
 
 ## 迁移步骤
 
@@ -115,7 +115,7 @@ batch.BatchCommands.Add(new MySqlConnector.MySqlBatchCommand("INSERT INTO users 
 });
 batch.ExecuteNonQuery();
 
-// NewLife.MySql：管道化批量，更简洁且 2~3× 更快
+// NewLife.MySql：管道化批量，更简洁高效
 using var cmd = new MySqlCommand(conn, "INSERT INTO users(name, age) VALUES(@name, @age)");
 cmd.Parameters.AddWithValue("name", new[] { "Alice", "Bob", "Charlie" });
 cmd.Parameters.AddWithValue("age", new[] { 25, 30, 22 });
@@ -156,4 +156,4 @@ var total = cmd.ExecuteArrayBatch(3);
 | UPDATE | 2,041ms | 710ms | **2.9×** |
 | DELETE | 1,767ms | 661ms | **2.7×** |
 
-详见 [性能测试报告](性能测试报告.md)。
+迁移后，批量操作场景可使用管道化批量执行获得显著加速，详见 [性能测试报告](性能测试报告.md)。

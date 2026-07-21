@@ -29,7 +29,7 @@ Pure C# high-performance MySQL driver. Zero third-party dependencies, pipelined 
 - **Extended Metadata**: Enhanced `GetSchema` with index, foreign key, and extended metadata queries
 
 ### Performance & Testing
-- **Benchmark Refresh**: Re-ran all performance benchmarks; Pipeline(tx) leads competitors by 41–59%
+- **Benchmark Refresh**: Re-ran all performance benchmarks with updated Pipeline(tx) batch DML data
 - **Test Coverage**: Significant unit test additions covering core components and edge cases
 
 ### Bug Fixes

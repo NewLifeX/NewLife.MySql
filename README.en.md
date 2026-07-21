@@ -8,18 +8,18 @@
 
 **NewLife.MySql** is a pure C# MySQL ADO.NET driver built by the NewLife team. It implements the MySQL wire protocol (Protocol Version 10) directly over TCP, with **zero third-party dependencies**, **full async/await support**, and an **MIT license** for worry-free commercial use.
 
-Its innovative **Pipelined Batch Execution** delivers **2–3× faster batch DML** than competing drivers — ideal for big data processing and scenarios where Chinese domestic software compliance (信创) is required.
+Its innovative **Pipelined Batch Execution** delivers **2–3× faster batch DML** compared to row-by-row execution — ideal for big data processing and scenarios where Chinese domestic software compliance (信创) is required.
 
 ---
 
-## Why NewLife.MySql?
+## Feature Comparison
 
 | Feature | NewLife.MySql | MySqlConnector | MySql.Data (Oracle) |
 |---------|:---:|:---:|:---:|
 | License | **MIT** ✅ | MIT ✅ | GPLv2 ⚠️ |
 | Dependencies | **0** (except NewLife.Core) | 1 | 6 |
 | True Async IO | ✅ | ✅ | ❌ (sync-over-async) |
-| Pipelined Batch | ✅ **Unique** | ❌ | ❌ |
+| Pipelined Batch | ✅ | ❌ | ❌ |
 | Array Bind Batch | ✅ | ❌ | ❌ |
 | Dictionary Batch | ✅ | ❌ | ❌ |
 | MySqlBulkCopy | ✅ | ✅ | ✅ |
@@ -29,7 +29,7 @@ Its innovative **Pipelined Batch Execution** delivers **2–3× faster batch DML
 | Unix Socket | ✅ | ✅ | ❌ |
 | WebAuthn Auth | ✅ | ✅ | ❌ |
 | DataAdapter | ✅ | ❌ | ✅ |
-| EF Core Provider | ✅ Own | ✅ (Pomelo) | ✅ Official |
+| EF Core Provider | ✅ | ✅ (Pomelo) | ✅ Official |
 | XCode ORM Native | ✅ | ❌ | ❌ |
 | OceanBase / TiDB / Aurora / Doris | ✅ Auto-detect | ❌ | ❌ |
 | Target Frameworks | net45 ~ net10 | net462+ | net462+ |
@@ -54,20 +54,20 @@ xychart-beta
     bar [938, 7, 6, 9]
 ```
 
-| Mode | NewLife | MySql.Data | MySqlConnector | NL vs Official | NL vs Connector |
-|------|--------:|----------:|--------------:|:------:|:------:|
-| SingleRow | 989.60 | 1,215.07 | **938.22** | 1.23× | — |
-| BulkRead | **6.20** | 13.82 | 6.62 | **2.23×** | 1.07× |
-| DbTable | **6.09** | 19.01 | 6.44 | **3.12×** | 1.06× |
-| ReadModels | **6.93** | 27.01 | 9.13 | **3.90×** | **1.32×** |
+| Mode | NewLife | MySql.Data | MySqlConnector |
+|------|--------:|----------:|--------------:|
+| SingleRow | 989.60 | 1,215.07 | **938.22** |
+| BulkRead | **6.20** | 13.82 | 6.62 |
+| DbTable | **6.09** | 19.01 | 6.44 |
+| ReadModels | **6.93** | 27.01 | 9.13 |
 
 ### Batch DML: 10,000 Rows (ms, lower is better)
 
-| Operation | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) | NL Speedup |
-|-----------|------:|------:|------:|------:|
-| INSERT | **899** | 1,927 | 1,906 | **2.1×** |
-| UPDATE | **710** | 2,265 | 2,041 | **2.9×** |
-| DELETE | **661** | 1,961 | 1,767 | **2.7×** |
+| Operation | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) |
+|-----------|------:|------:|------:|
+| INSERT | **899** | 1,927 | 1,906 |
+| UPDATE | **710** | 2,265 | 2,041 |
+| DELETE | **661** | 1,961 | 1,767 |
 
 ### Pipelined Acceleration (1,000 rows)
 
@@ -77,15 +77,7 @@ xychart-beta
 | UPDATE | N/A | 71ms | — |
 | DELETE | N/A | 73ms | — |
 
-### When to Use Which Driver
 
-| Scenario | Recommended Driver | Reason |
-|----------|-------------------|--------|
-| Large batch DML | **NewLife.MySql** | Pipeline + transaction, 2~3× faster |
-| Bulk SELECT + entity mapping | **NewLife.MySql** | ReadModels native path, 3~4× faster than Official |
-| Row-by-row queries | MySqlConnector | Slight edge (+5.5%) |
-| Need MySqlBulkCopy | MySqlConnector | `MySqlBulkCopy` API |
-| Need compression protocol | MySqlConnector | Built-in compression |
 
 ---
 
@@ -158,7 +150,7 @@ conn.Open();
 using var cmd = new MySqlCommand(conn, "UPDATE users SET age=@age WHERE name=@name");
 cmd.Parameters.AddWithValue("age", agesArray);    // Int32[10000]
 cmd.Parameters.AddWithValue("name", namesArray);   // String[10000]
-var totalAffected = cmd.ExecuteArrayBatch(10000);  // 2~3× faster than competitors!
+var totalAffected = cmd.ExecuteArrayBatch(10000);  // Pipeline mode batches send and receive
 ```
 
 ### Async API
@@ -222,7 +214,7 @@ while (await reader.ReadAsync())
 
 | TFM | Status |
 |-----|--------|
-| `net45` | ✅ The only modern MySQL driver supporting .NET 4.5 |
+| `net45` | ✅ Full support for .NET 4.5 |
 | `net461` | ✅ |
 | `netstandard2.0` | ✅ |
 | `netstandard2.1` | ✅ |
@@ -271,19 +263,7 @@ while (await reader.ReadAsync())
 
 ---
 
-## Why Migrate?
 
-### From MySql.Data (Oracle Official)
-- **License**: MIT vs GPLv2 — no commercial licensing fees
-- **True async**: Real `async/await` vs sync-over-async pseudo-async
-- **Batch performance**: 2~3× faster batch DML
-- **Dependency-free**: 0 external dependencies vs 6
-
-### From MySqlConnector
-- **Batch performance**: 2~3× faster batch DML with Pipeline
-- **Batch flexibility**: 5 batch modes covering all scales
-- **Chinese domestic compliance**: Pure domestic IP, trusted by 信创 projects
-- **OceanBase/TiDB**: Native auto-detection and compatibility
 
 ---
 

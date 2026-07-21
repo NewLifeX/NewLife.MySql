@@ -1,4 +1,4 @@
-﻿# NewLife.MySql — 纯国产高性能 MySQL 驱动
+# NewLife.MySql — 纯国产高性能 MySQL 驱动
 
 [![NuGet](https://img.shields.io/nuget/v/NewLife.MySql.svg)](https://www.nuget.org/packages/NewLife.MySql)
 [![License](https://img.shields.io/github/license/NewLifeX/NewLife.MySql)](https://github.com/NewLifeX/NewLife.MySql/blob/master/LICENSE)
@@ -7,7 +7,7 @@
 
 **NewLife.MySql** 是新生命团队出品的纯国产 MySQL 客户端驱动，基于 ADO.NET 标准接口，直接通过 TCP 实现 MySQL 协议层（Protocol Version 10）。仅依赖 `NewLife.Core`，**零第三方依赖**、**全链路真异步**、**MIT 协议商用无忧**。
 
-独创的**管道化批量执行**（Pipeline）在万级行批量写入场景下领先竞品 **2×~3×**，是大数据批量操作、信创国产化替代的理想选择。
+独创的**管道化批量执行**（Pipeline）在万级行批量写入场景下可达 **2×~3×** 加速（vs 逐行基线），是大数据批量操作、信创国产化替代的理想选择。
 
 ---
 
@@ -66,13 +66,13 @@
 | 10,000 行 UPDATE | 3,469ms | 757ms | **4.6×** |
 | 10,000 行 DELETE | 3,351ms | 673ms | **5.0×** |
 
-**三驱动对比**（10,000 行批量操作）：
+**三驱动性能数据**（10,000 行批量操作）：
 
-| 操作 | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) | NewLife 加速比 |
-|------|------:|------:|------:|------:|
-| INSERT | 899ms | 1,927ms | 1,906ms | **2.1×** |
-| UPDATE | 710ms | 2,265ms | 2,041ms | **2.9×** |
-| DELETE | 661ms | 1,961ms | 1,767ms | **2.7×** |
+| 操作 | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) |
+|------|------:|------:|------:|
+| INSERT | 899ms | 1,927ms | 1,906ms |
+| UPDATE | 710ms | 2,265ms | 2,041ms |
+| DELETE | 661ms | 1,961ms | 1,767ms |
 
 > 本机内网已有 **4×~8×** 加速，跨机房场景收益更大。详细数据参见 [性能测试报告](Doc/性能测试报告.md)。
 
@@ -106,7 +106,7 @@
 
 ---
 
-## 与主流驱动对比
+## 功能特性
 
 | 功能 | NewLife.MySql | MySqlConnector | MySql.Data (Oracle) |
 |------|:---:|:---:|:---:|
@@ -114,7 +114,7 @@
 | **国产自主** | ✅ | ❌ | ❌ |
 | **第三方依赖** | **无** | 无 | 无 |
 | **真异步 IO** | ✅ | ✅ | ❌ |
-| **管道化批量执行** | ✅ **独创** | ❌ | ❌ |
+| **管道化批量执行** | ✅ | ❌ | ❌ |
 | **数组绑定批量** | ✅ | ❌ | ❌ |
 | **字典参数集批量** | ✅ | ❌ | ❌ |
 | **DbBatch (.NET 6+)** | ✅ | ✅ | ❌ |
@@ -129,7 +129,7 @@
 | **WebAuthn 认证** | ✅ | ✅ | ❌ |
 | **DbDataSource** | ✅ | ❌ | ❌ |
 
-> 完整对比和架构分析参见 [架构设计](Doc/架构设计.md)。
+> 完整功能和架构分析参见 [架构设计](Doc/架构设计.md)。
 
 ---
 

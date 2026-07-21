@@ -8,18 +8,18 @@
 
 **NewLife.MySql** é um driver ADO.NET para MySQL em C# puro desenvolvido pela equipe NewLife. Implementa o protocolo de rede MySQL (Protocol Version 10) diretamente sobre TCP, com **zero dependências de terceiros**, **suporte completo a async/await** e **licença MIT** para uso comercial sem preocupações.
 
-Sua inovadora **execução em lote pipeline** oferece desempenho DML em lote **2–3× mais rápido** que os drivers concorrentes.
+Sua inovadora **execução em lote pipeline** oferece desempenho DML em lote **2–3× mais rápido** comparado à execução linha por linha.
 
 ---
 
-## Comparação com outros drivers
+## Comparação de recursos
 
 | Funcionalidade | NewLife.MySql | MySqlConnector | MySql.Data (Oracle) |
 |---------|:---:|:---:|:---:|
 | Licença | **MIT** ✅ | MIT ✅ | GPLv2 ⚠️ |
 | Dependências | **0** (apenas NewLife.Core) | 1 | 6 |
 | IO Assíncrono real | ✅ | ✅ | ❌ |
-| Lote pipeline | ✅ **Exclusivo** | ❌ | ❌ |
+| Lote pipeline | ✅ | ❌ | ❌ |
 | Lote por array | ✅ | ❌ | ❌ |
 | Lote por dicionário | ✅ | ❌ | ❌ |
 | MySqlBulkCopy | ✅ | ✅ | ✅ |
@@ -38,11 +38,11 @@ Sua inovadora **execução em lote pipeline** oferece desempenho DML em lote **2
 
 ### DML em lote: 10.000 linhas (ms, menor é melhor)
 
-| Operação | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) | Aceleração |
-|------|------:|------:|------:|------:|
-| INSERT | **899** | 1.927 | 1.906 | **2.1×** |
-| UPDATE | **710** | 2.265 | 2.041 | **2.9×** |
-| DELETE | **661** | 1.961 | 1.767 | **2.7×** |
+| Operação | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) |
+|------|------:|------:|------:|
+| INSERT | **899** | 1.927 | 1.906 |
+| UPDATE | **710** | 2.265 | 2.041 |
+| DELETE | **661** | 1.961 | 1.767 |
 
 ### Aceleração com pipeline (1.000 linhas)
 

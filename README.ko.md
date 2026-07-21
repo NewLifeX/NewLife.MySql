@@ -8,18 +8,18 @@
 
 **NewLife.MySql**은 NewLife 팀이 개발한 순수 C# MySQL ADO.NET 드라이버입니다. TCP를 통해 MySQL 와이어 프로토콜(Protocol Version 10)을 직접 구현했으며, **서드파티 의존성 제로**, **완전한 async/await 지원**, **MIT 라이선스**로 상업적 사용이 자유롭습니다.
 
-독자적인 **파이프라인 배치 실행**(Pipeline)으로 경쟁 드라이버 대비 배치 DML이 **2~3배 빠릅니다**.
+독자적인 **파이프라인 배치 실행**(Pipeline)으로 행 단위 실행 대비 배치 DML이 **2~3배 빠릅니다**.
 
 ---
 
-## 다른 드라이버와 비교
+## 기능 비교
 
 | 기능 | NewLife.MySql | MySqlConnector | MySql.Data (Oracle) |
 |---------|:---:|:---:|:---:|
 | 라이선스 | **MIT** ✅ | MIT ✅ | GPLv2 ⚠️ |
 | 의존성 | **0** (NewLife.Core만) | 1 | 6 |
 | 진정한 비동기 IO | ✅ | ✅ | ❌ |
-| 파이프라인 배치 | ✅ **독자** | ❌ | ❌ |
+| 파이프라인 배치 | ✅ | ❌ | ❌ |
 | 배열 바인드 배치 | ✅ | ❌ | ❌ |
 | 사전 파라미터 배치 | ✅ | ❌ | ❌ |
 | MySqlBulkCopy | ✅ | ✅ | ✅ |
@@ -38,11 +38,11 @@
 
 ### 배치 DML: 10,000행 (ms, 낮을수록 좋음)
 
-| 작업 | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) | 가속비 |
-|------|------:|------:|------:|------:|
-| INSERT | **899** | 1,927 | 1,906 | **2.1×** |
-| UPDATE | **710** | 2,265 | 2,041 | **2.9×** |
-| DELETE | **661** | 1,961 | 1,767 | **2.7×** |
+| 작업 | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) |
+|------|------:|------:|------:|
+| INSERT | **899** | 1,927 | 1,906 |
+| UPDATE | **710** | 2,265 | 2,041 |
+| DELETE | **661** | 1,961 | 1,767 |
 
 ### 파이프라인 가속 (1,000행)
 

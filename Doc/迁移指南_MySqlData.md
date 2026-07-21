@@ -1,18 +1,18 @@
 # 从 MySql.Data 迁移到 NewLife.MySql
 
-> MySql.Data 是 Oracle 官方的 MySQL ADO.NET 驱动，NewLife.MySql 是纯国产高性能替代。
+> MySql.Data 是 Oracle 官方的 MySQL ADO.NET 驱动，NewLife.MySql 是纯国产替代驱动。
 
 ## 为什么要迁移？
 
 | 对比维度 | MySql.Data | NewLife.MySql |
 |---------|-----------|:---:|
-| 许可证 | GPLv2（商用需付费）⚠️ | **MIT 免费商用** ✅ |
-| 异步实现 | sync-over-async 伪异步 ❌ | **全链路真异步** ✅ |
-| 批量 DML 性能 | 基线 | **2~3× 更快** 🚀 |
-| 第三方依赖 | 6 个 ⚠️ | **0 个** ✅ |
+| 许可证 | GPLv2 | **MIT** |
+| 异步实现 | sync-over-async | **全链路真异步** |
+| 批量 DML 性能 | 基线 | 管道化加速 |
+| 第三方依赖 | 6 个 | 0 个 |
 | 国产自主可控 | ❌ | ✅ |
-| 代码体积 | ~50,000 行 | **~3,000 行** |
-| 管道化批量执行 | ❌ | ✅ **独创** |
+| 代码体积 | ~50,000 行 | ~3,000 行 |
+| 管道化批量执行 | ❌ | ✅ |
 | 数组绑定批量 | ❌ | ✅ |
 | 字典参数集批量 | ❌ | ✅ |
 
@@ -133,7 +133,7 @@ foreach (var row in data)
     cmd.ExecuteNonQuery();  // 每行一次网络往返
 }
 
-// NewLife.MySql：管道化批量执行，2~3× 更快
+// NewLife.MySql：管道化批量执行，一次网络往返
 cmd.Parameters.AddWithValue("name", namesArray);    // String[10000]
 cmd.Parameters.AddWithValue("age", agesArray);      // Int32[10000]
 var total = cmd.ExecuteArrayBatch(10000);           // 一次网络往返！
@@ -158,6 +158,6 @@ var total = cmd.ExecuteArrayBatch(10000);           // 一次网络往返！
 
 ---
 
-## 性能提升
+## 性能数据
 
-迁移后，批量操作场景可获得 **2~3× 性能提升**，详见 [性能测试报告](性能测试报告.md)。
+迁移后，批量操作场景可使用管道化批量执行获得显著加速，详见 [性能测试报告](性能测试报告.md)。
