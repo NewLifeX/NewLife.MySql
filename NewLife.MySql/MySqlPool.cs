@@ -100,7 +100,10 @@ public class MySqlPool : ObjectPool<SqlClient>
         // 廉价非阻塞 socket 探活：每次借出都做，不再被空闲时间窗口门控。对端已关或残留脏数据一律丢弃
         if (value.IsSocketAlive() != SocketHealth.Alive) return false;
 
-        // Reusable 直接借出；NeedPing 由异步 GetAsync 补一次 PING
+        // NeedPing 连接在同步借出路径无法异步验活，直接丢弃重建，避免借出可能已断开的空闲连接；
+        // 异步 GetAsync 路径仍通过 PING 保留连接
+        if (decision == ConnectionDecision.NeedPing) return false;
+
         return true;
     }
 
@@ -185,9 +188,11 @@ public class MySqlPoolManager
     {
         using var span = DefaultTracer.Instance?.NewSpan("db:mysql:CreatePool", new { setting.Server, setting.Database });
 
+        // 克隆 Setting 快照，避免与调用方共享可变实例。
+        // 否则创建池的连接调用 ChangeDatabase 修改 Setting.Database 时，会篡改池配置，导致后续新连接连到错误数据库
         var pool = new MySqlPool
         {
-            Setting = setting,
+            Setting = setting.Clone(),
             Min = setting.MinPoolSize > 0 ? setting.MinPoolSize : 0,
             Max = setting.MaxPoolSize > 0 ? setting.MaxPoolSize : 100,
             IdleTime = setting.IdlePoolTime > 0 ? setting.IdlePoolTime : 60,

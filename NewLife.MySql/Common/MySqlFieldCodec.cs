@@ -41,7 +41,6 @@ public static class MySqlFieldCodec
             throw new InvalidDataException($"字段值长度 ({len}) 超过上限 ({MaxFieldSize})");
 
         var span = reader.ReadBytes(len);
-        //var reader2 = new SpanReader(span);
 
         return column.Type switch
         {

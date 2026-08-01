@@ -14,7 +14,13 @@ public sealed class MySqlDataSource : DbDataSource
 
     /// <summary>实例化数据源</summary>
     /// <param name="connectionString">连接字符串</param>
-    internal MySqlDataSource(String connectionString)
+    /// <example>
+    /// <code>
+    /// var dataSource = new MySqlDataSource("Server=localhost;Port=3306;Database=test;UserID=root;Password=root");
+    /// await using var conn = await dataSource.OpenConnectionAsync();
+    /// </code>
+    /// </example>
+    public MySqlDataSource(String connectionString)
     {
         _settings = new MySqlConnectionStringBuilder { ConnectionString = connectionString };
     }
@@ -42,11 +48,13 @@ public sealed class MySqlDataSource : DbDataSource
     /// <summary>创建命令</summary>
     /// <param name="commandText">SQL 语句</param>
     /// <returns>MySQL 命令实例</returns>
+    /// <remarks>基于新建连接直接创建 MySqlCommand，不能强转 <c>base.CreateCommand()</c>（其返回 DbCommandWrapper 包装器）</remarks>
     public new MySqlCommand CreateCommand(String? commandText = null)
     {
-        var cmd = (MySqlCommand)base.CreateCommand();
+        var conn = CreateDbConnection();
+        var cmd = conn.CreateCommand();
         if (commandText != null) cmd.CommandText = commandText;
-        return cmd;
+        return (MySqlCommand)cmd;
     }
 }
 #endif
