@@ -4,10 +4,41 @@ Pure C# high-performance MySQL driver. Zero third-party dependencies, pipelined 
 
 ---
 
-## v1.3.2026.0709 (2026-07-09)
+## v1.4.2026.0802 (2026-08-02)
 
 ### New Features
 - **Apache Doris Compatibility**: Auto-detect Apache Doris analytical database, new `Doris` enum in `DatabaseType`
+- **EF Core Database Creation**: `MySqlDatabaseCreator` implements `Create/Delete`, making `EnsureCreated` usable; `Exists` queries `information_schema.SCHEMATA` to avoid mis-detection from pooled stale connections
+- **Value-Array Batch Binding**: New `ExecuteBatchValues`/`ExecuteBatchValuesAsync` on `MySqlCommand` for zero dictionary/parameter-object allocation in bulk imports
+
+### Security
+- **Packet Size Limit**: Enhanced packet size upper-bound detection to prevent OOM from malicious oversized packets
+
+### Bug Fixes
+- **[fix] Compression protocol overhaul**: `UseCompression=true` never actually worked; this release fixes 5 stacked defects (missing 4-byte plain frame header on compressed payload, DEFLATE→zlib matching MySQL protocol, unified compressed row reading, cross-packet fragmentation support, whole-chain compression) with new `CompressionTests` + `ZlibCodecTests`
+- **[fix] Pool config pollution**: `CreatePool` clones connection string snapshot so `ChangeDatabase` can't corrupt shared pool config
+- **[fix] `MySqlDataSource` public constructor**: was internal and unusable; also fixed `CreateCommand` InvalidCastException on `DbCommandWrapper` cast
+- **[fix] Auto-reconnect restricted to read statements** (SELECT/SHOW/DESC/EXPLAIN); DML no longer retried to avoid duplicate writes
+- **[fix] `SerializeValue` datetime uses InvariantCulture** to avoid invalid SQL literals from culture-specific separators
+- **[fix] `MySqlCommand.Cancel()` throws NotSupportedException** instead of silent no-op
+- **[fix] OwnerPacket Dispose on send paths** returns ArrayPool buffers, avoiding buffer leaks in batch scenarios
+
+### Performance
+- `ReadModelsAsync<T>` caches compiled property setter delegates, eliminating per-row reflection (10k-row entity mapping 6.93ms→6.66ms)
+- Binary row reading reuses null_bitmap buffer, eliminating per-row allocation
+- `GetOrdinal` column-name→index mapping cache, eliminating O(n) lookup and delegate allocation
+- Compression send path pools MemoryStream + GetBuffer, eliminating two allocations per packet
+- OwnerPacket Dispose on precompile/compression paths returns ArrayPool memory
+- **Value-array bulk import**: `SqlClient` adds value-array batch core (`ExecuteStatementValuesAsync`); `MySqlBulkCopy` builds `Object?[]` per row, eliminating per-row `Dictionary` and parameter object allocations (~74.8% lower allocation for 100k rows); fixed `@name` not replaced with `?` causing NULL user-variable binding
+
+### Architecture
+- `MySqlCommand.DisposeAsync` truly asynchronously closes prepared statements instead of blocking Dispose on network IO
+- `MySqlPool` synchronous lease rebuilds idle-over-threshold connections, consistent with async PING validation path
+
+### Code Hygiene
+- Cleaned empty if in `GetColumnsAsync`, dead comments in `MySqlFieldCodec`, indentation in `ExecuteBatch*Async`
+
+---
 
 ## v1.3.2026.0702 (2026-07-02)
 

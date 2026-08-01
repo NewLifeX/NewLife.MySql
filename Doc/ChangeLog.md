@@ -4,10 +4,47 @@
 
 ---
 
-## v1.3.2026.0709（2026-07-09）
+## v1.4.2026.0802（2026-08-02）
 
 ### 新功能
 - **Apache Doris 兼容**：自动检测 Apache Doris 分析型数据库，`DatabaseType` 新增 `Doris` 枚举
+- **EF Core 数据库创建**：`MySqlDatabaseCreator` 实现 `Create/Delete`，`EnsureCreated` 可用；`Exists` 改查 `information_schema.SCHEMATA` 避免连接池复用旧连接导致误判
+- **值数组批量绑定**：`MySqlCommand` 新增 `ExecuteBatchValues`/`ExecuteBatchValuesAsync`，为批量导入提供零字典/参数对象分配的绑定方式
+
+### 安全增强
+- **数据包大小上限检测**：增强协议数据包大小上限检测，防止恶意超大包导致内存耗尽（OOM）
+
+### Bug 修复
+- **[fix] 压缩协议全面修复**：`UseCompression=true` 此前从未真正工作，本次修复 5 个叠加缺陷：
+  - 压缩包 payload 补充 4 字节普通帧头（此前缺失导致服务器无法解析）
+  - 压缩格式由 DeflateStream（DEFLATE）改为 zlib（net6+ 用 ZLibStream，旧框架手动构造），与 MySQL 压缩协议匹配
+  - 行读取路径 `ReadRowPacketAsync` 在压缩模式下走统一压缩读取（此前直接读流导致协议错位）
+  - 支持普通包跨压缩包分片：解压缓存 + 不完整包保留拼接
+  - 发送链式包合并整链后压缩（此前 `GetSpan()` 遗漏 Next 链数据）
+  - 新增 `CompressionTests`（真实 MySQL）+ `ZlibCodecTests` 测试覆盖
+- **[fix] 连接池配置污染**：`CreatePool` 克隆连接字符串快照，杜绝创建池的连接调用 `ChangeDatabase` 篡改共享池配置，导致后续新连接连到错误数据库
+- **[fix] `MySqlDataSource` 提供公共构造**（此前 internal 无法使用），并修复 `CreateCommand` 强转 `DbCommandWrapper` 抛 InvalidCastException
+- **[fix] 断线自动重连仅限读语句**（SELECT/SHOW/DESC/EXPLAIN），DML 不再重试，避免"服务端已执行、响应丢失"时重复写入
+- **[fix] `SerializeValue` 日期时间格式化改用 InvariantCulture**，避免区域性分隔符差异生成非法 SQL 字面量
+- **[fix] `MySqlCommand.Cancel()` 明确抛 NotSupportedException**，替代静默无操作
+- **[fix] 发送路径 OwnerPacket 补充 Dispose**：`SendPacketAsync`/`ExecutePipelineCoreAsync`/`Authentication` 归还 ArrayPool 池化缓冲，避免批量场景缓冲泄漏
+
+### 性能优化
+- `ReadModelsAsync<T>` 属性 setter 编译委托缓存，消除逐行反射；万行 SELECT 实体映射 6.93ms→6.66ms
+- 二进制行读取复用 null_bitmap 缓冲，消除每行分配
+- `GetOrdinal` 列名→序号映射缓存，消除每次 O(n) 查找与委托分配
+- 压缩协议发送路径池化复用（Pool.MemoryStream + GetBuffer），消除每包两次分配
+- 预编译/压缩路径 `OwnerPacket` 补充 Dispose，归还 ArrayPool 池化内存
+- **批量导入值数组化**：`SqlClient` 新增值数组批量核心（`ExecuteStatementValuesAsync`），`MySqlBulkCopy` 每行直接构建 `Object?[]`，消除批量导入每行 `Dictionary` 与 `MySqlParameterCollection`/`MySqlParameter` 分配（实测 10 万行分配降低约 74.8%）；修复无参数集合时 `@name` 未替换 `?` 导致服务器按用户变量 NULL 绑定
+
+### 架构优化
+- `MySqlCommand.DisposeAsync` 真正异步关闭预编译语句，避免 Dispose 同步阻塞网络 IO
+- `MySqlPool` 同步借出对空闲超阈连接丢弃重建，与异步 PING 验活路径行为统一
+
+### 代码卫生
+- 清理 `GetColumnsAsync` 空 if、`MySqlFieldCodec` 死注释、`ExecuteBatch*Async` 缩进
+
+---
 
 ## v1.3.2026.0702（2026-07-02）
 

@@ -5,7 +5,7 @@
     <Description>基于NewLife.MySql的Entity Framework Core数据库提供程序，纯国产零依赖，支持管道化批量操作和DbBatch</Description>
     <Company>新生命开发团队</Company>
     <Copyright>©2002-2026 NewLife</Copyright>
-    <VersionPrefix>1.1</VersionPrefix>
+    <VersionPrefix>1.4</VersionPrefix>
     <VersionSuffix>$([System.DateTime]::Now.ToString(`yyyy.MMdd`))</VersionSuffix>
     <Version>$(VersionPrefix).$(VersionSuffix)</Version>
     <FileVersion>$(Version)</FileVersion>
@@ -28,7 +28,7 @@
     <RepositoryUrl>https://github.com/NewLifeX/NewLife.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
     <PackageTags>新生命团队;X组件;NewLife;MySql;MySQL;ADO.NET;国产;EntityFrameworkCore;EFCore;$(AssemblyName)</PackageTags>
-    <PackageReleaseNotes>同步主驱动 v1.3：Unix Socket 连接、zlib/zstd 压缩协议、WebAuthn 认证、MySqlBulkCopy、Geometry 空间类型、Aurora/CloudSQL 兼容、连接池存活期与空闲验活</PackageReleaseNotes>
+    <PackageReleaseNotes>同步主驱动 v1.4：支持 Apache Doris、压缩协议修复、ExecuteBatchValues 值数组批量绑定、数据包大小上限检测；MySqlDatabaseCreator 实现 Create/Delete，EnsureCreated 可用</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>

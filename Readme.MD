@@ -77,11 +77,12 @@
 
 > 本机内网千级行已达 **35×** 加速，跨机房场景收益更大。详细数据参见 [性能测试报告](Doc/性能测试报告.md)。
 
-### 🔧 五种批量操作方案
+### 🔧 六种批量操作方案
 
 | 方案 | API | 适用场景 |
 |------|-----|---------|
 | 字典参数集 | `ExecuteBatch` | 动态参数，参数来自集合 |
+| 值数组绑定 | `ExecuteBatchValues` | 批量导入（`MySqlBulkCopy` 内部），零字典/参数对象分配 |
 | 数组绑定 | `ExecuteArrayBatch` | 大批量 DML，Oracle 风格 |
 | 管道化 | `Pipeline=true` | 万级/十万级行，跨机房 |
 | 多行 VALUES | 拼接 SQL | 纯 INSERT 批量 |

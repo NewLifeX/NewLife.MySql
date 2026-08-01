@@ -1,6 +1,8 @@
-﻿using System.ComponentModel;
+﻿using System;
+using System.ComponentModel;
 using System.Data.Common;
 using NewLife.MySql;
+using Xunit.Abstractions;
 
 namespace UnitTest;
 
@@ -8,6 +10,10 @@ namespace UnitTest;
 [Collection(TestCollections.InMemory)]
 public class MySqlBatchTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public MySqlBatchTests(ITestOutputHelper output) => _output = output;
+
     #region MySqlBatchCommand
     [Fact]
     [DisplayName("MySqlBatchCommand默认CommandText为空字符串")]
@@ -208,6 +214,59 @@ public class MySqlBatchTests
         var batch = new MySqlBatch(conn);
 
         Assert.Throws<InvalidOperationException>(() => batch.ExecuteNonQuery());
+    }
+    #endregion
+
+    #region 批量数据结构分配对比（L3 值数组化收益量化）
+    [Fact]
+    [DisplayName("批量导入值数组 vs 字典+参数对象分配对比")]
+    public void BatchValueArrayAllocation()
+    {
+        const Int32 rows = 100000;
+        const Int32 cols = 5;
+
+        // JIT 预热，避免首次调用分配污染测量
+        _ = new Dictionary<String, Object?>(cols);
+        _ = new MySqlParameterCollection();
+        _ = new Object?[cols];
+
+        // 旧路径模型：每行 Dictionary + 每组 MySqlParameterCollection + 每参数 MySqlParameter
+        var allocOld = GC.GetAllocatedBytesForCurrentThread();
+        var oldBatch = new List<IDictionary<String, Object?>>(rows);
+        for (var i = 0; i < rows; i++)
+        {
+            var dict = new Dictionary<String, Object?>(cols);
+            dict["name"] = $"user_{i}";
+            dict["age"] = 20 + (i % 50);
+            dict["score"] = 80.5;
+            dict["email"] = $"u{i}@test.com";
+            dict["created"] = DateTime.Now;
+            oldBatch.Add(dict);
+        }
+        var psList = new List<MySqlParameterCollection>(rows);
+        foreach (var dict in oldBatch)
+        {
+            var ps = new MySqlParameterCollection();
+            foreach (var kv in dict)
+                ps.AddWithValue(kv.Key, kv.Value);
+            psList.Add(ps);
+        }
+        allocOld = GC.GetAllocatedBytesForCurrentThread() - allocOld;
+
+        // 新路径模型：每行直接构建值数组（按 SQL 参数顺序）
+        var allocNew = GC.GetAllocatedBytesForCurrentThread();
+        var newBatch = new List<Object?[]>(rows);
+        for (var i = 0; i < rows; i++)
+            newBatch.Add(new Object?[] { $"user_{i}", 20 + (i % 50), 80.5, $"u{i}@test.com", DateTime.Now });
+        allocNew = GC.GetAllocatedBytesForCurrentThread() - allocNew;
+
+        _output.WriteLine($"旧路径(字典+参数对象) {rows:N0} 行分配: {allocOld:N0} B，每行 {allocOld / rows:N0} B");
+        _output.WriteLine($"新路径(值数组)     {rows:N0} 行分配: {allocNew:N0} B，每行 {allocNew / rows:N0} B");
+        _output.WriteLine($"降幅: {100.0 * (allocOld - allocNew) / allocOld:N1}%");
+
+        // 值数组消除每行 Dictionary 桶/条目数组与每参数 MySqlParameter 对象，分配应显著低于旧路径
+        Assert.True(allocNew < allocOld,
+            $"值数组分配 {allocNew:N0}B 应低于字典+参数对象 {allocOld:N0}B");
     }
     #endregion
 }
