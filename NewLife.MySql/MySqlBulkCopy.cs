@@ -115,18 +115,19 @@ public class MySqlBulkCopy : IDisposable
             var parameters = mappings.Select(m => $"@{m.DestinationColumn}").ToArray();
             var insertSql = $"INSERT INTO {DestinationTableName} ({String.Join(", ", columns)}) VALUES ({String.Join(", ", parameters)})";
 
-            var batch = new List<IDictionary<String, Object?>>(BatchSize);
+            var batch = new List<Object?[]>(BatchSize);
             var nextNotify = NotifyAfter > 0 ? NotifyAfter : Int32.MaxValue;
 
             while (reader is DbDataReader dbReader
                 ? await dbReader.ReadAsync(cancellationToken).ConfigureAwait(false)
                 : reader.Read())
             {
-                var row = new Dictionary<String, Object?>();
-                foreach (var mapping in mappings)
+                // 每行直接构建值数组（按映射顺序 = SQL 参数顺序），避免每行 Dictionary 分配
+                var row = new Object?[mappings.Count];
+                for (var i = 0; i < mappings.Count; i++)
                 {
-                    var value = reader.GetValue(mapping.SourceOrdinal);
-                    row[mapping.DestinationColumn] = value == DBNull.Value ? null : value;
+                    var value = reader.GetValue(mappings[i].SourceOrdinal);
+                    row[i] = value == DBNull.Value ? null : value;
                 }
                 batch.Add(row);
 
@@ -190,9 +191,9 @@ public class MySqlBulkCopy : IDisposable
     /// <summary>执行一批次写入。使用 Pipeline + 预编译语句确保高性能</summary>
     /// <param name="conn">连接</param>
     /// <param name="insertSql">INSERT 语句</param>
-    /// <param name="batch">批次数据</param>
+    /// <param name="batch">批次数据（每行为按参数顺序排列的值数组）</param>
     /// <param name="cancellationToken">取消令牌</param>
-    private async Task WriteBatchAsync(MySqlConnection conn, String insertSql, List<IDictionary<String, Object?>> batch, CancellationToken cancellationToken)
+    private async Task WriteBatchAsync(MySqlConnection conn, String insertSql, List<Object?[]> batch, CancellationToken cancellationToken)
     {
         using var cmd = conn.CreateCommand() as MySqlCommand;
         if (cmd == null) throw new InvalidOperationException("无法创建 MySqlCommand");
@@ -204,8 +205,8 @@ public class MySqlBulkCopy : IDisposable
         if (Transaction != null)
             cmd.Transaction = Transaction;
 
-        // ExecuteBatchAsync 内部自动使用 Pipeline 管道化执行
-        await cmd.ExecuteBatchAsync(batch, cancellationToken).ConfigureAwait(false);
+        // 值数组批量执行，内部自动使用 Pipeline 管道化执行，且无每行 Dictionary 分配
+        await cmd.ExecuteBatchValuesAsync(batch, cancellationToken).ConfigureAwait(false);
     }
     #endregion
 

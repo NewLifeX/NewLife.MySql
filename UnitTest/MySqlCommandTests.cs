@@ -1,8 +1,9 @@
-﻿using NewLife;
+﻿using System.ComponentModel;
+using System.Text;
+using NewLife;
 using NewLife.Log;
 using NewLife.MySql;
 using NewLife.Security;
-using System.Text;
 
 namespace UnitTest;
 
@@ -817,6 +818,26 @@ public class MySqlCommandTests : IDisposable
             var rs = cmd.ExecuteScalar();
             Assert.Equal(1L, rs);
         }
+    }
+    #endregion
+
+    #region DisposeAsync 测试
+    [Fact]
+    [DisplayName("预编译命令DisposeAsync关闭服务端语句")]
+    public async Task DisposeAsync_Unprepares()
+    {
+        var cmd = new MySqlCommand("SELECT ?", _conn);
+        cmd.Parameters.AddWithValue("", 1);
+        await cmd.PrepareAsync();
+        Assert.True(cmd.IsPrepared);
+
+        await cmd.DisposeAsync();
+
+        Assert.False(cmd.IsPrepared);
+
+        // 连接仍可用
+        using var verify = new MySqlCommand(_conn, "select 1");
+        Assert.Equal(1L, verify.ExecuteScalar());
     }
     #endregion
 }

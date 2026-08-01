@@ -1,6 +1,8 @@
 ﻿using System.Collections;
+using System.Collections.Concurrent;
 using System.Data;
 using System.Data.Common;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
 using NewLife.Data;
@@ -52,6 +54,9 @@ public class MySqlDataReader : DbDataReader
     private MySqlColumn[]? _Columns;
     /// <summary>列集合</summary>
     public MySqlColumn[]? Columns => _Columns;
+
+    private Dictionary<String, Int32>? _ordinalCache;
+    private MySqlColumn[]? _ordinalCacheSource;
 
     private Object[]? _Values;
     /// <summary>当前行数值集合</summary>
@@ -112,7 +117,27 @@ public class MySqlDataReader : DbDataReader
     /// <summary>获取指定列名对应的列序号</summary>
     /// <param name="name">列名，不区分大小写</param>
     /// <returns>从零开始的列序号，不存在返回-1</returns>
-    public override Int32 GetOrdinal(String name) => _Columns == null ? -1 : Array.FindIndex(_Columns, p => name.EqualIgnoreCase(p.Name));
+    public override Int32 GetOrdinal(String name)
+    {
+        var columns = _Columns;
+        if (columns == null) return -1;
+
+        var cache = _ordinalCache;
+        if (cache == null || !ReferenceEquals(_ordinalCacheSource, columns))
+        {
+            // 列集合变化时重建缓存，避免每次查找 O(n) + 委托分配
+            cache = new Dictionary<String, Int32>(columns.Length, StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < columns.Length; i++)
+            {
+                if (!cache.ContainsKey(columns[i].Name))
+                    cache[columns[i].Name] = i;
+            }
+            _ordinalCache = cache;
+            _ordinalCacheSource = columns;
+        }
+
+        return cache.TryGetValue(name, out var idx) ? idx : -1;
+    }
 
     /// <summary>获取指定列的数据类型名称</summary>
     /// <param name="ordinal">从零开始的列序号</param>
@@ -525,46 +550,88 @@ public class MySqlDataReader : DbDataReader
         var columns = _Columns;
         var count = _FieldCount;
 
-        // 构建列名到属性的映射
-        var pis = typeof(T).GetProperties(BindingFlags.Public | BindingFlags.Instance);
-        var dic = pis.ToDictionary(e => SerialHelper.GetName(e), e => e, StringComparer.OrdinalIgnoreCase);
+        // 按 T 缓存属性映射，避免每次反射获取属性与构建字典
+        var dic = GetModelProperties(typeof(T));
 
-        // 预计算列名到属性的映射数组，避免每行重复字典查找
-        var colNames = new String[count];
+        // 预计算列名到 setter 委托的映射数组，每行复用，消除逐行反射与字典查找
         var colProps = new PropertyInfo?[count];
+        var setters = new Action<Object, Object?>?[count];
         for (var i = 0; i < count; i++)
         {
-            var name = columns![i].Name;
-            colNames[i] = name;
-            dic.TryGetValue(name, out colProps[i]);
+            if (dic.TryGetValue(columns![i].Name, out var pi) && pi.CanWrite)
+            {
+                colProps[i] = pi;
+                setters[i] = GetModelSetter(pi);
+            }
         }
 
         var list = new List<T>();
+        var isModel = typeof(IModel).IsAssignableFrom(typeof(T));
         while (await ReadAsync(cancellationToken).ConfigureAwait(false))
         {
             var model = typeof(T).CreateInstance();
             if (model == null) continue;
 
             var values = _Values!;
-            for (var i = 0; i < values.Length; i++)
+            if (isModel)
             {
-                var pi = colProps[i];
-                if (pi == null || !pi.CanWrite) continue;
-
-                var val = values[i];
-                if (val == DBNull.Value) continue;
-
-                val = val.ChangeType(pi.PropertyType);
-                if (model is IModel ext)
-                    ext[pi.Name] = val;
-                else
-                    model.SetValue(pi, val);
+                // IModel 索引器快速赋值
+                var ext = (IModel)model;
+                for (var i = 0; i < values.Length; i++)
+                {
+                    var pi = colProps[i];
+                    if (pi == null || values[i] == DBNull.Value) continue;
+                    ext[pi.Name] = values[i];
+                }
+            }
+            else
+            {
+                for (var i = 0; i < values.Length; i++)
+                {
+                    var setter = setters[i];
+                    if (setter == null || values[i] == DBNull.Value) continue;
+                    setter(model, values[i]);
+                }
             }
 
             list.Add((T)model);
         }
 
         return list;
+    }
+
+    private static readonly ConcurrentDictionary<Type, Dictionary<String, PropertyInfo>> _modelProperties = new();
+
+    private static Dictionary<String, PropertyInfo> GetModelProperties(Type type)
+        => _modelProperties.GetOrAdd(type, t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .ToDictionary(e => SerialHelper.GetName(e), e => e, StringComparer.OrdinalIgnoreCase));
+
+    private static readonly ConcurrentDictionary<PropertyInfo, Action<Object, Object?>> _modelSetters = new();
+
+    private static Action<Object, Object?> GetModelSetter(PropertyInfo pi)
+        => _modelSetters.GetOrAdd(pi, BuildModelSetter);
+
+    /// <summary>编译属性 setter 委托。含 ChangeType 类型转换，消除逐行反射调用</summary>
+    /// <param name="pi">属性信息</param>
+    /// <returns>编译后的 setter 委托</returns>
+    private static Action<Object, Object?> BuildModelSetter(PropertyInfo pi)
+    {
+        var instance = Expression.Parameter(typeof(Object), "instance");
+        var value = Expression.Parameter(typeof(Object), "value");
+
+        var changeType = typeof(Convert).GetMethod(nameof(Convert.ChangeType), [typeof(Object), typeof(Type)])!;
+        var converted = Expression.Convert(
+            Expression.Call(changeType, value, Expression.Constant(pi.PropertyType)),
+            pi.PropertyType);
+
+        // null 值（非 DBNull 的 null）跳过赋值，保持属性默认值，与 ChangeType(null) 返回默认值的语义等价
+        var assign = Expression.Assign(
+            Expression.Property(Expression.Convert(instance, pi.DeclaringType!), pi),
+            converted);
+
+        return Expression.Lambda<Action<Object, Object?>>(
+            Expression.IfThen(Expression.NotEqual(value, Expression.Constant(null)), assign),
+            instance, value).Compile();
     }
     #endregion
 

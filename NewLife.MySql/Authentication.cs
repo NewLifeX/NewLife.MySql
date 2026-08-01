@@ -55,12 +55,20 @@ class Authentication(SqlClient client)
         writer.WriteLength(attrs.Length);
         writer.Write(attrs);
 
+        // Slice 转移所有权，此处覆盖压缩协议路径的释放（SendPacketAsync 已释放非压缩路径产物，Dispose 幂等）
         var pk2 = pk.Slice(4, writer.Position - 4);
 
         // 发送验证
-        await client.SendPacketAsync(pk2, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await client.SendPacketAsync(pk2, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (pk2 is IOwnerPacket owner) owner.Dispose();
+        }
 
-        // 读取响应
+        // 读取响应（认证响应仍为非压缩：服务器从认证 OK 之后的包才启动压缩）
         using var rs = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         // 如果返回0xFE，表示需要继续验证。例如 caching_sha2_password 验证降级为 mysql_native_password 验证
         if (rs.IsEOF)

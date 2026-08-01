@@ -1,5 +1,6 @@
 ﻿using System.Data;
 using System.Data.Common;
+using System.Globalization;
 using System.Text;
 using NewLife.Collections;
 using NewLife.Data;
@@ -93,6 +94,18 @@ public class MySqlCommand : DbCommand
 
         base.Dispose(disposing);
     }
+
+#if NET6_0_OR_GREATER
+    /// <summary>异步释放。真正异步关闭预编译语句，避免 Dispose 中同步阻塞网络 IO</summary>
+    /// <returns>异步任务</returns>
+    public override async ValueTask DisposeAsync()
+    {
+        await UnprepareAsync(CancellationToken.None).ConfigureAwait(false);
+        await base.DisposeAsync().ConfigureAwait(false);
+
+        GC.SuppressFinalize(this);
+    }
+#endif
     #endregion
 
     #region 方法
@@ -183,8 +196,9 @@ public class MySqlCommand : DbCommand
         _paramOrder = null;
     }
 
-    /// <summary>取消</summary>
-    public override void Cancel() { }
+    /// <summary>取消命令执行。当前驱动未实现，调用即抛出异常，避免静默无操作误导调用方</summary>
+    /// <exception cref="NotSupportedException">暂不支持取消</exception>
+    public override void Cancel() => throw new NotSupportedException("MySqlCommand.Cancel 暂未实现，无法取消正在执行的命令");
 
     /// <summary>异步执行读取器。多语句由服务端拆分，通过NextResult()遍历多结果集。
     /// 在 ConnectionTimeout 时间内对网络临时故障自动重连重试；事务内或关闭重试时直接执行</summary>
@@ -194,8 +208,9 @@ public class MySqlCommand : DbCommand
     protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken)
     {
         var conn = _DbConnection;
-        // 事务内不重试（避免 DML 重复执行）；用户主动关闭重试则直接执行
-        if (DbTransaction != null || !conn.Setting.RetryOnNetworkFailure)
+        // 仅读语句支持断线重连重试：DML 在"服务端已执行、响应丢失"时重连重试会重复执行（非幂等），故不重试。
+        // 事务内也不重试（避免 DML 重复执行）；用户主动关闭重试则直接执行
+        if (DbTransaction != null || !conn.Setting.RetryOnNetworkFailure || !IsReadOnlySql(CommandText, CommandType))
             return await ExecuteDbDataReaderCoreAsync(behavior, cancellationToken).ConfigureAwait(false);
 
         var connTimeout = conn.Setting.ConnectionTimeout;
@@ -357,6 +372,26 @@ public class MySqlCommand : DbCommand
         MySqlException { ErrorCode: 2006 or 2013 } => true,
         _ => false
     };
+
+    /// <summary>判断命令是否为只读语句。仅读语句支持断线重连重试，DML 重试可能重复执行</summary>
+    /// <param name="sql">命令文本</param>
+    /// <param name="commandType">命令类型</param>
+    /// <returns>true 表示只读语句（可安全重试）</returns>
+    internal static Boolean IsReadOnlySql(String? sql, CommandType commandType)
+    {
+        // TableDirect 由驱动改写为 Select * From 表名，属只读
+        if (commandType == CommandType.TableDirect) return true;
+
+        // 存储过程可能包含 DML，不视为只读
+        if (commandType != CommandType.Text || sql.IsNullOrEmpty()) return false;
+
+        var head = sql.TrimStart();
+        return head.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)
+            || head.StartsWith("SHOW", StringComparison.OrdinalIgnoreCase)
+            || head.StartsWith("DESC", StringComparison.OrdinalIgnoreCase)
+            || head.StartsWith("DESCRIBE", StringComparison.OrdinalIgnoreCase)
+            || head.StartsWith("EXPLAIN", StringComparison.OrdinalIgnoreCase);
+    }
     #endregion
 
     #region 批量执行
@@ -378,7 +413,7 @@ public class MySqlCommand : DbCommand
         if (sql.IsNullOrEmpty()) throw new InvalidOperationException("CommandText 不能为空");
 
         var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
-    using var operationLease = await _DbConnection.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
+        using var operationLease = await _DbConnection.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
 
         // 重置网络流
         if (!client.Reset()) throw new InvalidOperationException("数据库连接已断开");
@@ -401,28 +436,73 @@ public class MySqlCommand : DbCommand
 
         try
         {
-            // 构建多组参数集合，按 SQL 中 ? 占位符的顺序排列
+            // 构建多组值数组，按 SQL 中 ? 占位符的顺序排列，避免每行 MySqlParameterCollection/MySqlParameter 分配
             var bindings = GetBatchBindings(_parameters, _paramOrder);
-            var sets = new List<MySqlParameterCollection>(parameterSets.Count);
+            var sets = new List<Object?[]>(parameterSets.Count);
             foreach (var dict in parameterSets)
             {
-                var ps = new MySqlParameterCollection();
-                foreach (var binding in bindings)
+                var vals = new Object?[bindings.Length];
+                for (var i = 0; i < bindings.Length; i++)
                 {
                     Object? val = null;
-                    if (!dict.TryGetValue(binding.CleanName, out val) && binding.FullName.Length > 0)
-                        dict.TryGetValue(binding.FullName, out val);
-
-                    ps.AddWithValue(binding.CleanName, val);
+                    if (!dict.TryGetValue(bindings[i].CleanName, out val) && bindings[i].FullName.Length > 0)
+                        dict.TryGetValue(bindings[i].FullName, out val);
+                    vals[i] = val;
                 }
-                sets.Add(ps);
+                sets.Add(vals);
             }
 
-            return await client.ExecuteStatementPipelineAsync(_statementId, sets, _paramColumns, cancellationToken).ConfigureAwait(false);
+            return await client.ExecuteStatementValuesAsync(_statementId, sets, _paramColumns, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             throw CreateCommandException(ex, GetBatchDebugCommandText(firstSet), parameterSets.Count);
+        }
+        finally
+        {
+            if (needClose)
+                await UnprepareAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>使用值数组批量执行。同一 SQL 绑定多组参数执行，每组为按参数顺序排列的值数组，避免字典与参数对象分配</summary>
+    /// <param name="valueSets">多组参数值数组</param>
+    /// <returns>总影响行数</returns>
+    public Int32 ExecuteBatchValues(IList<Object?[]> valueSets)
+        => ExecuteBatchValuesAsync(valueSets, CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+
+    /// <summary>异步使用值数组批量执行。自动 Prepare + Execute × N，返回总影响行数</summary>
+    /// <param name="valueSets">多组参数值数组，每组按 SQL 参数顺序排列</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>总影响行数</returns>
+    public async Task<Int32> ExecuteBatchValuesAsync(IList<Object?[]> valueSets, CancellationToken cancellationToken = default)
+    {
+        if (valueSets == null || valueSets.Count == 0) return 0;
+
+        var sql = CommandText;
+        if (sql.IsNullOrEmpty()) throw new InvalidOperationException("CommandText 不能为空");
+
+        var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
+        using var operationLease = await _DbConnection.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
+
+        // 重置网络流
+        if (!client.Reset()) throw new InvalidOperationException("数据库连接已断开");
+
+        // 值数组版本按位置绑定，未预编译时自动 Prepare（SQL 中占位符顺序需与值数组一致）
+        var needClose = false;
+        if (!IsPrepared)
+        {
+            await PrepareAsync(cancellationToken).ConfigureAwait(false);
+            needClose = true;
+        }
+
+        try
+        {
+            return await client.ExecuteStatementValuesAsync(_statementId, valueSets, _paramColumns, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            throw CreateCommandException(ex, GetDebugCommandText(), valueSets.Count);
         }
         finally
         {
@@ -449,7 +529,7 @@ public class MySqlCommand : DbCommand
         if (sql.IsNullOrEmpty()) throw new InvalidOperationException("CommandText 不能为空");
 
         var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
-    using var operationLease = await _DbConnection.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
+        using var operationLease = await _DbConnection.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
 
         if (!client.Reset()) throw new InvalidOperationException("数据库连接已断开");
 
@@ -463,21 +543,18 @@ public class MySqlCommand : DbCommand
 
         try
         {
-            // 从参数的数组值中提取每组参数，按 SQL 中 ? 占位符的顺序排列
+            // 从参数的数组值中提取每组值数组，按 SQL 中 ? 占位符的顺序排列，避免每行 MySqlParameterCollection 分配
             var bindings = GetBatchBindings(_parameters, _paramOrder);
-            var sets = new List<MySqlParameterCollection>(count);
+            var sets = new List<Object?[]>(count);
             for (var i = 0; i < count; i++)
             {
-                var ps = new MySqlParameterCollection();
-                foreach (var binding in bindings)
-                {
-                    var val = ExtractArrayValue(binding.Parameter.Value, i);
-                    ps.AddWithValue(binding.ParameterName, val);
-                }
-                sets.Add(ps);
+                var vals = new Object?[bindings.Length];
+                for (var j = 0; j < bindings.Length; j++)
+                    vals[j] = ExtractArrayValue(bindings[j].Parameter.Value, i);
+                sets.Add(vals);
             }
 
-            return await client.ExecuteStatementPipelineAsync(_statementId, sets, _paramColumns, cancellationToken).ConfigureAwait(false);
+            return await client.ExecuteStatementValuesAsync(_statementId, sets, _paramColumns, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -897,8 +974,9 @@ public class MySqlCommand : DbCommand
             Byte n => n.ToString(),
             UInt32 n => n.ToString(),
             UInt64 n => n.ToString(),
-            DateTime dt => "'" + dt.ToString("yyyy-MM-dd HH:mm:ss.ffffff").TrimEnd('0').TrimEnd('.') + "'",
-            DateTimeOffset dto => "'" + dto.ToString("yyyy-MM-dd HH:mm:ss.ffffff").TrimEnd('0').TrimEnd('.') + "'",
+            // 使用 InvariantCulture 固定日期时间分隔符，避免区域性（如 id-ID 时间分隔符为 .）生成非法 SQL 字面量
+            DateTime dt => "'" + dt.ToString("yyyy-MM-dd HH:mm:ss.ffffff", CultureInfo.InvariantCulture).TrimEnd('0').TrimEnd('.') + "'",
+            DateTimeOffset dto => "'" + dto.ToString("yyyy-MM-dd HH:mm:ss.ffffff", CultureInfo.InvariantCulture).TrimEnd('0').TrimEnd('.') + "'",
             Byte[] bytes => "X'" + bytes.ToHex() + "'",
             MySqlGeometry geom => "X'" + geom.Value.ToHex() + "'",
             Guid guid => "'" + guid.ToString() + "'",
@@ -953,7 +1031,9 @@ public class MySqlCommand : DbCommand
     /// <returns>替换后的 SQL</returns>
     internal static String ConvertToPositionalParameters(String sql, MySqlParameterCollection parameters, List<Int32>? paramOrder = null)
     {
-        if (parameters.Count <= 0) return sql;
+        // 无参数集合时（如值数组批量执行），仍需将 @name 替换为 ? 占位符，服务器按位置绑定
+        var hasParams = parameters.Count > 0;
+        if (!hasParams && !sql.Contains('@')) return sql;
 
         var sb = Pool.StringBuilder.Get();
         sb.EnsureCapacity(sql.Length);
@@ -994,13 +1074,24 @@ public class MySqlCommand : DbCommand
                 if (i > start + 1)
                 {
                     var name = sql[(start + 1)..i];
-                    var idx = parameters.IndexOf(name);
-                    if (idx < 0) idx = parameters.IndexOf(sql[start..i]);
+                    var idx = -1;
+                    if (hasParams)
+                    {
+                        idx = parameters.IndexOf(name);
+                        if (idx < 0) idx = parameters.IndexOf(sql[start..i]);
+                    }
 
                     if (idx >= 0)
                     {
                         sb.Append('?');
                         paramOrder?.Add(idx);
+                        continue;
+                    }
+
+                    // 无参数集合：@name 视为位置参数占位符，替换为 ?
+                    if (!hasParams && ch == '@')
+                    {
+                        sb.Append('?');
                         continue;
                     }
                 }

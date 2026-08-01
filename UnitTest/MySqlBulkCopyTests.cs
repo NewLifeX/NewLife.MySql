@@ -224,6 +224,58 @@ public class MySqlBulkCopyTests : IDisposable
     }
     #endregion
 
+    #region 值数组批量执行
+    [Fact(DisplayName = "MySqlCommand_ExecuteBatchValuesAsync_值数组批量写入")]
+    public async Task ExecuteBatchValuesAsync_ValueSets()
+    {
+        var sets = new List<Object?[]>();
+        for (var i = 0; i < 10; i++)
+            sets.Add(new Object?[] { $"val_{i}", 20 + i, (Decimal)(80.5 + i) });
+
+        using var cmd = new MySqlCommand(_conn, $"INSERT INTO `{_table}` (name, age, score) VALUES (@name, @age, @score)");
+        var affected = await cmd.ExecuteBatchValuesAsync(sets);
+
+        Assert.Equal(10, affected);
+
+        // 验证数据正确落库且值无错位
+        using var query = new MySqlCommand(_conn, $"SELECT COUNT(*), SUM(age), MIN(score) FROM `{_table}`");
+        using var reader = query.ExecuteReader();
+        Assert.True(reader.Read());
+        Assert.Equal(10, reader.GetInt32(0));
+        var sum = 0;
+        for (var i = 0; i < 10; i++) sum += 20 + i;
+        Assert.Equal(sum, reader.GetInt32(1));
+        Assert.Equal((Decimal)80.5, reader.GetDecimal(2));
+    }
+
+    [Fact(DisplayName = "MySqlCommand_ExecuteBatchValues_同步值数组批量")]
+    public void ExecuteBatchValues_Sync()
+    {
+        var sets = new List<Object?[]>
+        {
+            new Object?[] { "sync_0", 1, (Decimal)1.5 },
+            new Object?[] { "sync_1", 2, null }
+        };
+
+        using var cmd = new MySqlCommand(_conn, $"INSERT INTO `{_table}` (name, age, score) VALUES (@name, @age, @score)");
+        var affected = cmd.ExecuteBatchValues(sets);
+
+        Assert.Equal(2, affected);
+
+        using var query = new MySqlCommand(_conn, $"SELECT COUNT(*) FROM `{_table}` WHERE score IS NULL");
+        Assert.Equal(1, query.ExecuteScalar().ToInt());
+    }
+
+    [Fact(DisplayName = "MySqlCommand_ExecuteBatchValues_空集合返回0")]
+    public void ExecuteBatchValues_Empty()
+    {
+        using var cmd = new MySqlCommand(_conn, $"INSERT INTO `{_table}` (name, age, score) VALUES (@name, @age, @score)");
+        var affected = cmd.ExecuteBatchValues(new List<Object?[]>());
+
+        Assert.Equal(0, affected);
+    }
+    #endregion
+
     #region 异常测试
     [Fact(DisplayName = "MySqlBulkCopy_DestinationTableName未设置时抛异常")]
     public void WriteToServer_NoDestinationTable_Throws()

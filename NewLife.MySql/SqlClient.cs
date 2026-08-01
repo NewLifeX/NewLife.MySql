@@ -26,10 +26,19 @@ public class SqlClient : DisposeBase
     // 压缩协议相关
     private Boolean _useCompression;
     private Byte[]? _compressHeaderBuf;
+    // 解压缓存：一个压缩包可能包含多个普通包，缓存未消费的普通包数据（含各包 4 字节普通帧头）
+    private Byte[]? _compressCache;
+    private Int32 _compressCacheOffset;
+    private Int32 _compressCacheLength;
+    // 是否存在跨压缩包的不完整普通包数据，为 true 时强制读取下一个压缩包拼接
+    private Boolean _compressPending;
 
     #region 属性
     /// <summary>连接字符串配置</summary>
     public MySqlConnectionStringBuilder Setting { get; } = [];
+
+    /// <summary>是否启用压缩协议。认证流程在发送认证包后、读取认证响应前启用（服务器收到 COMPRESS flag 后即开始压缩）</summary>
+    internal Boolean UseCompression { get => _useCompression; set => _useCompression = value; }
 
     /// <summary>连接是否活动</summary>
     public Boolean Active { get; internal set; }
@@ -78,6 +87,8 @@ public class SqlClient : DisposeBase
 
     // 行接收缓冲区：跨行复用，避免每行分配 OwnerPacket + ArrayPool
     private Byte[]? _rowBuffer;
+    // 二进制行 null_bitmap 缓冲区：跨行复用，避免每行分配 byte[]
+    private Byte[]? _nullBitmap;
     // 帧头缓冲区：4 字节固定大小，同一连接串行读包，可安全复用
     private readonly Byte[] _headerBuf = new Byte[4];
     // 读前置缓冲区：合并多次小读取为一次大的底层读取，减少系统调用次数
@@ -655,12 +666,22 @@ public class SqlClient : DisposeBase
             Active = false;
             throw;
         }
+        finally
+        {
+            // ExpandHeader 可能新建或转移所有权的 OwnerPacket，发送完成后归还池化缓冲；
+            // 若 pk2 即调用方包的所有权转移结果，调用方再 Dispose 原包是幂等 no-op
+            if (pk2 is IOwnerPacket owner) owner.Dispose();
+        }
 
         LastActive = DateTime.Now;
     }
 
     #region 压缩协议
     /// <summary>读取压缩协议数据包</summary>
+    /// <remarks>
+    /// 一个压缩包可包含多个普通包，且普通包可跨压缩包分片（大结果集数据行）。
+    /// 解压后缓存未消费的普通包数据，不完整包保留剩余并跨包拼接。
+    /// </remarks>
     private async Task<ServerPacket> ReadCompressedPacketAsync(Stream ms, CancellationToken cancellationToken)
     {
         var timeout = Timeout;
@@ -672,76 +693,109 @@ public class SqlClient : DisposeBase
 
         try
         {
-            // 7字节压缩包头: 3字节压缩长度 + 1字节序列号 + 3字节未压缩长度
-            _compressHeaderBuf ??= new Byte[CompressedHeaderSize];
-            var hdr = _compressHeaderBuf;
-            await _reader.ReadAsync(ms, hdr, 0, CompressedHeaderSize, token).ConfigureAwait(false);
-
-            var compressedLen = hdr[0] + (hdr[1] << 8) + (hdr[2] << 16);
-            var seq = hdr[3];
-            var uncompressedLen = hdr[4] + (hdr[5] << 8) + (hdr[6] << 16);
-            _seq = (Byte)(seq + 1);
-
-            // 压缩/解压后数据包大小上限检测
-            var maxPacketSize = MaxPacketSize > 0 ? MaxPacketSize : 64 * 1024 * 1024;
-            if (uncompressedLen > maxPacketSize)
+            while (true)
             {
-                Active = false;
-                throw new InvalidOperationException($"解压后数据包大小 ({uncompressedLen}) 超过上限 ({maxPacketSize})");
-            }
-            if (compressedLen > maxPacketSize)
-            {
-                Active = false;
-                throw new InvalidOperationException($"压缩数据包大小 ({compressedLen}) 超过上限 ({maxPacketSize})");
-            }
-
-            ServerPacket rs;
-            if (uncompressedLen == 0)
-            {
-                // 未压缩小包：压缩长度即数据长度
-                var pk = new OwnerPacket(compressedLen);
-                await _reader.ReadAsync(ms, pk.Buffer, pk.Offset, compressedLen, token).ConfigureAwait(false);
-                pk.Resize(compressedLen);
-                rs = new ServerPacket(ms) { Length = compressedLen, Sequence = seq };
-                rs.Set(pk);
-                WritePacketLog("<=", seq, pk.GetSpan(), compressedLen);
-            }
-            else
-            {
-                // 压缩包：读取压缩数据后 zlib 解压
-                using var compressedPk = new OwnerPacket(compressedLen);
-                await _reader.ReadAsync(ms, compressedPk.Buffer, compressedPk.Offset, compressedLen, token).ConfigureAwait(false);
-
-                var pk = new OwnerPacket(uncompressedLen);
-                using var compressedStream = new MemoryStream(compressedPk.Buffer!, compressedPk.Offset, compressedLen);
-                using var deflateStream = new DeflateStream(compressedStream, CompressionMode.Decompress);
-                var totalRead = 0;
-                while (totalRead < uncompressedLen)
+                // 缓存不足一个完整普通包头或存在跨包待拼接数据时，读取并解压下一个压缩包（前置拼接保留的不完整包数据）
+                if (_compressCache == null || _compressCacheOffset + 4 > _compressCacheLength || _compressPending)
                 {
-                    var n = deflateStream.Read(pk.Buffer!, pk.Offset + totalRead, uncompressedLen - totalRead);
-                    if (n == 0) break;
-                    totalRead += n;
+                    // 7字节压缩包头: 3字节压缩长度 + 1字节序列号 + 3字节未压缩长度
+                    _compressHeaderBuf ??= new Byte[CompressedHeaderSize];
+                    var hdr = _compressHeaderBuf;
+                    await _reader.ReadAsync(ms, hdr, 0, CompressedHeaderSize, token).ConfigureAwait(false);
+
+                    var compressedLen = hdr[0] + (hdr[1] << 8) + (hdr[2] << 16);
+                    var seq = hdr[3];
+                    var uncompressedLen = hdr[4] + (hdr[5] << 8) + (hdr[6] << 16);
+                    _seq = (Byte)(seq + 1);
+
+                    // 压缩/解压后数据包大小上限检测
+                    var maxPacketSize = MaxPacketSize > 0 ? MaxPacketSize : 64 * 1024 * 1024;
+                    if (uncompressedLen > maxPacketSize)
+                    {
+                        Active = false;
+                        throw new InvalidOperationException($"解压后数据包大小 ({uncompressedLen}) 超过上限 ({maxPacketSize})");
+                    }
+                    if (compressedLen > maxPacketSize)
+                    {
+                        Active = false;
+                        throw new InvalidOperationException($"压缩数据包大小 ({compressedLen}) 超过上限 ({maxPacketSize})");
+                    }
+
+                    // 保留尚未消费的跨包数据（不完整普通包尾部）
+                    var remain = _compressCacheLength - _compressCacheOffset;
+                    if (remain < 0) remain = 0;
+
+                    Byte[] payload;
+                    Int32 payloadLen;
+                    if (uncompressedLen == 0)
+                    {
+                        // 未压缩小包：payload 直接是带普通帧头的标准包
+                        payload = new Byte[remain + compressedLen];
+                        if (remain > 0) Buffer.BlockCopy(_compressCache!, _compressCacheOffset, payload, 0, remain);
+                        await _reader.ReadAsync(ms, payload, remain, compressedLen, token).ConfigureAwait(false);
+                        payloadLen = remain + compressedLen;
+                    }
+                    else
+                    {
+                        // 压缩包：读取压缩数据后 zlib 解压，前置拼接保留数据
+                        var compressed = new Byte[compressedLen];
+                        await _reader.ReadAsync(ms, compressed, 0, compressedLen, token).ConfigureAwait(false);
+
+                        payload = new Byte[remain + uncompressedLen];
+                        if (remain > 0) Buffer.BlockCopy(_compressCache!, _compressCacheOffset, payload, 0, remain);
+                        var n = ZlibDecompress(compressed, 0, compressedLen, payload, remain, uncompressedLen);
+                        payloadLen = remain + n;
+                    }
+                    _compressCache = payload;
+                    _compressCacheOffset = 0;
+                    _compressCacheLength = payloadLen;
+                    _compressPending = false;
                 }
-                pk.Resize(uncompressedLen);
-                rs = new ServerPacket(ms) { Length = uncompressedLen, Sequence = seq };
+
+                // 从缓存解析一个普通包（跳过 4 字节普通帧头）
+                var cache = _compressCache!;
+                var offset = _compressCacheOffset;
+                if (offset + 4 > _compressCacheLength)
+                    continue; // 数据不足，循环读取下一个压缩包
+
+                var len = cache[offset] + (cache[offset + 1] << 8) + (cache[offset + 2] << 16);
+                var seq2 = cache[offset + 3];
+
+                // 普通包不完整（跨压缩包分片）：保留未消费部分并标记，循环强制读取下一个压缩包拼接
+                if (offset + 4 + len > _compressCacheLength)
+                {
+                    var remain = _compressCacheLength - offset;
+                    if (remain > 0 && offset > 0)
+                        Buffer.BlockCopy(cache, offset, cache, 0, remain);
+                    _compressCacheOffset = 0;
+                    _compressCacheLength = remain;
+                    _compressPending = true;
+                    continue;
+                }
+
+                _compressCacheOffset = offset + 4 + len;
+
+                var pk = new OwnerPacket(len);
+                Buffer.BlockCopy(cache, offset + 4, pk.Buffer, pk.Offset, len);
+                var rs = new ServerPacket(ms) { Length = len, Sequence = seq2 };
                 rs.Set(pk);
-                WritePacketLog("<=", seq, pk.GetSpan(), uncompressedLen);
-            }
+                WritePacketLog("<=", seq2, pk.GetSpan(), len);
 
-            // 错误包检测
-            if (rs.IsError)
-            {
-                var pk = rs.Data;
-                var reader = new SpanReader(pk.Slice(1));
-                var code = reader.ReadUInt16();
-                var msg = reader.ReadZeroString();
-                if (!msg.IsNullOrEmpty() && msg[0] == '#')
-                    throw new MySqlException(code, msg[..6], msg[6..]);
-                else
-                    throw new MySqlException(code, msg);
-            }
+                // 错误包检测
+                if (rs.IsError)
+                {
+                    var data = rs.Data;
+                    var reader = new SpanReader(data.Slice(1));
+                    var code = reader.ReadUInt16();
+                    var msg = reader.ReadZeroString();
+                    if (!msg.IsNullOrEmpty() && msg[0] == '#')
+                        throw new MySqlException(code, msg[..6], msg[6..]);
+                    else
+                        throw new MySqlException(code, msg);
+                }
 
-            return rs;
+                return rs;
+            }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -763,71 +817,170 @@ public class SqlClient : DisposeBase
     /// <summary>发送压缩协议数据包</summary>
     private async Task SendCompressedPacketAsync(IPacket pk, Stream ms, Boolean flush, CancellationToken cancellationToken)
     {
-        var uncompressedLen = pk.Total;
+        // 压缩协议：压缩包 payload 必须是带 4 字节普通帧头的标准包，先补帧头（帧头 seq 从 0 开始，与查询重置语义一致）
+        var len = pk.Total;
+        var pk2 = pk.ExpandHeader(4);
+        pk2[0] = (Byte)(len & 0xFF);
+        pk2[1] = (Byte)((len >> 8) & 0xFF);
+        pk2[2] = (Byte)((len >> 16) & 0xFF);
+        pk2[3] = 0;
+
+        var uncompressedLen = pk2.Total;
         var seq = _seq++;
-
-        // 压缩原数据
-        Byte[] compressedBuf;
-        Int32 compressedLen;
-        using (var outStream = new MemoryStream())
-        {
-            using (var deflateStream = new DeflateStream(outStream, CompressionLevel.Optimal, leaveOpen: true))
-            {
-                var span = pk.GetSpan();
-#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
-                deflateStream.Write(span);
-#else
-                var data = span.ToArray();
-                deflateStream.Write(data, 0, data.Length);
-#endif
-                deflateStream.Flush();
-            }
-            compressedBuf = outStream.ToArray();
-            compressedLen = compressedBuf.Length;
-        }
-
-        // 小包不压缩（压缩后更大则发送未压缩）
-        var sendUncompressed = compressedLen >= uncompressedLen;
-        var totalLen = CompressedHeaderSize + (sendUncompressed ? uncompressedLen : compressedLen);
-        var sendPk = new OwnerPacket(totalLen);
-        var dst = sendPk.GetSpan();
-
-        // 填充压缩包头
-        var clen = sendUncompressed ? uncompressedLen : compressedLen;
-        dst[0] = (Byte)(clen & 0xFF);
-        dst[1] = (Byte)((clen >> 8) & 0xFF);
-        dst[2] = (Byte)((clen >> 16) & 0xFF);
-        dst[3] = seq;
-        // 未压缩长度：发送未压缩数据时填0（标识为不压缩），发送压缩数据时填原始长度
-        dst[4] = (Byte)(sendUncompressed ? 0 : (uncompressedLen & 0xFF));
-        dst[5] = (Byte)(sendUncompressed ? 0 : ((uncompressedLen >> 8) & 0xFF));
-        dst[6] = (Byte)(sendUncompressed ? 0 : ((uncompressedLen >> 16) & 0xFF));
-
-        // 填充数据体
-        if (sendUncompressed)
-        {
-            var span = pk.GetSpan();
-            span.CopyTo(dst[CompressedHeaderSize..]);
-        }
-        else
-        {
-            compressedBuf.CopyTo(dst[CompressedHeaderSize..]);
-        }
-
-        WritePacketLog("=>", seq, pk.GetSpan(), uncompressedLen);
 
         try
         {
-            await sendPk.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
-            if (flush) await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch
-        {
-            Active = false;
-            throw;
-        }
+            // 链式数据（ExpandHeader 可能生成 { 帧头, Next=原包 } 链，GetSpan 仅返回单段）合并到连续缓冲后再压缩
+            var plain = new Byte[uncompressedLen];
+            var pos = 0;
+            for (var node = (IPacket?)pk2; node != null; node = node.Next)
+            {
+                var span = node.GetSpan();
+                span.CopyTo(new Span<Byte>(plain, pos, span.Length));
+                pos += span.Length;
+            }
 
-        LastActive = DateTime.Now;
+            // zlib 压缩：MySQL 压缩协议使用 zlib 格式（带 2 字节头 + adler32），与 .NET DeflateStream 的 DEFLATE 格式不兼容
+            var compressedBuf = ZlibCompress(plain);
+            var compressedLen = compressedBuf.Length;
+
+            // 小包不压缩（压缩后更大则发送未压缩）
+            var sendUncompressed = compressedLen >= uncompressedLen;
+            var totalLen = CompressedHeaderSize + (sendUncompressed ? uncompressedLen : compressedLen);
+            using var sendPk = new OwnerPacket(totalLen);
+            var dst = sendPk.GetSpan();
+
+            // 填充压缩包头
+            var clen = sendUncompressed ? uncompressedLen : compressedLen;
+            dst[0] = (Byte)(clen & 0xFF);
+            dst[1] = (Byte)((clen >> 8) & 0xFF);
+            dst[2] = (Byte)((clen >> 16) & 0xFF);
+            dst[3] = seq;
+            // 未压缩长度：发送未压缩数据时填0（标识为不压缩），发送压缩数据时填原始长度
+            dst[4] = (Byte)(sendUncompressed ? 0 : (uncompressedLen & 0xFF));
+            dst[5] = (Byte)(sendUncompressed ? 0 : ((uncompressedLen >> 8) & 0xFF));
+            dst[6] = (Byte)(sendUncompressed ? 0 : ((uncompressedLen >> 16) & 0xFF));
+
+            // 填充数据体
+            if (sendUncompressed)
+            {
+                new ReadOnlySpan<Byte>(plain, 0, uncompressedLen).CopyTo(dst[CompressedHeaderSize..]);
+            }
+            else
+            {
+                compressedBuf.AsSpan(0, compressedLen).CopyTo(dst[CompressedHeaderSize..]);
+            }
+
+            WritePacketLog("=>", seq, pk.GetSpan(), len);
+
+            try
+            {
+                await sendPk.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+                if (flush) await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                Active = false;
+                throw;
+            }
+
+            LastActive = DateTime.Now;
+        }
+        finally
+        {
+            // ExpandHeader 可能新建或转移所有权的 OwnerPacket，发送完成后归还池化缓冲
+            if (pk2 is IOwnerPacket owner) owner.Dispose();
+        }
+    }
+    #endregion
+
+    #region zlib 压缩辅助
+    /// <summary>zlib 压缩。MySQL 压缩协议使用 zlib 格式（带 2 字节头 + adler32），与 .NET DeflateStream 的 DEFLATE 格式不兼容</summary>
+    /// <param name="data">待压缩数据</param>
+    /// <returns>zlib 压缩字节</returns>
+    private static Byte[] ZlibCompress(Byte[] data) => ZlibCompress(new ReadOnlySpan<Byte>(data));
+
+    /// <summary>zlib 压缩。MySQL 压缩协议使用 zlib 格式（带 2 字节头 + adler32），与 .NET DeflateStream 的 DEFLATE 格式不兼容</summary>
+    /// <param name="data">待压缩数据</param>
+    /// <returns>zlib 压缩字节</returns>
+    private static Byte[] ZlibCompress(ReadOnlySpan<Byte> data)
+    {
+#if NET6_0_OR_GREATER
+        using var ms = new MemoryStream();
+        using (var zlib = new ZLibStream(ms, CompressionLevel.Optimal, leaveOpen: true))
+            zlib.Write(data);
+        return ms.ToArray();
+#else
+        // 旧框架无 ZLibStream：2 字节 zlib 头 + DEFLATE 数据 + adler32（大端）
+        using var ms = new MemoryStream();
+        ms.WriteByte(0x78);
+        ms.WriteByte(0x9C);
+        using (var deflate = new DeflateStream(ms, CompressionLevel.Optimal, leaveOpen: true))
+        {
+            var arr = data.ToArray();
+            deflate.Write(arr, 0, arr.Length);
+        }
+        var adler = Adler32(data);
+        ms.WriteByte((Byte)((adler >> 24) & 0xFF));
+        ms.WriteByte((Byte)((adler >> 16) & 0xFF));
+        ms.WriteByte((Byte)((adler >> 8) & 0xFF));
+        ms.WriteByte((Byte)(adler & 0xFF));
+        return ms.ToArray();
+#endif
+    }
+
+    /// <summary>zlib 解压到目标缓冲。MySQL 压缩协议使用 zlib 格式</summary>
+    /// <param name="compressed">压缩数据源</param>
+    /// <param name="offset">源偏移</param>
+    /// <param name="count">压缩数据长度</param>
+    /// <param name="output">目标缓冲</param>
+    /// <param name="outputOffset">目标偏移</param>
+    /// <param name="outputCount">目标容量</param>
+    /// <returns>实际解压字节数</returns>
+    private static Int32 ZlibDecompress(Byte[] compressed, Int32 offset, Int32 count, Byte[] output, Int32 outputOffset, Int32 outputCount)
+    {
+#if NET6_0_OR_GREATER
+        using var cs = new MemoryStream(compressed, offset, count);
+        using var zlib = new ZLibStream(cs, CompressionMode.Decompress);
+        return ReadAll(zlib, output, outputOffset, outputCount);
+#else
+        // 旧框架无 ZLibStream：跳过 2 字节 zlib 头后用 DeflateStream（忽略尾部 adler32）
+        using var cs = new MemoryStream(compressed, offset + 2, count - 2);
+        using var deflate = new DeflateStream(cs, CompressionMode.Decompress);
+        return ReadAll(deflate, output, outputOffset, outputCount);
+#endif
+    }
+
+    /// <summary>从解压流读取全部数据到目标缓冲</summary>
+    /// <param name="stream">解压流</param>
+    /// <param name="output">目标缓冲</param>
+    /// <param name="outputOffset">目标偏移</param>
+    /// <param name="outputCount">目标容量</param>
+    /// <returns>实际读取字节数</returns>
+    private static Int32 ReadAll(Stream stream, Byte[] output, Int32 outputOffset, Int32 outputCount)
+    {
+        var total = 0;
+        while (total < outputCount)
+        {
+            var n = stream.Read(output, outputOffset + total, outputCount - total);
+            if (n == 0) break;
+            total += n;
+        }
+        return total;
+    }
+
+    /// <summary>计算 Adler-32 校验（zlib 格式尾部校验，旧框架手动构造时需要）</summary>
+    /// <param name="data">数据</param>
+    /// <returns>Adler-32 值</returns>
+    private static UInt32 Adler32(ReadOnlySpan<Byte> data)
+    {
+        UInt32 a = 1, b = 0;
+        for (var i = 0; i < data.Length; i++)
+        {
+            a = (a + data[i]) % 65521;
+            b = (b + a) % 65521;
+        }
+        return (b << 16) | a;
     }
     #endregion
 
@@ -1115,9 +1268,8 @@ public class SqlClient : DisposeBase
             list.Add(dc);
         }
 
-        // 读取 EOF 包
+        // 读取并消费 EOF 包
         using var rs2 = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-        if (rs2.IsEOF) { }
 
         return [.. list];
     }
@@ -1138,6 +1290,22 @@ public class SqlClient : DisposeBase
 
         try
         {
+            // 压缩协议：行数据包同样在压缩包内（含 4 字节普通帧头），必须走统一压缩读取路径
+            if (_useCompression)
+            {
+                using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+
+                var clen = rs.Length;
+                if (_rowBuffer == null || _rowBuffer.Length < clen)
+                    _rowBuffer = new Byte[Math.Max(clen, 16384)];
+                // EOF 数据也复制，供 ParseEofRowResult 解析 warnings/status
+                rs.Data.GetSpan().CopyTo(new Span<Byte>(_rowBuffer, 0, clen));
+
+                // EOF 包：返回负数，调用方取反得到 EOF 包长度
+                if (rs.IsEOF) return -clen;
+                return clen;
+            }
+
             if (_rowBuffer == null)
                 _rowBuffer = new Byte[16384];
 
@@ -1246,8 +1414,12 @@ public class SqlClient : DisposeBase
         reader.Advance(1);
 
         // null_bitmap: (num_columns + 7 + 2) / 8 字节，位偏移量为 2
+        // 复用实例缓冲避免每行分配 byte[]（与 _rowBuffer 同思路）
         var nullBitmapLen = (numCols + 7 + 2) / 8;
-        var nullBitmap = reader.ReadBytes(nullBitmapLen);
+        if (_nullBitmap == null || _nullBitmap.Length < nullBitmapLen)
+            _nullBitmap = new Byte[nullBitmapLen];
+        reader.ReadBytes(nullBitmapLen).CopyTo(new Span<Byte>(_nullBitmap, 0, nullBitmapLen));
+        var nullBitmap = _nullBitmap;
 
         for (var i = 0; i < numCols; i++)
         {
@@ -1356,7 +1528,7 @@ public class SqlClient : DisposeBase
     public async Task<PrepareResult> PrepareStatementAsync(String sql, CancellationToken cancellationToken = default)
     {
         var len = 1 + Encoding.GetByteCount(sql);
-        var pk = new OwnerPacket(len);
+        using var pk = new OwnerPacket(len);
         pk[0] = (Byte)DbCmd.PREPARE;
         Encoding.GetBytes(sql, 0, sql.Length, pk.Buffer, pk.Offset + 1);
 
@@ -1399,9 +1571,29 @@ public class SqlClient : DisposeBase
     /// <returns>异步任务</returns>
     public async Task ExecuteStatementAsync(Int32 statementId, MySqlParameterCollection? parameters, MySqlColumn[]? paramColumns, CancellationToken cancellationToken = default)
     {
-        var sendPk = BuildExecutePacket(statementId, parameters);
+        // 转值数组走统一核心，避免每行 MySqlParameter 对象分配
+        await ExecuteStatementAsync(statementId, ToValues(parameters), paramColumns, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>异步执行已准备的预编译语句（值数组版本），支持二进制参数绑定</summary>
+    /// <param name="statementId">预编译语句 ID</param>
+    /// <param name="values">参数值数组，按参数顺序排列，可为空</param>
+    /// <param name="paramColumns">Prepare 返回的参数列信息</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    public async Task ExecuteStatementAsync(Int32 statementId, Object?[]? values, MySqlColumn[]? paramColumns, CancellationToken cancellationToken = default)
+    {
+        var sendPk = BuildExecutePacket(statementId, values);
         _seq = 0;
-        await SendPacketAsync(sendPk, cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await SendPacketAsync(sendPk, cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            // 覆盖压缩协议路径：SendPacketAsync 非压缩路径已释放 ExpandHeader 产物（Dispose 幂等），此处统一归还
+            if (sendPk is IOwnerPacket owner) owner.Dispose();
+        }
     }
 
     /// <summary>构建 COM_STMT_EXECUTE 数据包。仅构建包内容，不发送</summary>
@@ -1409,8 +1601,15 @@ public class SqlClient : DisposeBase
     /// <param name="parameters">参数集合，可为空</param>
     /// <returns>待发送的数据包（不含帧头）</returns>
     private IPacket BuildExecutePacket(Int32 statementId, MySqlParameterCollection? parameters)
+        => BuildExecutePacket(statementId, ToValues(parameters));
+
+    /// <summary>构建 COM_STMT_EXECUTE 数据包（值数组版本）。仅构建包内容，不发送</summary>
+    /// <param name="statementId">预编译语句 ID</param>
+    /// <param name="values">参数值数组，按参数顺序排列，可为空</param>
+    /// <returns>待发送的数据包（不含帧头）</returns>
+    private IPacket BuildExecutePacket(Int32 statementId, Object?[]? values)
     {
-        var numParams = parameters?.Count ?? 0;
+        var numParams = values?.Length ?? 0;
         var hasQueryAttrs = Capability.Has(ClientFlags.CLIENT_QUERY_ATTRIBUTES);
 
         // 构建 COM_STMT_EXECUTE 数据包
@@ -1434,7 +1633,7 @@ public class SqlClient : DisposeBase
             var nullBitmap = new Byte[nullBitmapLen];
             for (var i = 0; i < numParams; i++)
             {
-                var val = ((MySqlParameter)parameters![i]).Value;
+                var val = values![i];
                 if (val == null || val == DBNull.Value)
                     nullBitmap[i / 8] |= (Byte)(1 << (i % 8));
             }
@@ -1447,7 +1646,7 @@ public class SqlClient : DisposeBase
             // CLIENT_QUERY_ATTRIBUTES 模式下，每个参数类型后还需附带参数名（length-encoded string）
             for (var i = 0; i < numParams; i++)
             {
-                var val = ((MySqlParameter)parameters![i]).Value;
+                var val = values![i];
                 var (typeId, unsigned) = MySqlFieldCodec.GetMySqlTypeForValue(val);
                 writer.Write(typeId);
                 writer.Write(unsigned ? (Byte)0x80 : (Byte)0x00);
@@ -1462,13 +1661,26 @@ public class SqlClient : DisposeBase
             // param_value × N（仅非 NULL 参数）
             for (var i = 0; i < numParams; i++)
             {
-                var val = ((MySqlParameter)parameters![i]).Value;
+                var val = values![i];
                 if (val != null && val != DBNull.Value)
                     MySqlFieldCodec.WriteBinaryValue(ref writer, val, Encoding);
             }
         }
 
         return pk.Slice(4, writer.Position - 4);
+    }
+
+    /// <summary>提取参数集合的值数组，按参数顺序排列。批量执行统一走值数组核心，避免每行 MySqlParameterCollection/MySqlParameter 分配</summary>
+    /// <param name="parameters">参数集合，可为空</param>
+    /// <returns>值数组，无参数时返回 null</returns>
+    private static Object?[]? ToValues(MySqlParameterCollection? parameters)
+    {
+        if (parameters == null || parameters.Count == 0) return null;
+
+        var vals = new Object?[parameters.Count];
+        for (var i = 0; i < parameters.Count; i++)
+            vals[i] = ((MySqlParameter)parameters[i]).Value;
+        return vals;
     }
 
     /// <summary>异步关闭预编译语句并释放服务器资源。COM_STMT_CLOSE 无响应包</summary>
@@ -1586,9 +1798,32 @@ public class SqlClient : DisposeBase
     {
         if (parameterSets == null || parameterSets.Count == 0) return 0;
 
+        // 转值数组走统一核心，避免每行 MySqlParameterCollection/MySqlParameter 分配
+        var sets = new List<Object?[]>(parameterSets.Count);
+        foreach (var ps in parameterSets)
+            sets.Add(ToValues(ps)!);
+
+        return await ExecuteStatementValuesAsync(statementId, sets, paramColumns, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>管道化批量执行预编译语句（值数组版本）。parameterSets 每行为按参数顺序排列的值数组</summary>
+    /// <remarks>
+    /// 真管道化模式（Pipeline=true）：批量构建并发送所有 EXECUTE 包到网络缓冲区，最后一次性 Flush，
+    /// 然后按顺序逐个读取响应。网络延迟仅发生一次，适合大批量 DML 操作。
+    /// 串行模式（Pipeline=false）：逐条发送并读取响应，跳过 MySqlCommand 层的开销，直接在协议层循环。
+    /// </remarks>
+    /// <param name="statementId">预编译语句 ID</param>
+    /// <param name="parameterSets">多组参数值数组，每组按参数顺序排列</param>
+    /// <param name="paramColumns">Prepare 返回的参数列信息</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>总影响行数</returns>
+    public async Task<Int32> ExecuteStatementValuesAsync(Int32 statementId, IList<Object?[]> parameterSets, MySqlColumn[]? paramColumns, CancellationToken cancellationToken = default)
+    {
+        if (parameterSets == null || parameterSets.Count == 0) return 0;
+
         // 真管道化：批量发送所有请求包，最后一次性 Flush，再批量读取响应
         if (Setting.Pipeline)
-            return await ExecutePipelineCoreAsync(statementId, parameterSets, cancellationToken).ConfigureAwait(false);
+            return await ExecutePipelineValuesCoreAsync(statementId, parameterSets, cancellationToken).ConfigureAwait(false);
 
         // 串行模式：逐条发送 EXECUTE + 读取响应的快速循环
         var totalAffected = 0;
@@ -1623,10 +1858,10 @@ public class SqlClient : DisposeBase
     /// 服务端处理后返回的响应立即被读取任务消费，保持双向数据流畅通。
     /// </remarks>
     /// <param name="statementId">预编译语句 ID</param>
-    /// <param name="parameterSets">多组参数集合</param>
+    /// <param name="parameterSets">多组参数值数组，每组按参数顺序排列</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>总影响行数</returns>
-    private async Task<Int32> ExecutePipelineCoreAsync(Int32 statementId, IList<MySqlParameterCollection> parameterSets, CancellationToken cancellationToken)
+    private async Task<Int32> ExecutePipelineValuesCoreAsync(Int32 statementId, IList<Object?[]> parameterSets, CancellationToken cancellationToken)
     {
         var count = parameterSets.Count;
         var ms = _stream ?? throw new InvalidOperationException("未打开连接");
@@ -1650,16 +1885,24 @@ public class SqlClient : DisposeBase
                 // 管道化每个 EXECUTE 独立使用 seq=0，直接构造帧头避免并发读写 _seq 竞态
                 var len = pk.Total;
                 var pk2 = pk.ExpandHeader(4);
-                pk2[0] = (Byte)(len & 0xFF);
-                pk2[1] = (Byte)((len >> 8) & 0xFF);
-                pk2[2] = (Byte)((len >> 16) & 0xFF);
-                pk2[3] = 0;
+                try
+                {
+                    pk2[0] = (Byte)(len & 0xFF);
+                    pk2[1] = (Byte)((len >> 8) & 0xFF);
+                    pk2[2] = (Byte)((len >> 16) & 0xFF);
+                    pk2[3] = 0;
 
-                await pk2.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+                    await pk2.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
 
-                // 定期 Flush 推送数据到服务端（SslStream 有内部缓冲，必须 Flush 才能发出）
-                if (i == count - 1 || (i + 1) % 100 == 0)
-                    await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
+                    // 定期 Flush 推送数据到服务端（SslStream 有内部缓冲，必须 Flush 才能发出）
+                    if (i == count - 1 || (i + 1) % 100 == 0)
+                        await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
+                }
+                finally
+                {
+                    // ExpandHeader 转移了 BuildExecutePacket 返回包的所有权，发送完成后归还池化缓冲，避免万行批量泄漏 8KB×N
+                    if (pk2 is IOwnerPacket owner) owner.Dispose();
+                }
             }
             sendCompleted = true;
 

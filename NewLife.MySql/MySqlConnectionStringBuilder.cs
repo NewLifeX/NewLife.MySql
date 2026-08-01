@@ -175,5 +175,9 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
         "ascii" or "ascii_general_ci" => MySqlCharSet.Ascii,
         _ => MySqlCharSet.Utf8Mb4,
     };
+
+    /// <summary>深拷贝连接字符串构造器。连接池持有克隆快照，避免调用方修改共享实例（如 ChangeDatabase 修改 Database）污染池配置</summary>
+    /// <returns>独立的新实例，与当前实例互不影响</returns>
+    public MySqlConnectionStringBuilder Clone() => new(ConnectionString);
     #endregion
 }

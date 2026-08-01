@@ -158,10 +158,38 @@ public class MySqlPoolTests
         var pool = manager.GetPool(setting);
 
         Assert.NotNull(pool);
-        Assert.Same(setting, pool.Setting);
+        // 池持有克隆快照而非调用方实例，防止 ChangeDatabase 等操作污染池配置
+        Assert.NotSame(setting, pool.Setting);
+        Assert.Equal(setting.ConnectionString, pool.Setting!.ConnectionString);
         Assert.Equal(0, pool.Min);
         Assert.Equal(100, pool.Max);
         Assert.Equal(60, pool.IdleTime);
+    }
+
+    [Fact]
+    [DisplayName("调用方修改Setting不污染连接池配置")]
+    public void WhenSettingMutatedThenPoolConfigUnaffected()
+    {
+        var manager = new MySqlPoolManager();
+        var setting = new MySqlConnectionStringBuilder("Server=localhost;Port=3306;UserID=root;Password=test;Database=sys");
+        var originalDb = setting.Database;
+
+        var pool = manager.GetPool(setting);
+        Assert.NotNull(pool);
+
+        // 模拟 ChangeDatabase 场景：修改 Setting.Database。
+        // 修复前池持有调用方实例引用，此修改会污染池配置，后续新连接连到错误数据库
+        setting.Database = "information_schema";
+
+        // 修复后：池持有克隆快照，不受调用方修改影响
+        Assert.NotSame(setting, pool.Setting);
+        Assert.Equal(originalDb, pool.Setting!.Database);
+
+        // 从池创建的新连接仍使用原始数据库
+        var client = pool.Get();
+        Assert.NotNull(client);
+        Assert.Equal(originalDb, client.Setting.Database);
+        client.Dispose();
     }
 
     [Fact]
@@ -225,5 +253,46 @@ public class MySqlPoolTests
         Assert.False(client.Active);
 
         client.Dispose();
+    }
+
+    [Fact]
+    [DisplayName("同步借出对NeedPing连接丢弃重建")]
+    public void OnGet_NeedPing_Discard()
+    {
+        var (client, server) = ConnectionTestKit.CreatePair();
+        using var sql = ConnectionTestKit.WrapClient(client, opened: true);
+        using var pool = new TestPool
+        {
+            Setting = new MySqlConnectionStringBuilder("server=127.0.0.1;port=3306;uid=root;pwd=root;database=test;IdlePoolTime=10")
+        };
+        // 空闲超过 IdlePoolTime×0.8 阈值（8秒），触发 NeedPing；同步路径无法异步验活，应丢弃
+        sql.LastActive = DateTime.Now.AddSeconds(-10);
+
+        Assert.False(pool.CallOnGet(sql));
+
+        server.Dispose();
+    }
+
+    [Fact]
+    [DisplayName("同步借出对活跃连接直接放行")]
+    public void OnGet_Active_Reusable()
+    {
+        var (client, server) = ConnectionTestKit.CreatePair();
+        using var sql = ConnectionTestKit.WrapClient(client, opened: true);
+        using var pool = new TestPool
+        {
+            Setting = new MySqlConnectionStringBuilder("server=127.0.0.1;port=3306;uid=root;pwd=root;database=test;IdlePoolTime=10")
+        };
+        sql.LastActive = DateTime.Now;
+
+        Assert.True(pool.CallOnGet(sql));
+
+        server.Dispose();
+    }
+
+    /// <summary>暴露 OnGet 以便测试同步借出路径的连接健康决策</summary>
+    private sealed class TestPool : MySqlPool
+    {
+        public Boolean CallOnGet(SqlClient value) => OnGet(value);
     }
 }
