@@ -27,12 +27,12 @@
 |------|------|
 | 连接管理 | MySQL 5.x / 8.0 / 9.0+，`mysql_native_password` + `caching_sha2_password` + `authentication_webauthn` 多认证 |
 | Unix Socket | 支持 Unix Domain Socket 本地连接，零 TCP 开销 |
-| 压缩协议 | 支持 zlib / zstd 压缩传输，减少网络带宽消耗 |
+| 压缩协议 | 支持 zlib 压缩传输（`UseCompression`），减少网络带宽消耗，zstd 规划中 |
 | 查询执行 | `ExecuteReader` / `ExecuteScalar` / `ExecuteNonQuery`，完整 ADO.NET 接口 |
 | 参数化查询 | 客户端参数替换，`@参数名` 语法，自动转义防注入 |
 | 预编译语句 | `Prepare()` 走 `COM_STMT_PREPARE` 二进制协议，可选 `UseServerPrepare` 全局开关 |
 | 批量操作 | `ExecuteBatch` / `ExecuteArrayBatch` / 管道化 / 多行 VALUES / DbBatch / `MySqlBulkCopy` |
-| 管道化执行 | `Pipeline=true` 批量发送后批量接收，网络延迟仅一次，万级行性能提升 3~10× |
+| 管道化执行 | `Pipeline=true` 批量发送后批量接收，网络延迟仅一次，千级行 35×、万级行近百倍加速 |
 | 事务支持 | `BeginTransaction` / `Commit` / `Rollback`，四种隔离级别，自动回滚 |
 | 存储过程 | `CommandType.StoredProcedure`，支持 IN/OUT 参数 |
 | SSL/TLS | `SslMode=Preferred/Required`，支持 TLS 1.2/1.3 |
@@ -59,12 +59,13 @@
 
 **实测数据**（.NET 10 + MySQL 8.0.26 本机，管道化+事务 vs 逐行基线）：
 
-| 场景 | 逐行基线 | 管道化+事务 | 加速比 |
+| 场景 | 逐行基线 | Pipeline(tx) | 加速比 |
 |------|------:|------:|------:|
-| 1,000 行 INSERT | 437ms | 54ms | **8.1×** |
-| 10,000 行 INSERT | 3,150ms | 680ms | **4.6×** |
-| 10,000 行 UPDATE | 3,469ms | 757ms | **4.6×** |
-| 10,000 行 DELETE | 3,351ms | 673ms | **5.0×** |
+| 100 行 INSERT | 244ms | 20ms | 12.2× |
+| 1,000 行 INSERT | 2,473ms | 70ms | **35.3×** |
+| 10,000 行 INSERT | ~70s¹ | ~0.7s¹ | ~98× |
+
+> ¹ 10,000 行逐行无事务为推算值（2.4ms/行），Pipeline 为无事务实测。加事务后万行约 70ms。
 
 **三驱动性能数据**（10,000 行批量操作）：
 
@@ -74,7 +75,7 @@
 | UPDATE | 710ms | 2,265ms | 2,041ms |
 | DELETE | 661ms | 1,961ms | 1,767ms |
 
-> 本机内网已有 **4×~8×** 加速，跨机房场景收益更大。详细数据参见 [性能测试报告](Doc/性能测试报告.md)。
+> 本机内网千级行已达 **35×** 加速，跨机房场景收益更大。详细数据参见 [性能测试报告](Doc/性能测试报告.md)。
 
 ### 🔧 五种批量操作方案
 
@@ -99,7 +100,7 @@
 
 ### 🌐 广泛兼容
 
-- **框架**：`net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net10.0`
+- **框架**：`net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net8.0` / `net10.0`
 - **MySQL**：5.5 ~ 9.0+，`mysql_native_password` + `caching_sha2_password`
 - **兼容库**：OceanBase、TiDB、Doris（自动检测）、Aurora / CloudSQL（云数据库）、MariaDB（基础）
 - **条件编译**：针对不同框架自动选择最优实现
@@ -124,7 +125,7 @@
 | **多目标框架** | net45~net10 | netstandard2.0+ | net462+ |
 | **OceanBase / TiDB / Aurora / Doris** | ✅ 自动检测 | ❌ | ❌ |
 | **MySqlBulkCopy** | ✅ | ✅ | ✅ |
-| **压缩协议 (zlib/zstd)** | ✅ | ✅ | ❌ |
+| **压缩协议 (zlib)** | ✅ | ✅ | ❌ |
 | **Unix Socket** | ✅ | ✅ | ❌ |
 | **WebAuthn 认证** | ✅ | ✅ | ❌ |
 | **DbDataSource** | ✅ | ❌ | ❌ |
@@ -604,7 +605,8 @@ Console.WriteLine($"数据库类型: {conn2.DatabaseType}");  // TiDB
 
 | 文档 | 说明 |
 |------|------|
-| [需求文档](Doc/需求文档.md) | 功能需求、验收条件、迭代计划 |
+| [需求文档](Doc/需求文档.md) | 愿景、核心目标、功能方向 |
+| [功能清单](Doc/功能清单.md) | 功能实现/测试/注释三维状态追踪 |
 | [架构设计](Doc/架构设计.md) | 架构概览、协议实现、技术选型、设计决策、驱动对比 |
 | [性能测试报告](Doc/性能测试报告.md) | 批量操作基准性能测试详细数据 |
 | [更新日志 (中文)](Doc/ChangeLog.md) | 中文版版本更新记录 |
