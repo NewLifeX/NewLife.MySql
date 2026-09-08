@@ -138,16 +138,28 @@ public sealed partial class MySqlConnection : DbConnection
         return new ConnectionOperationLease(this);
     }
 
-    /// <summary>销毁失效连接并重新建立连接。专供网络断线重试使用，不归还连接池直接销毁</summary>
+    /// <summary>销毁失效连接并重新建立连接。专供网络断线重试使用，失效连接销毁后归还槽位</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
     internal async Task ReconnectAsync(CancellationToken cancellationToken)
     {
-        // 直接销毁失效连接，不归还连接池（避免把断掉的连接还回池）
+        // 失效连接销毁后必须归还池槽位：池槽位只有 Return 才释放，裸 TryDispose 会永久泄漏槽位。
+        // 先销毁再 Return：已销毁（inactive）连接经 OnReturn 判定 Discard 后自动释放槽位，
+        // 避免"半开"连接被廉价 socket 探测误判可用而回池复用
         var oldClient = Client;
+        var pool = _pool;
         Client = null;
         _pool = null;
-        oldClient?.TryDispose();
+
+        if (pool != null && oldClient != null)
+        {
+            oldClient.TryDispose();
+            pool.Return(oldClient);
+        }
+        else
+        {
+            oldClient?.TryDispose();
+        }
 
         SetState(ConnectionState.Closed);
 
@@ -269,6 +281,10 @@ public sealed partial class MySqlConnection : DbConnection
         {
             if (clientAttached || Client != null)
                 Close();
+            else if (_pool != null && borrowedClient != null)
+                // 归还借出的客户端而非裸销毁：池槽位只有 Return 才释放，裸 TryDispose 会永久泄漏槽位。
+                // 建连失败时客户端未打开（socket 异常），Return 经 OnReturn 判定不可复用后自动销毁并释放槽位
+                _pool.Return(borrowedClient);
             else
                 borrowedClient.TryDispose();
 
