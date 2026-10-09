@@ -8,8 +8,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-publish:
-
+  test:
+    name: 单元测试（net10.0 / net8.0）
     runs-on: ubuntu-latest
 
     steps:
@@ -23,11 +23,34 @@ jobs:
           8.x
           9.x
           10.x
+    # 运行器自带 MySQL 8.0（root/root，默认未启动），单元测试依赖本机 3306
+    - name: 启动 MySQL 并准备测试库
+      run: |
+        sudo systemctl start mysql.service
+        for i in $(seq 1 30); do
+          if mysqladmin ping -h 127.0.0.1 -uroot -proot --silent 2>/dev/null; then break; fi
+          sleep 2
+        done
+        mysql -h 127.0.0.1 -uroot -proot -e "CREATE DATABASE IF NOT EXISTS test"
+        mysql -h 127.0.0.1 -uroot -proot -e "SELECT VERSION()"
     - name: Build
       run: |
         dotnet build -c Release
     - name: Test
       run: |
-        dotnet test -c Release UnitTest/UnitTest.csproj
+        dotnet test -c Release --no-build UnitTest/UnitTest.csproj
+        dotnet test -c Release --no-build UnitTest.EntityFrameworkCore/UnitTest.EntityFrameworkCore.csproj
+
+  test-netfx:
+    name: EF6 单元测试（net472）
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup dotNET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.x
+    - name: Test
+      run: |
         dotnet test -c Release UnitTest.EntityFramework/UnitTest.EntityFramework.csproj
-        dotnet test -c Release UnitTest.EntityFrameworkCore/UnitTest.EntityFrameworkCore.csproj

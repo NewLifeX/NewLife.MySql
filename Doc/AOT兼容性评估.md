@@ -93,7 +93,7 @@ AOT 发布期 ILC 对驱动报告 5 条唯一：`IL2075`（Authentication）、`
 | # | 项 | 说明 |
 |---|---|------|
 | P2-1 | 冒烟工程 `AotSmoke` 入库 | ✅ 已入库 `AotSmoke/`（net10.0 + PublishAot），14 场景（S0~S13，含连接属性与反射/表达式探针）；连接串支持参数/环境变量 `MYSQL_CONN`，支持 `--drop` 清理；已加入解决方案 |
-| P2-2 | CI 防回归 | ✅ 已建立 `.github/workflows/aot.yml`：① 分析器守卫（net8.0/net10.0 构建，`warning IL####` 命中即失败）；② Linux NativeAOT 冒烟（linux-x64 真实发布 + MySQL 8 service 运行 14 场景，ILC 告警命中即失败） |
+| P2-2 | CI 防回归 | ✅ 已建立 `.github/workflows/aot.yml`：① 分析器守卫（net8.0/net10.0 构建，`warning IL####` 命中即失败）；② Linux NativeAOT 冒烟（linux-x64 真实发布 + 运行器自带 MySQL 8 上运行 14 场景，ILC 告警命中即失败） |
 
 ### 依赖与参考
 
