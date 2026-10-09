@@ -55,7 +55,7 @@ class Authentication(SqlClient client)
         writer.WriteLength(attrs.Length);
         writer.Write(attrs);
 
-        // Slice 转移所有权，此处覆盖压缩协议路径的释放（SendPacketAsync 已释放非压缩路径产物，Dispose 幂等）
+        // 切片共享底层缓冲（v12 引用计数语义，原包保持有效）：SendPacketAsync 发送即消费会释放传入句柄，此处兜底（Dispose 幂等），原包由 using 在作用域末归还
         var pk2 = pk.Slice(4, writer.Position - 4);
 
         // 发送验证

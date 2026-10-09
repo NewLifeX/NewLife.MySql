@@ -21,6 +21,23 @@ jobs:
           8.x
           9.x
           10.x
+    - name: Guard - 正式发布禁止预发布依赖
+      run: |
+        echo "校验打包工程的直接依赖与依赖闭包，禁止 beta/rc 等预发布版本..."
+        if grep -rnE '<PackageReference[^>]*Version="[^"]*-[A-Za-z]' --include='*.csproj' \
+            NewLife.MySql NewLife.MySql.EntityFramework NewLife.MySql.EntityFrameworkCore; then
+          echo "::error::正式发布禁止引用预发布依赖，请先升级为稳定版再打标签"
+          exit 1
+        fi
+        for proj in NewLife.MySql NewLife.MySql.EntityFramework NewLife.MySql.EntityFrameworkCore; do
+          dotnet restore "$proj/$proj.csproj"
+          if matches=$(grep -ohE '"[A-Za-z0-9._-]+/[0-9][0-9A-Za-z._-]*-[A-Za-z][0-9A-Za-z._-]*"' "$proj/obj/project.assets.json" | sort -u) && [ -n "$matches" ]; then
+            echo "::error::$proj 的依赖闭包包含预发布版本："
+            echo "$matches"
+            exit 1
+          fi
+        done
+        echo "依赖检查通过：未发现预发布依赖"
     - name: Build
       env:
         LANG: en_US.UTF-8

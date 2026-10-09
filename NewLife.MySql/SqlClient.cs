@@ -622,6 +622,21 @@ public class SqlClient : DisposeBase
         };
     }
 
+    /// <summary>为协议帧头准备前置空间。已预留则零拷贝借位，未预留则新建链头挂接负载</summary>
+    /// <param name="pk">负载数据包</param>
+    /// <param name="size">帧头字节数</param>
+    /// <returns>带头部空间的数据包，调用方负责 Dispose</returns>
+    /// <remarks>
+    /// v12 起函数库把原 ExpandHeader 的降级语义拆分为：ExpandHeader 严格借位（未预留直接抛异常）、PrepareHeader 自动降级。
+    /// 此处组合两者，保持 v11「有前置空间零拷贝借位、否则新建链头」的行为，避免热路径额外分配。
+    /// </remarks>
+    private static IPacket PrepareFrameHeader(IPacket pk, Int32 size) => pk switch
+    {
+        ArrayPacket ap when ap.FreeHeader >= size => ap.ExpandHeader(size),
+        OwnerPacket op when op.RefCount > 0 && op.FreeHeader >= size => op.ExpandHeader(size),
+        _ => pk.PrepareHeader(size),
+    };
+
     /// <summary>异步发送 MySQL 协议数据包。建议数据包头部预留4字节空间以填充帧头</summary>
     /// <param name="pk">待发送的数据包</param>
     /// <param name="cancellationToken">取消令牌</param>
@@ -639,7 +654,7 @@ public class SqlClient : DisposeBase
         }
 
         var len = pk.Total;
-        var pk2 = pk.ExpandHeader(4);
+        var pk2 = PrepareFrameHeader(pk, 4);
 
         pk2[0] = (Byte)(len & 0xFF);
         pk2[1] = (Byte)((len >> 8) & 0xFF);
@@ -668,9 +683,10 @@ public class SqlClient : DisposeBase
         }
         finally
         {
-            // ExpandHeader 可能新建或转移所有权的 OwnerPacket，发送完成后归还池化缓冲；
-            // 若 pk2 即调用方包的所有权转移结果，调用方再 Dispose 原包是幂等 no-op
+            // 发送即消费：归还链头缓冲。v12 的 PrepareHeader 不改动原句柄所有权（借位共享/链式引用），
+            // 原包若为拥有句柄需在此一并释放，避免池化缓冲泄漏（v11 由 ExpandHeader 级联释放）
             if (pk2 is IOwnerPacket owner) owner.Dispose();
+            if (pk is IOwnerPacket pkOwner) pkOwner.Dispose();
         }
 
         LastActive = DateTime.Now;
@@ -819,7 +835,7 @@ public class SqlClient : DisposeBase
     {
         // 压缩协议：压缩包 payload 必须是带 4 字节普通帧头的标准包，先补帧头（帧头 seq 从 0 开始，与查询重置语义一致）
         var len = pk.Total;
-        var pk2 = pk.ExpandHeader(4);
+        var pk2 = PrepareFrameHeader(pk, 4);
         pk2[0] = (Byte)(len & 0xFF);
         pk2[1] = (Byte)((len >> 8) & 0xFF);
         pk2[2] = (Byte)((len >> 16) & 0xFF);
@@ -830,7 +846,7 @@ public class SqlClient : DisposeBase
 
         try
         {
-            // 链式数据（ExpandHeader 可能生成 { 帧头, Next=原包 } 链，GetSpan 仅返回单段）合并到连续缓冲后再压缩
+            // 链式数据（PrepareFrameHeader 可能生成 { 帧头, Next=原包 } 链，GetSpan 仅返回单段）合并到连续缓冲后再压缩
             var plain = new Byte[uncompressedLen];
             var pos = 0;
             for (var node = (IPacket?)pk2; node != null; node = node.Next)
@@ -888,8 +904,9 @@ public class SqlClient : DisposeBase
         }
         finally
         {
-            // ExpandHeader 可能新建或转移所有权的 OwnerPacket，发送完成后归还池化缓冲
+            // 发送即消费：归还链头与原包缓冲（v12 不再级联转移原包所有权）
             if (pk2 is IOwnerPacket owner) owner.Dispose();
+            if (pk is IOwnerPacket pkOwner) pkOwner.Dispose();
         }
     }
     #endregion
@@ -1007,7 +1024,7 @@ public class SqlClient : DisposeBase
             // 每一次查询请求，序列号都要重置为0
             _seq = 0;
 
-            // 偏移4字节为帧头预留空间，避免 ExpandHeader 额外分配
+            // 偏移4字节为帧头预留空间，避免 PrepareFrameHeader 额外分配
             await SendPacketAsync(new ArrayPacket(buf, 4, 1), cancellationToken).ConfigureAwait(false);
         }
         finally
@@ -1201,7 +1218,7 @@ public class SqlClient : DisposeBase
 
     #region 查询与结果集
     /// <summary>异步发送 SQL 查询请求到服务器。</summary>
-    /// <remarks>构造查询包时通常应预留帧头或使用 `ExpandHeader(4)`/在偏移 4 处写入命令字节，以便本方法把 `DbCmd.QUERY` 写入第一字节。</remarks>
+    /// <remarks>构造查询包时通常应预留帧头或在偏移 4 处写入命令字节，以便本方法把 `DbCmd.QUERY` 写入第一字节；发送路径的 PrepareFrameHeader 会自动为未预留的包挂接链头。</remarks>
     /// <param name="pk">包含查询语句的数据包。注意：数据包的第一个字节必须留作命令字节（DbCmd），构造查询数据包时不要占用该字节。</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>异步任务</returns>
@@ -1591,7 +1608,7 @@ public class SqlClient : DisposeBase
         }
         finally
         {
-            // 覆盖压缩协议路径：SendPacketAsync 非压缩路径已释放 ExpandHeader 产物（Dispose 幂等），此处统一归还
+            // 覆盖压缩协议路径：SendPacketAsync 非压缩路径已释放链头产物（Dispose 幂等），此处统一归还
             if (sendPk is IOwnerPacket owner) owner.Dispose();
         }
     }
@@ -1884,7 +1901,7 @@ public class SqlClient : DisposeBase
 
                 // 管道化每个 EXECUTE 独立使用 seq=0，直接构造帧头避免并发读写 _seq 竞态
                 var len = pk.Total;
-                var pk2 = pk.ExpandHeader(4);
+                var pk2 = PrepareFrameHeader(pk, 4);
                 try
                 {
                     pk2[0] = (Byte)(len & 0xFF);
@@ -1900,8 +1917,9 @@ public class SqlClient : DisposeBase
                 }
                 finally
                 {
-                    // ExpandHeader 转移了 BuildExecutePacket 返回包的所有权，发送完成后归还池化缓冲，避免万行批量泄漏 8KB×N
+                    // 发送即消费：归还链头与 BuildExecutePacket 返回的池化缓冲，避免万行批量泄漏 8KB×N
                     if (pk2 is IOwnerPacket owner) owner.Dispose();
+                    if (pk is IOwnerPacket pkOwner) pkOwner.Dispose();
                 }
             }
             sendCompleted = true;

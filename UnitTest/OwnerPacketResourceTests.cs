@@ -4,28 +4,36 @@ using NewLife.MySql;
 
 namespace UnitTest;
 
-/// <summary>OwnerPacket 资源管理与发送路径释放测试。验证 Slice 所有权转移语义与 SendPacketAsync 归还池化缓冲</summary>
+/// <summary>OwnerPacket 资源管理与发送路径释放测试。验证 Slice 引用计数共享语义与 SendPacketAsync 归还池化缓冲</summary>
 /// <remarks>对应审计遗留项 L1：OwnerPacket 基于 ArrayPool.Shared，发送路径必须 Dispose，否则池化失效产生 GC 压力</remarks>
 [Collection(TestCollections.InMemory)]
 public class OwnerPacketResourceTests
 {
     [Fact]
-    [DisplayName("OwnerPacket.Slice默认转移所有权且Dispose幂等")]
-    public void Slice_TransfersOwnership_DisposeIdempotent()
+    [DisplayName("OwnerPacket.Slice为引用计数共享且Dispose幂等")]
+    public void Slice_SharedReference_DisposeIdempotent()
     {
         var owner = new OwnerPacket(8192);
-        // 模拟 BuildExecutePacket：预留帧头后切片
+        owner[0] = 0x11;
+        owner[4] = 0x22;
+
+        // 模拟 BuildExecutePacket：预留帧头后切片，两者共享底层缓冲（引用计数）
         var slice = owner.Slice(4, 100);
-
-        // Slice 默认转移所有权，返回 IOwnerPacket 接管缓冲
         Assert.IsAssignableFrom<IOwnerPacket>(slice);
-        var ownerSlice = (IOwnerPacket)slice;
 
-        // 所有权已转移：原实例 Dispose 是幂等 no-op，不抛异常
+        // v12 语义：原句柄保持有效，双方各自可读，双方各持一份引用
+        Assert.Equal(0x11, owner[0]);
+        Assert.Equal(0x22, slice[0]);
+        Assert.Equal(2, slice.RefCount);
+
+        // 释放原句柄：缓冲不归还（切片仍持有引用），切片继续可读
         owner.Dispose();
-        ownerSlice.Dispose();
+        Assert.Equal(0x22, slice[0]);
+        Assert.Equal(1, slice.RefCount);
 
-        // 再次 Dispose 仍安全（幂等）
+        // 释放切片：最后一份引用归还池化缓冲；再次 Dispose 仍安全（幂等）
+        var ownerSlice = (IOwnerPacket)slice;
+        ownerSlice.Dispose();
         ownerSlice.Dispose();
     }
 
@@ -63,8 +71,8 @@ public class OwnerPacketResourceTests
     {
         using var sql = new SqlClient { BaseStream = new MemoryStream(), Timeout = 5 };
 
-        // OwnerPacket 无前置空间时，ExpandHeader 创建新链头 { Next = pk }
-        // 发送完成后 SendPacketAsync 应释放链头并级联释放原包
+        // OwnerPacket 无前置空间时，PrepareFrameHeader 新建链头 { Next = 原包切片 }
+        // 发送完成后 SendPacketAsync 释放链头并释放原包句柄（发送即消费）
         var pk = new OwnerPacket(4);
         pk[0] = 0x01;
         pk[1] = 0x02;
@@ -73,7 +81,7 @@ public class OwnerPacketResourceTests
 
         await sql.SendPacketAsync(pk);
 
-        // 发送完成后原包所有权已由链头级联释放，访问 Buffer 应抛 ObjectDisposedException（缓冲已归还）
+        // 发送完成后原包句柄已由 SendPacketAsync 释放（发送即消费），访问 Buffer 应抛 ObjectDisposedException（缓冲已归还）
         Assert.Throws<ObjectDisposedException>(() => _ = pk.Buffer);
     }
 }
