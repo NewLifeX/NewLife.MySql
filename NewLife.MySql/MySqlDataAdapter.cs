@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel;
 using System.Data;
 using System.Data.Common;
+using System.Diagnostics.CodeAnalysis;
 
 namespace NewLife.MySql;
 
@@ -34,6 +35,9 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
 {
     #region 属性
     private Boolean _loadingDefaults;
+
+    /// <summary>DataAdapter 路径裁剪声明提示（DataSet 架构与更新依赖 System.Data 内部反射）</summary>
+    private const String TrimMessage = "DataSet 架构与更新路径依赖 System.Data 运行时反射，NativeAOT 与裁剪下不可用";
 
     /// <summary>是否加载默认值</summary>
     internal Boolean LoadDefaults { get => _loadingDefaults; set => _loadingDefaults = value; }
@@ -69,6 +73,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="dataRows">要更新的数据行数组</param>
     /// <param name="tableMapping">表映射</param>
     /// <returns>成功更新的行数</returns>
+    [RequiresUnreferencedCode(TrimMessage)]
     protected override Int32 Update(DataRow[] dataRows, DataTableMapping tableMapping)
     {
         List<MySqlConnection> list = [];
@@ -200,6 +205,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="schemaType">架构类型</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>包含架构信息的 DataTable 数组</returns>
+    [RequiresUnreferencedCode(TrimMessage)]
     public Task<DataTable[]> FillSchemaAsync(DataSet dataSet, SchemaType schemaType, CancellationToken cancellationToken = default) => ExecuteAsync(() => FillSchema(dataSet, schemaType), cancellationToken);
 
     /// <summary>异步获取 DataSet 指定表的架构信息</summary>
@@ -208,6 +214,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="srcTable">源表名称</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>包含架构信息的 DataTable 数组</returns>
+    [RequiresUnreferencedCode(TrimMessage)]
     public Task<DataTable[]> FillSchemaAsync(DataSet dataSet, SchemaType schemaType, String srcTable, CancellationToken cancellationToken = default) => ExecuteAsync(() => FillSchema(dataSet, schemaType, srcTable), cancellationToken);
 
     /// <summary>使用 IDataReader 异步获取 DataSet 的架构信息</summary>
@@ -217,6 +224,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="dataReader">数据读取器</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>包含架构信息的 DataTable 数组</returns>
+    [RequiresUnreferencedCode(TrimMessage)]
     public Task<DataTable[]> FillSchemaAsync(DataSet dataSet, SchemaType schemaType, String srcTable, IDataReader dataReader, CancellationToken cancellationToken = default) => ExecuteAsync(() => FillSchema(dataSet, schemaType, srcTable, dataReader), cancellationToken);
 
     /// <summary>使用命令异步获取 DataSet 的架构信息</summary>
@@ -227,6 +235,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="behavior">命令行为</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>包含架构信息的 DataTable 数组</returns>
+    [RequiresUnreferencedCode(TrimMessage)]
     public Task<DataTable[]> FillSchemaAsync(DataSet dataSet, SchemaType schemaType, IDbCommand command, String srcTable, CommandBehavior behavior, CancellationToken cancellationToken = default) => ExecuteAsync(() => FillSchema(dataSet, schemaType, command, srcTable, behavior), cancellationToken);
 
     /// <summary>异步获取 DataTable 的架构信息</summary>
@@ -234,6 +243,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="schemaType">架构类型</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>包含架构信息的 DataTable</returns>
+    [RequiresUnreferencedCode(TrimMessage)]
     public Task<DataTable> FillSchemaAsync(DataTable dataTable, SchemaType schemaType, CancellationToken cancellationToken = default) => ExecuteAsync(() => FillSchema(dataTable, schemaType), cancellationToken);
 
     /// <summary>使用 IDataReader 异步获取 DataTable 的架构信息</summary>
@@ -242,6 +252,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="dataReader">数据读取器</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>包含架构信息的 DataTable</returns>
+    [RequiresUnreferencedCode(TrimMessage)]
     public Task<DataTable> FillSchemaAsync(DataTable dataTable, SchemaType schemaType, IDataReader dataReader, CancellationToken cancellationToken = default) => ExecuteAsync(() => FillSchema(dataTable, schemaType, dataReader), cancellationToken);
 
     /// <summary>使用命令异步获取 DataTable 的架构信息</summary>
@@ -251,24 +262,28 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="behavior">命令行为</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>包含架构信息的 DataTable</returns>
+    [RequiresUnreferencedCode(TrimMessage)]
     public Task<DataTable> FillSchemaAsync(DataTable dataTable, SchemaType schemaType, IDbCommand command, CommandBehavior behavior, CancellationToken cancellationToken = default) => ExecuteAsync(() => FillSchema(dataTable, schemaType, command, behavior), cancellationToken);
 
     /// <summary>异步更新 DataRow 数组</summary>
     /// <param name="dataRows">要更新的数据行数组</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功更新的行数</returns>
+    [RequiresUnreferencedCode(TrimMessage)]
     public Task<Int32> UpdateAsync(DataRow[] dataRows, CancellationToken cancellationToken = default) => ExecuteAsync(() => Update(dataRows), cancellationToken);
 
     /// <summary>异步更新 DataSet</summary>
     /// <param name="dataSet">要更新的 DataSet</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功更新的行数</returns>
+    [RequiresUnreferencedCode(TrimMessage)]
     public Task<Int32> UpdateAsync(DataSet dataSet, CancellationToken cancellationToken = default) => ExecuteAsync(() => Update(dataSet), cancellationToken);
 
     /// <summary>异步更新 DataTable</summary>
     /// <param name="dataTable">要更新的 DataTable</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功更新的行数</returns>
+    [RequiresUnreferencedCode(TrimMessage)]
     public Task<Int32> UpdateAsync(DataTable dataTable, CancellationToken cancellationToken = default) => ExecuteAsync(() => Update(dataTable), cancellationToken);
 
     /// <summary>使用表映射异步更新 DataRow 数组</summary>
@@ -276,6 +291,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="tableMapping">表映射</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功更新的行数</returns>
+    [RequiresUnreferencedCode(TrimMessage)]
     public Task<Int32> UpdateAsync(DataRow[] dataRows, DataTableMapping tableMapping, CancellationToken cancellationToken = default) => ExecuteAsync(() => base.Update(dataRows, tableMapping), cancellationToken);
 
     /// <summary>异步更新 DataSet 的指定表</summary>
@@ -283,6 +299,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="srcTable">源表名称</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功更新的行数</returns>
+    [RequiresUnreferencedCode(TrimMessage)]
     public Task<Int32> UpdateAsync(DataSet dataSet, String srcTable, CancellationToken cancellationToken = default) => ExecuteAsync(() => Update(dataSet, srcTable), cancellationToken);
     #endregion
 

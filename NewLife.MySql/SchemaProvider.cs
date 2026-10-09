@@ -1,6 +1,7 @@
 ﻿using System.Data;
 using System.Data.Common;
 using System.Data.SqlTypes;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reflection;
 using System.Text;
@@ -1163,7 +1164,8 @@ class SchemaCollection
 
     public SchemaCollection(String name) : this() => Name = name;
 
-    internal SchemaColumn AddColumn(String name, Type t)
+    internal SchemaColumn AddColumn(String name,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)] Type t)
     {
         var schemaColumn = new SchemaColumn
         {
@@ -1269,5 +1271,7 @@ class SchemaColumn
 {
     public String Name { get; set; } = String.Empty;
 
+    /// <remarks>这里标注保留要求：列类型会传入 DataTable 列容器，裁剪分析器需要沿属性读取传导（AOT 下类型成员不被裁掉）</remarks>
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public Type Type { get; set; } = typeof(Object);
 }

@@ -300,7 +300,8 @@ class Authentication(SqlClient client)
 
         var sb = new StringBuilder();
         var att = new ConnectAttributes();
-        foreach (var pi in att.GetType().GetProperties())
+        // 经 typeof 静态字面量取属性：裁剪分析器据此保留属性元数据，避免 AOT 下连接属性静默丢失
+        foreach (var pi in typeof(ConnectAttributes).GetProperties())
         {
             var name = pi.Name;
             var dis = pi.GetCustomAttributes(typeof(DisplayNameAttribute), false);

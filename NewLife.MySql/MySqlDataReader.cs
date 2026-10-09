@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using System.Data;
 using System.Data.Common;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Text;
@@ -147,6 +148,7 @@ public class MySqlDataReader : DbDataReader
     /// <summary>获取指定列的数据类型</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的数据类型</returns>
+    [return: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type GetFieldType(Int32 ordinal)
     {
         var col = _Columns![ordinal];
@@ -541,11 +543,12 @@ public class MySqlDataReader : DbDataReader
     /// <remarks>
     /// 在驱动层直接将每行数据映射到实体属性，避免先构建 DbTable 再 ReadModels 的二次遍历。
     /// 支持 IModel 索引器快速赋值，回退到反射 SetValue。属性名匹配不区分大小写。
+    /// 实体类型 T 的属性与构造函数元数据经 DynamicallyAccessedMembers 注解向调用方传导保留要求，NativeAOT 与裁剪下可直接使用。
     /// </remarks>
     /// <typeparam name="T">实体类型，需有无参构造函数</typeparam>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>实体对象列表</returns>
-    public async Task<IList<T>> ReadModelsAsync<T>(CancellationToken cancellationToken = default)
+    public async Task<IList<T>> ReadModelsAsync<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicParameterlessConstructor | DynamicallyAccessedMemberTypes.NonPublicConstructors)] T>(CancellationToken cancellationToken = default)
     {
         var columns = _Columns;
         var count = _FieldCount;
@@ -602,9 +605,18 @@ public class MySqlDataReader : DbDataReader
 
     private static readonly ConcurrentDictionary<Type, Dictionary<String, PropertyInfo>> _modelProperties = new();
 
-    private static Dictionary<String, PropertyInfo> GetModelProperties(Type type)
-        => _modelProperties.GetOrAdd(type, t => t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .ToDictionary(e => SerialHelper.GetName(e), e => e, StringComparer.OrdinalIgnoreCase));
+    private static Dictionary<String, PropertyInfo> GetModelProperties(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] Type type)
+    {
+        // 不使用 GetOrAdd：值工厂委托的形参拿不到类型注解，裁剪分析器的保留要求无法向调用方传导（AOT 下属性会被裁掉）
+        if (_modelProperties.TryGetValue(type, out var dic)) return dic;
+
+        dic = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .ToDictionary(e => SerialHelper.GetName(e), e => e, StringComparer.OrdinalIgnoreCase);
+        _modelProperties.TryAdd(type, dic);
+
+        return dic;
+    }
 
     private static readonly ConcurrentDictionary<PropertyInfo, Action<Object, Object?>> _modelSetters = new();
 
@@ -649,6 +661,7 @@ public class MySqlDataReader : DbDataReader
 
     /// <summary>获取架构表。返回列的元数据信息</summary>
     /// <returns></returns>
+    [UnconditionalSuppressMessage("Trimming", "IL2111", Justification = "DataType 列存放 System.Type 引用，仅作数据容器，不反射该类型成员；System.Type 自身成员由运行时保证可用")]
     public override DataTable GetSchemaTable()
     {
         var columns = _Columns;
