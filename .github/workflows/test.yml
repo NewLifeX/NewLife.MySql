@@ -24,15 +24,21 @@ jobs:
           9.x
           10.x
     # 运行器自带 MySQL 8.0（root/root，默认未启动），单元测试依赖本机 3306
+    # 部分测试连接回环别名 127.0.0.2，需要监听全部地址
     - name: 启动 MySQL 并准备测试库
       run: |
-        sudo systemctl start mysql.service
+        echo -e "[mysqld]\nbind-address = *" | sudo tee /etc/mysql/mysql.conf.d/zz-ci.cnf > /dev/null
+        sudo systemctl restart mysql.service
         for i in $(seq 1 30); do
           if mysqladmin ping -h 127.0.0.1 -uroot -proot --silent 2>/dev/null; then break; fi
           sleep 2
         done
         mysql -h 127.0.0.1 -uroot -proot -e "CREATE DATABASE IF NOT EXISTS test"
-        mysql -h 127.0.0.1 -uroot -proot -e "SELECT VERSION()"
+        mysql -h 127.0.0.1 -uroot -proot -e "
+          CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY 'root';
+          GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;
+          FLUSH PRIVILEGES;"
+        mysql -h 127.0.0.2 -P 3306 -uroot -proot -e "SELECT VERSION()"
     - name: Build
       run: |
         dotnet build -c Release

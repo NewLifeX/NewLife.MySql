@@ -1,4 +1,5 @@
 ﻿using System.ComponentModel;
+using System.Net.Security;
 using System.Security.Cryptography;
 using System.Text;
 using NewLife.Buffers;
@@ -155,9 +156,26 @@ class Authentication(SqlClient client)
 
     private async Task PerformFullAuthenticationAsync(String password, Byte[] seedBytes, CancellationToken cancellationToken)
     {
+        // 安全传输（TLS 或 Unix 套接字）下服务端要求发送明文密码，机密性由通道保证；
+        // 非安全传输才请求 RSA 公钥加密，避免明文密码暴露在网络上
+        if (client.BaseStream is SslStream || !client.Setting.Socket.IsNullOrEmpty())
+        {
+            var plain = password.GetBytes();
+            var buf = new Byte[plain.Length + 1];
+            Array.Copy(plain, 0, buf, 0, plain.Length);
+
+            await client.SendPacketAsync((ArrayPacket)buf, cancellationToken).ConfigureAwait(false);
+
+            using var rs0 = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+            if (!rs0.IsOK)
+                throw new InvalidOperationException("验证失败");
+
+            return;
+        }
+
         // request_public_key
-        var buf = new Byte[] { 0x02 };
-        await client.SendPacketAsync((ArrayPacket)buf, cancellationToken).ConfigureAwait(false);
+        var buf1 = new Byte[] { 0x02 };
+        await client.SendPacketAsync((ArrayPacket)buf1, cancellationToken).ConfigureAwait(false);
 
         // 读取响应
         using var rs = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
