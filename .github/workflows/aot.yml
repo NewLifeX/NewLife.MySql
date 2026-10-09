@@ -1,0 +1,78 @@
+name: aot
+
+on:
+  push:
+    branches: [ master, dev ]
+    paths:
+      - 'NewLife.MySql/**'
+      - 'AotSmoke/**'
+      - '.github/workflows/aot.yml'
+  pull_request:
+    paths:
+      - 'NewLife.MySql/**'
+      - 'AotSmoke/**'
+      - '.github/workflows/aot.yml'
+  workflow_dispatch:
+
+jobs:
+  analyzer:
+    name: 裁剪/AOT 分析器（0 告警）
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup dotNET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.x
+    - name: 构建 net8.0 / net10.0 并校验 0 条 IL 告警
+      run: |
+        set -o pipefail
+        for tfm in net8.0 net10.0; do
+          echo "===== ${tfm} ====="
+          dotnet build NewLife.MySql/NewLife.MySql.csproj -f ${tfm} -c Release -v n 2>&1 | tee "build-${tfm}.log"
+          if grep -nE 'warning IL[0-9]{4}' "build-${tfm}.log"; then
+            echo "::error::${tfm} 存在裁剪/AOT 告警，处理方式见 Doc/AOT兼容性评估.md"
+            exit 1
+          fi
+        done
+        echo "裁剪/AOT 告警检查通过：0 条"
+
+  native-smoke:
+    name: NativeAOT 冒烟（linux-x64 + MySQL 8）
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_ROOT_HOST: '%'
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: 安装 NativeAOT 依赖（clang / zlib）
+      run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+    - name: Setup dotNET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.x
+    - name: NativeAOT 发布并校验 0 条 ILC 告警
+      run: |
+        set -o pipefail
+        dotnet publish AotSmoke/AotSmoke.csproj -c Release -r linux-x64 -o out 2>&1 | tee publish.log
+        if grep -nE 'warning IL[0-9]{4}' publish.log; then
+          echo "::error::NativeAOT 发布存在 IL 告警，处理方式见 Doc/AOT兼容性评估.md"
+          exit 1
+        fi
+    - name: 运行原生冒烟（14 场景）
+      env:
+        MYSQL_CONN: "Server=127.0.0.1;Port=3306;Database=mysql;User Id=root;Password=root;"
+      run: ./out/AotSmoke

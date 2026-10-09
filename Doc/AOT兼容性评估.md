@@ -9,16 +9,16 @@
 - **主链路在 NativeAOT 下实测可用**：12 个冒烟场景中 11 个在未做任何改造的情况下直接通过（连接、认证、查询、类型化读取、服务器预编译、字典参数集批量、值数组批量 + 管道化、事务、压缩协议、DataAdapter.Fill、MySqlBulkCopy、异步读取）。
 - **唯一功能性缺口是"元数据保留"而非"动态能力"**：`ReadModelsAsync<T>` 依赖运行时反射枚举实体属性与无参构造，AOT 裁剪后失败；补一处泛型入口注解（`DynamicallyAccessedMembers`）后 12/12 全通。驱动不使用 Reflection.Emit / DLR / 脚本等设计性不支持的动态能力；唯一的表达式编译（实体 setter）在 .NET 10 NativeAOT 由官方解释器承载，**实测 `Expression.Compile` 可用**。
 - **静默降级已修复**：AOT 下 `ConnectAttributes` 私有属性被裁剪，握手连接属性块变为空（服务端 `session_connect_attrs` 实测 0 条），无异常、无日志；已改为 `typeof` 静态字面量取属性（P0-3），AOT 复测 7 类属性完整下发（§2.2）。
-- **工作项已完成并实测**：P0（功能性三项）与 P1（告警收敛五项）已于 2026-10-09 实施完成——库自身 `IsAotCompatible` 常驻后 net8.0/net10.0 分析器 **0 条告警**、AOT 发布期驱动侧 **0 条**（§2.3），NativeAOT 复测 **13/13 场景全通**（含连接属性）。剩余工作仅为 P2 验证闭环（冒烟工程入库与 CI 防回归，见 §3）。
-- **对外宣称 AOT 兼容的前置条件已基本满足**：主链路 0 告警 + 真实 AOT 实测全通；建议随 P2 的 CI 防回归落地后正式标注。
+- **工作项已完成并实测**：P0（功能性三项）与 P1（告警收敛五项）已于 2026-10-09 实施完成——库自身 `IsAotCompatible` 常驻后 net8.0/net10.0 分析器 **0 条告警**、AOT 发布期驱动侧 **0 条**（§2.3），NativeAOT 复测 **14/14 场景全通**（含连接属性）。P2 验证闭环（冒烟工程入库与 CI 防回归）同日落地，见 §3。
+- **可以正式标注 AOT 兼容**：主链路 0 告警 + 真实 AOT 实测全通 + 防回归 CI（分析器守卫与 NativeAOT 冒烟）已建立（§3 P2）。
 
 ---
 
 ## 2. 实测数据
 
-### 2.1 冒烟场景（12 项，win-x64 / .NET 10）
+### 2.1 冒烟场景（14 项，win-x64 / .NET 10）
 
-| # | 场景 | JIT 基线 | NativeAOT（原始） | NativeAOT（保留实体元数据后） |
+| # | 场景 | JIT 基线 | NativeAOT（原始） | NativeAOT（修复后） |
 |---|------|---------|------------------|------------------------------|
 | S0 | 建库（DDL） | ✅ | ✅ | ✅ |
 | S1 | 连接 + ExecuteScalar | ✅ | ✅ | ✅ |
@@ -33,8 +33,9 @@
 | S10 | 压缩协议（zlib） | ✅ | ✅ | ✅ |
 | S11 | 异步读取（ReadAsync） | ✅ | ✅ | ✅ |
 | S12 | 握手连接属性下发 | ✅ 7 类属性 | ❌ 静默丢失（0 条） | ✅ 7 类属性（P0-3 修复后） |
+| S13 | 反射/表达式探针（构造、属性、`Expression.Compile`） | ✅ | ❌ 构造与属性被裁剪 | ✅（P0 注解保留后） |
 
-> P0 修复后复测（2026-10-09）：NativeAOT 真实发布件 **13/13 场景全部 PASS**（S0~S12 + 反射路径隔离探针），且 **无任何调用方补丁**——实体元数据保留完全由库侧泛型入口注解传导。
+> P0 修复后复测（2026-10-09）：NativeAOT 真实发布件 **14/14 场景全部 PASS**（S0~S13，含连接属性与反射/表达式探针），且 **无任何调用方补丁**——实体元数据保留完全由库侧泛型入口注解传导。
 
 - AOT 判真：原生发布件 `Assembly.Location` 为空、JIT 为磁盘路径（另：冒烟工程固定"严格 AOT 姿态"，两种运行的 `IsDynamicCodeSupported` 均为 False，该值不作判别依据）。
 - S6 原始失败：`Fail to create object type=AotSmoke.Row parameters= No parameterless constructor defined for type 'AotSmoke.Row'`——实体无参构造未被反射元数据保留。
@@ -67,8 +68,7 @@ AOT 发布期 ILC 对驱动报告 5 条唯一：`IL2075`（Authentication）、`
 
 ## 3. 工作项清单（改造路线）
 
-> **状态（2026-10-09）**：P0-1 ~ P0-3 与 P1-1 ~ P1-5 **已全部实施并通过验证**（详见 §1/§2 复测数据）；
-> P2-1/P2-2（冒烟工程入库、CI 防回归）**未实施**——评估阶段的临时冒烟工程位于会话工作区，未入库。
+> **状态（2026-10-09）**：P0-1 ~ P0-3、P1-1 ~ P1-5 与 P2-1/P2-2 **已全部实施并通过验证**（详见 §1/§2 复测数据）。
 
 ### P0 功能性（不修则 AOT 下行为缺失/失败）
 
@@ -88,12 +88,12 @@ AOT 发布期 ILC 对驱动报告 5 条唯一：`IL2075`（Authentication）、`
 | P1-4 | `GetSchemaTable` 的 `typeof(Type)` | `MySqlDataReader.GetSchemaTable`（IL2111） | `UnconditionalSuppressMessage` + 理由注释 |
 | P1-5 | `IsAotCompatible` 常驻 | `NewLife.MySql.csproj` net8.0+ | 对齐 Core：对 net8.0+（含未来 `-windows` 形态）启用，保护后续回归 |
 
-### P2 验证闭环（建议随改造一起落地）
+### P2 验证闭环
 
 | # | 项 | 说明 |
 |---|---|------|
-| P2-1 | 冒烟工程 `AotSmoke` 入库 | 沿用本次临时探针的 12 场景结构（评估用工程未入库） |
-| P2-2 | CI 防回归 | 对齐 Core 的 `aot.yml`：`IsAotCompatible` 分析器硬约束 + win-x64 真实 AOT 冒烟（`PublishAot` 写在工程内，不用命令行全局属性，避免多目标依赖报 NETSDK1207） |
+| P2-1 | 冒烟工程 `AotSmoke` 入库 | ✅ 已入库 `AotSmoke/`（net10.0 + PublishAot），14 场景（S0~S13，含连接属性与反射/表达式探针）；连接串支持参数/环境变量 `MYSQL_CONN`，支持 `--drop` 清理；已加入解决方案 |
+| P2-2 | CI 防回归 | ✅ 已建立 `.github/workflows/aot.yml`：① 分析器守卫（net8.0/net10.0 构建，`warning IL####` 命中即失败）；② Linux NativeAOT 冒烟（linux-x64 真实发布 + MySQL 8 service 运行 14 场景，ILC 告警命中即失败） |
 
 ### 依赖与参考
 
@@ -115,16 +115,20 @@ AOT 发布期 ILC 对驱动报告 5 条唯一：`IL2075`（Authentication）、`
 ## 5. 复现方法
 
 ```powershell
-# 1) 编译期分析器（期望按 §3 收敛至 0 条）
-dotnet build NewLife.MySql\NewLife.MySql.csproj -f net10.0 -c Release -p:IsAotCompatible=true
+# 1) 编译期分析器（IsAotCompatible 已对 net8.0+ 常驻，期望 0 条；CI 由 aot.yml 守卫）
+dotnet build NewLife.MySql\NewLife.MySql.csproj -f net10.0 -c Release
 
-# 2) 真实 AOT 冒烟（临时探针工程，PublishAot 写在工程文件内）
-dotnet build   -c Release --project AotSmoke\AotSmoke.csproj                # JIT 基线
-dotnet publish -c Release -r win-x64 -o out --project AotSmoke\AotSmoke.csproj
-.\out\AotSmoke.exe                                                          # 逐场景 PASS/FAIL，非 0 退出码即失败
+# 2) JIT 基线冒烟（需本地 MySQL，连接串可用参数或 MYSQL_CONN 环境变量，默认本机 root/root）
+dotnet run -c Release --project AotSmoke\AotSmoke.csproj
+
+# 3) 真实 NativeAOT 冒烟（PublishAot 写在工程文件内）
+dotnet publish AotSmoke\AotSmoke.csproj -c Release -r win-x64 -o out
+.\out\AotSmoke.exe                                           # 逐场景 PASS/FAIL，非 0 退出码即失败
+.\out\AotSmoke.exe "..\Bin\UnitTest\Config\mysql.config"     # 也可传连接串或配置文件路径
+.\out\AotSmoke.exe --drop                                    # 清理冒烟库
 ```
 
-冒烟需本地 MySQL（连接串取自 `Bin\UnitTest\Config\mysql.config`），场景自建 `aotsmoke` 库，运行后可清理。
+冒烟自建 `aotsmoke` 库，运行后可 `--drop` 清理。CI（[`.github/workflows/aot.yml`](../.github/workflows/aot.yml)）在 linux-x64 + MySQL 8 service 上执行同一冒烟，并对分析器与 ILC 的 `warning IL####` 实施硬约束（命中即失败）。
 
 ---
 
