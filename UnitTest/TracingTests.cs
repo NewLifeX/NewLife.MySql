@@ -150,6 +150,47 @@ public class TracingTests : IDisposable
         Assert.Equal(3, span.Tags["db.operation.batch.size"]);
     }
 
+    [Fact]
+    [DisplayName("数组绑定批量产生 BATCH 跨度并记录批量条数")]
+    public void ArrayBatchSpan_RecordsBatchSize()
+    {
+        using var collector = new SpanCollector();
+
+        var marker = NewMarker();
+        using var cmd = new MySqlCommand(_conn, $"INSERT INTO `{_table}`(`name`) VALUES(@name) /* {marker} */");
+        cmd.Parameters.AddWithValue("name", new String[] { "a", "b", "c", "d" });
+
+        Assert.Equal(4, cmd.ExecuteArrayBatch(4));
+
+        var span = Assert.Single(collector.OfQuery(marker));
+        Assert.Equal("BATCH", span.Tags["db.operation.name"]);
+        Assert.Equal(4, span.Tags["db.operation.batch.size"]);
+    }
+
+    [Fact]
+    [DisplayName("存储过程跨度标注 CALL 与过程名")]
+    public void StoredProcedureSpan_RecordsProcedureName()
+    {
+        using var collector = new SpanCollector();
+
+        var proc = "nl_trace_proc_" + Rand.Next(10000);
+        try
+        {
+            _conn.ExecuteNonQuery($"CREATE PROCEDURE `{proc}`() SELECT 42");
+
+            using var cmd = new MySqlCommand(_conn, proc) { CommandType = CommandType.StoredProcedure };
+            Assert.Equal(42, cmd.ExecuteScalar().ToInt());
+
+            var span = Assert.Single(collector.OfProcedure(proc));
+            Assert.Equal("CALL", span.Tags["db.operation.name"]);
+            Assert.Equal(proc, span.Tags["db.query.text"]);
+        }
+        finally
+        {
+            _conn.ExecuteNonQuery($"DROP PROCEDURE IF EXISTS `{proc}`");
+        }
+    }
+
     #region 辅助
     /// <summary>生成唯一测试标记，避免并行测试的跨度相互干扰</summary>
     /// <returns>标记文本</returns>
@@ -184,6 +225,13 @@ public class TracingTests : IDisposable
         /// <returns>匹配的跨度集合</returns>
         public SpanInfo[] OfQuery(String marker) => Spans
             .Where(e => e.Tags.TryGetValue("db.query.text", out var v) && v is String s && s.Contains(marker))
+            .ToArray();
+
+        /// <summary>按存储过程名筛选 Execute 跨度</summary>
+        /// <param name="name">过程名</param>
+        /// <returns>匹配的跨度集合</returns>
+        public SpanInfo[] OfProcedure(String name) => Spans
+            .Where(e => e.Tags.TryGetValue("db.stored_procedure.name", out var v) && (v as String) == name)
             .ToArray();
 
         public void Dispose() => _listener.Dispose();
