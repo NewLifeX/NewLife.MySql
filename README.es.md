@@ -23,12 +23,13 @@ Su innovadora **ejecución por lotes en pipeline** ofrece un rendimiento DML por
 | Lotes por array | ✅ | ❌ | ❌ |
 | Lotes por diccionario | ✅ | ❌ | ❌ |
 | MySqlBulkCopy | ✅ | ✅ | ✅ |
-| Compresión (zlib/zstd) | ✅ | ✅ | ❌ |
+| Compresión (zlib) | ✅ | ✅ | ❌ |
 | Unix Socket | ✅ | ✅ | ❌ |
 | Autenticación WebAuthn | ✅ | ✅ | ❌ |
 | DbDataSource | ✅ | ❌ | ❌ |
 | OceanBase / TiDB / Aurora / Doris | ✅ Detección automática | ❌ | ❌ |
 | Frameworks soportados | net45 ~ net10 | net462+ | net462+ |
+| NativeAOT (net8.0+) | ✅ | ✅ | ❌ |
 
 ---
 

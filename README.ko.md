@@ -23,12 +23,13 @@
 | 배열 바인드 배치 | ✅ | ❌ | ❌ |
 | 사전 파라미터 배치 | ✅ | ❌ | ❌ |
 | MySqlBulkCopy | ✅ | ✅ | ✅ |
-| 압축 (zlib/zstd) | ✅ | ✅ | ❌ |
+| 압축 (zlib) | ✅ | ✅ | ❌ |
 | Unix Socket | ✅ | ✅ | ❌ |
 | WebAuthn 인증 | ✅ | ✅ | ❌ |
 | DbDataSource | ✅ | ❌ | ❌ |
 | OceanBase / TiDB / Aurora / Doris | ✅ 자동 감지 | ❌ | ❌ |
 | 대상 프레임워크 | net45 ~ net10 | net462+ | net462+ |
+| NativeAOT (net8.0+) | ✅ | ✅ | ❌ |
 
 ---
 

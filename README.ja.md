@@ -23,12 +23,13 @@
 | 配列バインドバッチ | ✅ | ❌ | ❌ |
 | 辞書パラメータバッチ | ✅ | ❌ | ❌ |
 | MySqlBulkCopy | ✅ | ✅ | ✅ |
-| 圧縮 (zlib/zstd) | ✅ | ✅ | ❌ |
+| 圧縮 (zlib) | ✅ | ✅ | ❌ |
 | Unix Socket | ✅ | ✅ | ❌ |
 | WebAuthn 認証 | ✅ | ✅ | ❌ |
 | DbDataSource | ✅ | ❌ | ❌ |
 | OceanBase / TiDB / Aurora / Doris | ✅ 自動検出 | ❌ | ❌ |
 | 対象フレームワーク | net45 ~ net10 | net462+ | net462+ |
+| NativeAOT (net8.0+) | ✅ | ✅ | ❌ |
 
 ---
 

@@ -25,7 +25,7 @@ Its innovative **Pipelined Batch Execution** delivers **2–3× faster batch DML
 | MySqlBulkCopy | ✅ | ✅ | ✅ |
 | DbBatch (.NET 6+) | ✅ | ✅ | ❌ |
 | DbDataSource | ✅ | ❌ | ❌ |
-| Compression (zlib/zstd) | ✅ | ✅ | ❌ |
+| Compression (zlib) | ✅ | ✅ | ❌ |
 | Unix Socket | ✅ | ✅ | ❌ |
 | WebAuthn Auth | ✅ | ✅ | ❌ |
 | DataAdapter | ✅ | ❌ | ✅ |
@@ -33,6 +33,7 @@ Its innovative **Pipelined Batch Execution** delivers **2–3× faster batch DML
 | XCode ORM Native | ✅ | ❌ | ❌ |
 | OceanBase / TiDB / Aurora / Doris | ✅ Auto-detect | ❌ | ❌ |
 | Target Frameworks | net45 ~ net10 | net462+ | net462+ |
+| NativeAOT (net8.0+) | ✅ | ✅ | ❌ |
 | Code Size | ~3,000 lines | ~30,000 lines | ~50,000 lines |
 
 ---
@@ -243,7 +244,7 @@ while (await reader.ReadAsync())
 - **True async**: Full-chain `async/await` with `ConfigureAwait(false)`, no `sync-over-async`
 - **Lean protocol**: Only parses necessary fields, skips redundant data
 - **Connection pooling**: Auto-managed per connection string, configurable lifetime and idle validation, health checks and idle recycling
-- **Compression**: zlib/zstd protocol compression to reduce bandwidth
+- **Compression**: zlib protocol compression to reduce bandwidth
 - **Unix Socket**: Local Unix Domain Socket connection support for zero-TCP-overhead on Linux
 - **WebAuthn**: FIDO2/WebAuthn passwordless authentication support
 

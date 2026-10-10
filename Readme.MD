@@ -27,7 +27,7 @@
 |------|------|
 | 连接管理 | MySQL 5.x / 8.0 / 9.0+，`mysql_native_password` + `caching_sha2_password` + `authentication_webauthn` 多认证 |
 | Unix Socket | 支持 Unix Domain Socket 本地连接，零 TCP 开销 |
-| 压缩协议 | 支持 zlib 压缩传输（`UseCompression`），减少网络带宽消耗，zstd 规划中 |
+| 压缩协议 | 支持 zlib 压缩传输（`UseCompression`），减少网络带宽消耗；zstd 因零第三方依赖约束暂缓支持 |
 | 查询执行 | `ExecuteReader` / `ExecuteScalar` / `ExecuteNonQuery`，完整 ADO.NET 接口 |
 | 参数化查询 | 客户端参数替换，`@参数名` 语法，自动转义防注入 |
 | 预编译语句 | `Prepare()` 走 `COM_STMT_PREPARE` 二进制协议，可选 `UseServerPrepare` 全局开关 |
