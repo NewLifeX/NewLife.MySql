@@ -39,7 +39,18 @@ sealed class MySqlTransaction(MySqlConnection connection, IsolationLevel isolati
         if (conn == null || conn.State != ConnectionState.Open) throw new ObjectDisposedException(nameof(Connection));
         if (!_open) throw new InvalidOperationException("Transaction has already been committed or is not pending");
 
-        conn.ExecuteNonQuery("COMMIT");
+        using var span = MySqlDiagnostics.StartTransaction(conn, "Commit");
+        try
+        {
+            // 内部 COMMIT 语句不产生 Execute 跨度，避免与 Commit 跨度重复计数
+            using var cmd = new MySqlCommand(conn, "COMMIT") { SuppressTracing = true };
+            cmd.ExecuteNonQuery();
+        }
+        catch (Exception ex)
+        {
+            span.SetError(ex);
+            throw;
+        }
 
         _open = false;
     }
@@ -51,7 +62,18 @@ sealed class MySqlTransaction(MySqlConnection connection, IsolationLevel isolati
         if (conn == null || conn.State != ConnectionState.Open) throw new ObjectDisposedException(nameof(Connection));
         if (!_open) throw new InvalidOperationException("Transaction has already been committed or is not pending");
 
-        conn.ExecuteNonQuery("ROLLBACK");
+        using var span = MySqlDiagnostics.StartTransaction(conn, "Rollback");
+        try
+        {
+            // 内部 ROLLBACK 语句不产生 Execute 跨度，避免与 Rollback 跨度重复计数
+            using var cmd = new MySqlCommand(conn, "ROLLBACK") { SuppressTracing = true };
+            cmd.ExecuteNonQuery();
+        }
+        catch (Exception ex)
+        {
+            span.SetError(ex);
+            throw;
+        }
 
         _open = false;
     }

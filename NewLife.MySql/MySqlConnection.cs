@@ -176,6 +176,8 @@ public sealed partial class MySqlConnection : DbConnection
 
         if (State == ConnectionState.Open) return;
 
+        using var span = MySqlDiagnostics.StartOpen(Setting);
+
         SetState(ConnectionState.Connecting);
 
         SqlClient? borrowedClient = null;
@@ -224,7 +226,7 @@ public sealed partial class MySqlConnection : DbConnection
                             Client = client;
                             try
                             {
-                                using var cmd = new MySqlCommand(this, "SELECT @@version_comment");
+                                using var cmd = new MySqlCommand(this, "SELECT @@version_comment") { SuppressTracing = true };
                                 var comment = await cmd.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false) as String;
                                 if (!comment.IsNullOrEmpty())
                                 {
@@ -277,8 +279,10 @@ public sealed partial class MySqlConnection : DbConnection
                 _pool?.Variables = client.Variables;
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            span.SetError(ex);
+
             if (clientAttached || Client != null)
                 Close();
             else if (_pool != null && borrowedClient != null)
@@ -293,6 +297,9 @@ public sealed partial class MySqlConnection : DbConnection
         }
 
         SetState(ConnectionState.Open);
+
+        var threadId = Client?.Welcome?.ThreadID;
+        if (threadId is > 0) span.SetTag("db.connection_id", threadId.Value.ToString());
     }
 
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
@@ -355,8 +362,12 @@ public sealed partial class MySqlConnection : DbConnection
             _ => throw new NotSupportedException(isolationLevel + ""),
         };
 
-        ExecuteNonQuery(sql);
-        ExecuteNonQuery("BEGIN");
+        // 事务起始语句属驱动内部记账，不产生 Execute 跨度，避免污染调用方链路
+        using var isoCmd = new MySqlCommand(this, sql) { SuppressTracing = true };
+        isoCmd.ExecuteNonQuery();
+
+        using var beginCmd = new MySqlCommand(this, "BEGIN") { SuppressTracing = true };
+        beginCmd.ExecuteNonQuery();
 
         return new MySqlTransaction(this, isolationLevel);
     }

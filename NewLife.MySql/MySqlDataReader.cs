@@ -94,6 +94,9 @@ public class MySqlDataReader : DbDataReader
 
     /// <summary>结果读取阶段超时。用于逐行读取和跳过剩余行</summary>
     internal Int32 ReadPhaseTimeout { get; set; }
+
+    /// <summary>命令执行跨度。关闭读取器时结束，覆盖命令发送到结果读取完毕的完整周期</summary>
+    internal MySqlActivity Activity { get; set; }
     #endregion
 
     #region 核心方法
@@ -477,6 +480,7 @@ public class MySqlDataReader : DbDataReader
                 conn.Client.Timeout = OriginalTimeout;
 
             RestoreTimeoutOnClose = false;
+            Activity.Dispose();
             OperationLease?.Dispose();
             OperationLease = null;
         }

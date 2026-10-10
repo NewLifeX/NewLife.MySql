@@ -61,6 +61,9 @@ public class MySqlCommand : DbCommand
 
     /// <summary>预编译参数顺序映射。索引为 SQL 中 ? 出现的位置，值为 _parameters 中的参数索引</summary>
     private Int32[]? _paramOrder;
+
+    /// <summary>是否抑制诊断埋点。驱动内部记账语句（如 SET SQL_SELECT_LIMIT 与事务 COMMIT/ROLLBACK）不产生 Execute 跨度</summary>
+    internal Boolean SuppressTracing { get; set; }
     #endregion
 
     #region 构造
@@ -267,17 +270,19 @@ public class MySqlCommand : DbCommand
 
         if (behavior.HasFlag(CommandBehavior.SchemaOnly))
         {
-            using var limitCmd = new MySqlCommand(conn, "SET SQL_SELECT_LIMIT=0");
+            using var limitCmd = new MySqlCommand(conn, "SET SQL_SELECT_LIMIT=0") { SuppressTracing = true };
             await limitCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
         else if (behavior.HasFlag(CommandBehavior.SingleRow))
         {
-            using var limitCmd = new MySqlCommand(conn, "SET SQL_SELECT_LIMIT=1");
+            using var limitCmd = new MySqlCommand(conn, "SET SQL_SELECT_LIMIT=1") { SuppressTracing = true };
             await limitCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
         var operationLease = await conn.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
         var previousTimeout = client.Timeout;
+
+        var span = SuppressTracing ? default : MySqlDiagnostics.StartExecute(conn, sql, CommandType);
 
         // 执行读取器，多语句由服务端拆分，通过NextResult()遍历
         try
@@ -289,7 +294,9 @@ public class MySqlCommand : DbCommand
                 OriginalTimeout = previousTimeout,
                 RestoreTimeoutOnClose = true,
                 CommandPhaseTimeout = CommandTimeout,
-                ReadPhaseTimeout = previousTimeout
+                ReadPhaseTimeout = previousTimeout,
+                // 跨度覆盖命令发送到读取器关闭的完整周期
+                Activity = span
             };
             var isBinary = await ExecuteAsync(cancellationToken).ConfigureAwait(false);
             reader.IsBinaryProtocol = isBinary;
@@ -301,9 +308,19 @@ public class MySqlCommand : DbCommand
         {
             client.Timeout = previousTimeout;
             operationLease.Dispose();
-            if (IsNetworkException(ex)) throw;
 
-            throw CreateCommandException(ex, GetDebugCommandText());
+            if (IsNetworkException(ex))
+            {
+                span.SetError(ex);
+                span.Dispose();
+                throw;
+            }
+
+            var error = CreateCommandException(ex, GetDebugCommandText());
+            span.SetError(error);
+            span.Dispose();
+
+            throw error;
         }
     }
 
@@ -434,6 +451,8 @@ public class MySqlCommand : DbCommand
             needClose = true;
         }
 
+        using var span = SuppressTracing ? default : MySqlDiagnostics.StartExecute(_DbConnection, sql, CommandType, parameterSets.Count);
+
         try
         {
             // 构建多组值数组，按 SQL 中 ? 占位符的顺序排列，避免每行 MySqlParameterCollection/MySqlParameter 分配
@@ -456,7 +475,9 @@ public class MySqlCommand : DbCommand
         }
         catch (Exception ex)
         {
-            throw CreateCommandException(ex, GetBatchDebugCommandText(firstSet), parameterSets.Count);
+            var error = CreateCommandException(ex, GetBatchDebugCommandText(firstSet), parameterSets.Count);
+            span.SetError(error);
+            throw error;
         }
         finally
         {
@@ -496,13 +517,17 @@ public class MySqlCommand : DbCommand
             needClose = true;
         }
 
+        using var span = SuppressTracing ? default : MySqlDiagnostics.StartExecute(_DbConnection, sql, CommandType, valueSets.Count);
+
         try
         {
             return await client.ExecuteStatementValuesAsync(_statementId, valueSets, _paramColumns, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            throw CreateCommandException(ex, GetDebugCommandText(), valueSets.Count);
+            var error = CreateCommandException(ex, GetDebugCommandText(), valueSets.Count);
+            span.SetError(error);
+            throw error;
         }
         finally
         {
@@ -541,6 +566,8 @@ public class MySqlCommand : DbCommand
             needClose = true;
         }
 
+        using var span = SuppressTracing ? default : MySqlDiagnostics.StartExecute(_DbConnection, sql, CommandType, count);
+
         try
         {
             // 从参数的数组值中提取每组值数组，按 SQL 中 ? 占位符的顺序排列，避免每行 MySqlParameterCollection 分配
@@ -558,7 +585,9 @@ public class MySqlCommand : DbCommand
         }
         catch (Exception ex)
         {
-            throw CreateCommandException(ex, GetArrayBatchDebugCommandText(), count);
+            var error = CreateCommandException(ex, GetArrayBatchDebugCommandText(), count);
+            span.SetError(error);
+            throw error;
         }
         finally
         {

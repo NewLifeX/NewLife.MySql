@@ -32,6 +32,7 @@
 | OceanBase / TiDB / Aurora / Doris | ✅ 자동 감지 | ❌ | ❌ |
 | 대상 프레임워크 | net45 ~ net10 | net462+ | net462+ |
 | NativeAOT (net8.0+) | ✅ | ✅ | ❌ |
+| OpenTelemetry 추적 | ✅ | ✅ | ✅ (8.1+) |
 
 ---
 

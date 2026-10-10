@@ -1,4 +1,5 @@
 using System.Data;
+using System.Diagnostics;
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -273,6 +274,29 @@ static class Program
             if (props.Length != 4) throw new Exception($"Row 属性数={props.Length}");
             var f = Expression.Lambda<Func<Row>>(Expression.New(typeof(Row))).Compile();
             if (f() is not Row) throw new Exception("Expression.Compile 结果异常");
+        });
+
+        // S14 链路追踪（验证 ActivitySource 与埋点在裁剪后可用）
+        Run("S14 Tracing", () =>
+        {
+            var names = new List<String>();
+            using var listener = new ActivityListener
+            {
+                ShouldListenTo = source => source.Name == "NewLife.MySql",
+                Sample = (ref ActivityCreationOptions<ActivityContext> _) => ActivitySamplingResult.AllDataAndRecorded,
+                ActivityStopped = activity => { lock (names) names.Add(activity.OperationName); }
+            };
+            ActivitySource.AddActivityListener(listener);
+
+            using (var conn = new MySqlConnection(_conn))
+            {
+                conn.Open();
+                using var cmd = new MySqlCommand(conn, "SELECT 1");
+                if (Convert.ToInt32(cmd.ExecuteScalar()) != 1) throw new Exception("查询结果异常");
+            }
+
+            // 连接打开与命令执行各产生一个跨度
+            if (!names.Contains("Open") || !names.Contains("Execute")) throw new Exception($"跨度={String.Join(",", names)}");
         });
 
         Console.WriteLine(_fail == 0 ? "ALL PASS" : $"FAILED={_fail}");

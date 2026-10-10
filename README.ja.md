@@ -32,6 +32,7 @@
 | OceanBase / TiDB / Aurora / Doris | ✅ 自動検出 | ❌ | ❌ |
 | 対象フレームワーク | net45 ~ net10 | net462+ | net462+ |
 | NativeAOT (net8.0+) | ✅ | ✅ | ❌ |
+| OpenTelemetry トレーシング | ✅ | ✅ | ✅ (8.1+) |
 
 ---
 

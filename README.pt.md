@@ -32,6 +32,7 @@ Sua inovadora **execução em lote pipeline** oferece desempenho DML em lote **2
 | OceanBase / TiDB / Aurora / Doris | ✅ Detecção automática | ❌ | ❌ |
 | Frameworks suportados | net45 ~ net10 | net462+ | net462+ |
 | NativeAOT (net8.0+) | ✅ | ✅ | ❌ |
+| Rastreamento OpenTelemetry | ✅ | ✅ | ✅ (8.1+) |
 
 ---
 

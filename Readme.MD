@@ -42,6 +42,7 @@
 | 异步方法 | 全链路 `async/await`，`OpenAsync` / `ExecuteReaderAsync` / `ReadAsync` 等 |
 | Schema 查询 | Tables / Columns / Indexes / Databases 等元数据，扩展索引/外键查询 |
 | DbDataSource | .NET 7+ 风格 `MySqlDataSource`，支持依赖注入 |
+| 链路追踪 | 内置 `ActivitySource` 埋点（`AddSource("NewLife.MySql")`），输出 Open / Execute / Commit / Rollback 跨度，遵循 OpenTelemetry 稳定语义约定，无订阅时零开销 |
 | DbBatch | .NET 6+ ADO.NET 标准批量 API |
 | 空间数据 | MySQL Geometry 类型，`MySqlGeometry` WKB 封装 |
 | EF Core | 通过 `NewLife.MySql.EntityFrameworkCore` 独立包支持 |
@@ -128,6 +129,7 @@
 | **XCode ORM 集成** | ✅ | ❌ | ❌ |
 | **多目标框架** | net45~net10 | netstandard2.0+ | net462+ |
 | **NativeAOT (net8.0+)** | ✅ | ✅ | ❌ |
+| **OpenTelemetry 链路追踪** | ✅ | ✅ | ✅ (8.1+) |
 | **OceanBase / TiDB / Aurora / Doris** | ✅ 自动检测 | ❌ | ❌ |
 | **MySqlBulkCopy** | ✅ | ✅ | ✅ |
 | **压缩协议 (zlib)** | ✅ | ✅ | ❌ |
@@ -498,6 +500,22 @@ while (await reader.ReadAsync())
     Console.WriteLine(reader.GetString(0));
 }
 ```
+
+---
+
+## 链路追踪（OpenTelemetry）
+
+驱动内置 `ActivitySource` 埋点（源名称 `NewLife.MySql`），输出 `Open`（连接）、`Execute`（命令，覆盖读取器生命周期）、`Commit` / `Rollback`（事务）四类跨度，属性遵循 OpenTelemetry 稳定数据库语义约定（`db.system.name` / `db.query.text` / `server.address` / `error.type` 等）。OpenTelemetry SDK 由使用方自备，驱动零新增依赖：
+
+```csharp
+using var tracerProvider = Sdk.CreateTracerProviderBuilder()
+    .AddSource("NewLife.MySql")
+    .AddOtlpExporter()
+    .Build();
+```
+
+- **生效范围**：`net6.0` 及以上；低版本与无订阅者时为零开销空实现
+- **隐私提示**：`db.query.text` 记录命令文本，建议使用参数化查询，避免字面量进入遥测
 
 ---
 

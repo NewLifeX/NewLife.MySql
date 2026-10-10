@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFrameworks>net45;net461;netstandard2.0;netstandard2.1;net6.0;net8.0;net10.0</TargetFrameworks>
     <AssemblyTitle>新生命MySQL驱动</AssemblyTitle>
-    <Description>Pure C# high-performance MySQL ADO.NET driver. Zero third-party dependencies, full async/await, Pipelined Batch Execution for 2~3× faster batch DML. MIT license. Supports net45~net10, MySQL 5.x~9.0+, OceanBase, TiDB, Doris, Aurora, CloudSQL; NativeAOT compatible on net8.0+.</Description>
+    <Description>Pure C# high-performance MySQL ADO.NET driver. Zero third-party dependencies, full async/await, Pipelined Batch Execution for 2~3× faster batch DML. MIT license. Supports net45~net10, MySQL 5.x~9.0+, OceanBase, TiDB, Doris, Aurora, CloudSQL; NativeAOT compatible on net8.0+; OpenTelemetry-compatible tracing (ActivitySource) on net6.0+.</Description>
     <Company>新生命开发团队</Company>
     <Copyright>©2002-2026 NewLife</Copyright>
     <VersionPrefix>1.4</VersionPrefix>
@@ -32,7 +32,7 @@
     <PackageIcon>leaf.png</PackageIcon>
     <RepositoryUrl>https://github.com/NewLifeX/NewLife.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>MySQL;ADO.NET;database;driver;client;batch;bulk;MySqlBulkCopy;high-performance;async;MIT;XCode;国产;信创;高性能;批量;管道化;pipeline;OceanBase;TiDB;Doris;Aurora;CloudSQL;Geometry;compression;zlib;UnixSocket;WebAuthn;ORM;EF Core;DataReader;DataAdapter;DbBatch;NativeAOT;$(AssemblyName)</PackageTags>
+    <PackageTags>MySQL;ADO.NET;database;driver;client;batch;bulk;MySqlBulkCopy;high-performance;async;MIT;XCode;国产;信创;高性能;批量;管道化;pipeline;OceanBase;TiDB;Doris;Aurora;CloudSQL;Geometry;compression;zlib;UnixSocket;WebAuthn;ORM;EF Core;DataReader;DataAdapter;DbBatch;NativeAOT;OpenTelemetry;Tracing;$(AssemblyName)</PackageTags>
     <PackageReleaseNotes>支持 Apache Doris 分析型数据库（MySQL 协议兼容）；修复压缩协议使其真正可用（zlib 对齐 MySQL 协议）；新增 MySqlDatabaseCreator 支持 EF Core EnsureCreated；新增 ExecuteBatchValues 值数组批量绑定，批量导入分配降低约 75%；增强数据包大小上限检测防止恶意包 OOM；连接池参数重构与依赖升级增强健壮性</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>

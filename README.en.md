@@ -36,6 +36,7 @@ Its innovative **Pipelined Batch Execution** delivers **2–3× faster batch DML
 | OceanBase / TiDB / Aurora / Doris | ✅ Auto-detect | ❌ | ❌ |
 | Target Frameworks | net45 ~ net10 | net462+ | net462+ |
 | NativeAOT (net8.0+) | ✅ | ✅ | ❌ |
+| OpenTelemetry Tracing | ✅ | ✅ | ✅ (8.1+) |
 | Code Size | ~3,000 lines | ~30,000 lines | ~50,000 lines |
 
 ---

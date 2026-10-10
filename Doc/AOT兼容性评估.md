@@ -9,14 +9,14 @@
 - **主链路在 NativeAOT 下实测可用**：12 个冒烟场景中 11 个在未做任何改造的情况下直接通过（连接、认证、查询、类型化读取、服务器预编译、字典参数集批量、值数组批量 + 管道化、事务、压缩协议、DataAdapter.Fill、MySqlBulkCopy、异步读取）。
 - **唯一功能性缺口是"元数据保留"而非"动态能力"**：`ReadModelsAsync<T>` 依赖运行时反射枚举实体属性与无参构造，AOT 裁剪后失败；补一处泛型入口注解（`DynamicallyAccessedMembers`）后 12/12 全通。驱动不使用 Reflection.Emit / DLR / 脚本等设计性不支持的动态能力；唯一的表达式编译（实体 setter）在 .NET 10 NativeAOT 由官方解释器承载，**实测 `Expression.Compile` 可用**。
 - **静默降级已修复**：AOT 下 `ConnectAttributes` 私有属性被裁剪，握手连接属性块变为空（服务端 `session_connect_attrs` 实测 0 条），无异常、无日志；已改为 `typeof` 静态字面量取属性（P0-3），AOT 复测 7 类属性完整下发（§2.2）。
-- **工作项已完成并实测**：P0（功能性三项）与 P1（告警收敛五项）已于 2026-10-09 实施完成——库自身 `IsAotCompatible` 常驻后 net8.0/net10.0 分析器 **0 条告警**、AOT 发布期驱动侧 **0 条**（§2.3），NativeAOT 复测 **14/14 场景全通**（含连接属性）。P2 验证闭环（冒烟工程入库与 CI 防回归）同日落地，见 §3。
+- **工作项已完成并实测**：P0（功能性三项）与 P1（告警收敛五项）已于 2026-10-09 实施完成——库自身 `IsAotCompatible` 常驻后 net8.0/net10.0 分析器 **0 条告警**、AOT 发布期驱动侧 **0 条**（§2.3），NativeAOT 复测 **15/15 场景全通**（含连接属性与链路追踪）。P2 验证闭环（冒烟工程入库与 CI 防回归）同日落地，见 §3。
 - **已正式标注 AOT 兼容**：主链路 0 告警 + 真实 AOT 实测全通 + 防回归 CI（分析器守卫与 NativeAOT 冒烟）已建立（§3 P2），README、竞品分析与 NuGet 包描述/标签均已同步。
 
 ---
 
 ## 2. 实测数据
 
-### 2.1 冒烟场景（14 项，win-x64 / .NET 10）
+### 2.1 冒烟场景（15 项，win-x64 / .NET 10）
 
 | # | 场景 | JIT 基线 | NativeAOT（原始） | NativeAOT（修复后） |
 |---|------|---------|------------------|------------------------------|
@@ -34,8 +34,9 @@
 | S11 | 异步读取（ReadAsync） | ✅ | ✅ | ✅ |
 | S12 | 握手连接属性下发 | ✅ 7 类属性 | ❌ 静默丢失（0 条） | ✅ 7 类属性（P0-3 修复后） |
 | S13 | 反射/表达式探针（构造、属性、`Expression.Compile`） | ✅ | ❌ 构造与属性被裁剪 | ✅（P0 注解保留后） |
+| S14 | 链路追踪（`ActivitySource` 埋点） | ✅ | — | ✅（SYS-11 新增） |
 
-> P0 修复后复测（2026-10-09）：NativeAOT 真实发布件 **14/14 场景全部 PASS**（S0~S13，含连接属性与反射/表达式探针），且 **无任何调用方补丁**——实体元数据保留完全由库侧泛型入口注解传导。
+> P0 修复后复测（2026-10-09）：NativeAOT 真实发布件 **15/15 场景全部 PASS**（S0~S14，含连接属性、反射/表达式探针与链路追踪），且 **无任何调用方补丁**——实体元数据保留完全由库侧泛型入口注解传导。
 
 - AOT 判真：原生发布件 `Assembly.Location` 为空、JIT 为磁盘路径（另：冒烟工程固定"严格 AOT 姿态"，两种运行的 `IsDynamicCodeSupported` 均为 False，该值不作判别依据）。
 - S6 原始失败：`Fail to create object type=AotSmoke.Row parameters= No parameterless constructor defined for type 'AotSmoke.Row'`——实体无参构造未被反射元数据保留。
@@ -92,7 +93,7 @@ AOT 发布期 ILC 对驱动报告 5 条唯一：`IL2075`（Authentication）、`
 
 | # | 项 | 说明 |
 |---|---|------|
-| P2-1 | 冒烟工程 `AotSmoke` 入库 | ✅ 已入库 `AotSmoke/`（net10.0 + PublishAot），14 场景（S0~S13，含连接属性与反射/表达式探针）；连接串支持参数/环境变量 `MYSQL_CONN`，支持 `--drop` 清理；已加入解决方案 |
+| P2-1 | 冒烟工程 `AotSmoke` 入库 | ✅ 已入库 `AotSmoke/`（net10.0 + PublishAot），15 场景（S0~S14，含连接属性、反射/表达式探针与链路追踪）；连接串支持参数/环境变量 `MYSQL_CONN`，支持 `--drop` 清理；已加入解决方案 |
 | P2-2 | CI 防回归 | ✅ 已建立 `.github/workflows/aot.yml`：① 分析器守卫（net8.0/net10.0 构建，`warning IL####` 命中即失败）；② Linux NativeAOT 冒烟（linux-x64 真实发布 + 运行器自带 MySQL 8 上运行 14 场景，ILC 告警命中即失败） |
 
 ### 依赖与参考
