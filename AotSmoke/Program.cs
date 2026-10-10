@@ -1,9 +1,12 @@
 using System.Data;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
 using System.Text;
 using NewLife.MySql;
+using NewLife.MySql.Binlog;
+using NewLife.MySql.Common;
 
 namespace AotSmoke;
 
@@ -27,11 +30,13 @@ public class Row
 /// <remarks>
 /// 连接串来源：命令行首个非选项参数（连接串或配置文件路径）&gt; 环境变量 MYSQL_CONN &gt; 本机默认（127.0.0.1/root/root）。
 /// 附加 --drop 可删除冒烟库后退出（用于清理）。
+/// 附加 --no-db 仅运行不依赖数据库的场景（用于无 MySQL 的 CI 环境），依赖数据库的场景标记为 SKIP。
 /// 使用方式：JIT 基线 `dotnet run`；真实 AOT `dotnet publish -r {rid} -o out` 后运行原生程序。
 /// </remarks>
 static class Program
 {
     private static Int32 _fail;
+    private static Boolean _noDb;
     private static String _conn = "";
     private static String _connBase = "";
 
@@ -47,6 +52,8 @@ static class Program
         // 首个非选项参数支持两种形态：连接串本身，或指向含连接串的配置文件（与 UnitTest 的 Config/mysql.config 习惯一致）
         var cfg = args.FirstOrDefault(e => !e.StartsWith("--", StringComparison.Ordinal));
         if (cfg != null && File.Exists(cfg)) cfg = File.ReadAllText(cfg).Trim();
+
+        _noDb = args.Contains("--no-db");
 
         _connBase = cfg ?? Environment.GetEnvironmentVariable("MYSQL_CONN")
             ?? "Server=127.0.0.1;Port=3306;Database=mysql;User Id=root;Password=root;";
@@ -274,7 +281,7 @@ static class Program
             if (props.Length != 4) throw new Exception($"Row 属性数={props.Length}");
             var f = Expression.Lambda<Func<Row>>(Expression.New(typeof(Row))).Compile();
             if (f() is not Row) throw new Exception("Expression.Compile 结果异常");
-        });
+        }, needsDb: false);
 
         // S14 链路追踪（验证 ActivitySource 与埋点在裁剪后可用）
         Run("S14 Tracing", () =>
@@ -299,12 +306,206 @@ static class Program
             if (!names.Contains("Open") || !names.Contains("Execute")) throw new Exception($"跨度={String.Join(",", names)}");
         });
 
+        // S15 Schema 元数据查询（SchemaProvider 反射/列类型流转路径）
+        Run("S15 GetSchema", () =>
+        {
+            using var conn = new MySqlConnection(_conn);
+            conn.Open();
+
+            var tables = conn.GetSchema("TABLES");
+            if (tables.Rows.Count == 0) throw new Exception("no tables");
+            var names = tables.Rows.Cast<DataRow>().Select(e => Convert.ToString(e["TABLE_NAME"])).ToList();
+            if (!names.Contains("t1")) throw new Exception($"t1 不在表列表中（{String.Join(",", names.Take(5))}）");
+
+            var columns = conn.GetSchema("COLUMNS");
+            var colNames = columns.Rows.Cast<DataRow>().Select(e => Convert.ToString(e["COLUMN_NAME"])).ToList();
+            if (!colNames.Contains("Price")) throw new Exception("Price 列缺失");
+        });
+
+        // S16 DbDataSource（.NET 7+ 数据源抽象）
+        Run("S16 DataSource", () =>
+        {
+            using var ds = new MySqlDataSource(_conn);
+            using var conn = ds.CreateConnection();
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT COUNT(*) FROM t1";
+            var n = Convert.ToInt32(cmd.ExecuteScalar());
+            if (n <= 0) throw new Exception($"count={n}");
+        });
+
+        // S17 存储过程 IN/OUT 参数
+        Run("S17 StoredProcedure", () =>
+        {
+            using var conn = new MySqlConnection(_conn);
+            conn.Open();
+            using (var cmd = new MySqlCommand(conn, "DROP PROCEDURE IF EXISTS smoke_proc"))
+                cmd.ExecuteNonQuery();
+            using (var cmd = new MySqlCommand(conn, "CREATE PROCEDURE smoke_proc(IN p_in INT, OUT p_out INT) BEGIN SET p_out = p_in * 2; END"))
+                cmd.ExecuteNonQuery();
+
+            using var call = new MySqlCommand(conn, "smoke_proc") { CommandType = CommandType.StoredProcedure };
+            var ps = call.Parameters;
+            ps.AddWithValue("p_in", 21);
+            var pOut = new MySqlParameter { ParameterName = "p_out", Direction = ParameterDirection.Output };
+            ps.Add(pOut);
+            call.ExecuteNonQuery();
+
+            if (Convert.ToInt32(pOut.Value) != 42) throw new Exception($"out={pOut.Value}");
+        });
+
+        // S18 Binlog 订阅（复制协议解析；服务器未开启 log_bin 时跳过）
+        await RunAsync("S18 Binlog", async () =>
+        {
+            using (var conn = new MySqlConnection(_conn))
+            {
+                conn.Open();
+                using var cmd = new MySqlCommand(conn, "SHOW VARIABLES LIKE 'log_bin'");
+                using var reader = cmd.ExecuteReader();
+                var on = reader.Read() && String.Equals(Convert.ToString(reader.GetValue(1)), "ON", StringComparison.OrdinalIgnoreCase);
+                if (!on)
+                {
+                    Console.WriteLine("        （服务器未开启 log_bin，跳过 Binlog 订阅）");
+                    return;
+                }
+            }
+
+            var events = new List<BinlogEvent>();
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            using var client = new BinlogClient(_conn);
+
+            var task = Task.Run(async () =>
+            {
+                try
+                {
+                    // SubscribeAsync 直接产出事件（不触发 OnEvent）
+                    await foreach (var e in client.SubscribeAsync(cts.Token))
+                    {
+                        lock (events) events.Add(e);
+                    }
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception) { /* 订阅结束阶段异常不影响事件断言 */ }
+            });
+
+            // 等订阅就绪后写入一行，触发 WRITE_ROWS_EVENT
+            await Task.Delay(1500);
+            using (var conn = new MySqlConnection(_conn))
+            {
+                conn.Open();
+                using var cmd = new MySqlCommand(conn, "INSERT INTO t1 (Name, CreateTime, Price) VALUES ('binlog', NOW(), 1)");
+                cmd.ExecuteNonQuery();
+            }
+
+            for (var i = 0; i < 100 && !HasWriteRows(); i++)
+                await Task.Delay(100);
+
+            cts.Cancel();
+            await task;
+
+            if (!HasWriteRows()) throw new Exception($"未收到 WRITE_ROWS_EVENT（事件数={events.Count}）");
+
+            Boolean HasWriteRows()
+            {
+                lock (events) return events.Any(e => e.EventType == BinlogEventType.WRITE_ROWS_EVENT);
+            }
+        });
+
+        // S19 DataAdapter 填充/架构/回写（System.Data 反射路径，调用方声明保留责任）
+        Run("S19 DataAdapter", () => RunDataAdapter(_conn));
+
+        // P1 工厂创建（纯内存）
+        Run("P1 ClientFactory", () =>
+        {
+            var factory = MySqlClientFactory.Instance;
+            using var conn = factory.CreateConnection() ?? throw new Exception("CreateConnection 返回空");
+            using var cmd = factory.CreateCommand() ?? throw new Exception("CreateCommand 返回空");
+            using var adapter = factory.CreateDataAdapter() ?? throw new Exception("CreateDataAdapter 返回空");
+            var parameter = factory.CreateParameter() ?? throw new Exception("CreateParameter 返回空");
+            if (parameter.ParameterName != null) parameter.ParameterName = "p";
+
+            cmd.Connection = conn;
+            cmd.CommandText = "SELECT 1";
+            if (cmd.CommandText != "SELECT 1") throw new Exception("CommandText 未生效");
+            if (conn is not MySqlConnection) throw new Exception($"连接类型异常：{conn.GetType().Name}");
+        }, needsDb: false);
+
+        // P2 参数替换与转义（纯内存，覆盖注入防护路径）
+        Run("P2 ParameterSubstitution", () =>
+        {
+            using var holder = new MySqlConnection();
+            using var cmd = new MySqlCommand("SELECT * FROM t1 WHERE Name = @Name AND Price > @Price", holder);
+            cmd.Parameters.AddWithValue("@Name", "O'Reilly");
+            cmd.Parameters.AddWithValue("@Price", 12.5m);
+
+            var sql = cmd.ToString();
+            if (!sql.Contains(@"O\'Reilly")) throw new Exception($"单引号未转义：{sql}");
+            if (!sql.Contains("12.5")) throw new Exception($"数值未替换：{sql}");
+        }, needsDb: false);
+
+        // P3 Geometry WKB 封装（纯内存）
+        Run("P3 GeometryWkb", () =>
+        {
+            // POINT(1 2) 的 WKB：字节序 + 类型 + X(8) + Y(8)
+            var wkb = new Byte[] { 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xF0, 0x3F, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40 };
+            var geometry = new MySqlGeometry(wkb);
+            Byte[] back = geometry;
+            if (back.Length != wkb.Length) throw new Exception($"长度={back.Length}");
+            if (!geometry.ToString()!.StartsWith("0101000000", StringComparison.OrdinalIgnoreCase)) throw new Exception($"WKB={geometry}");
+        }, needsDb: false);
+
+        // P4 DbDataSource 创建（纯内存）
+        Run("P4 DataSourceCreate", () =>
+        {
+            using var ds = new MySqlDataSource(_conn);
+            using var conn = ds.CreateConnection();
+            if (conn is not MySqlConnection) throw new Exception($"连接类型异常：{conn.GetType().Name}");
+            using var cmd = ds.CreateCommand("SELECT 1");
+            if (cmd.CommandText != "SELECT 1") throw new Exception("CreateCommand 未生效");
+        }, needsDb: false);
+
         Console.WriteLine(_fail == 0 ? "ALL PASS" : $"FAILED={_fail}");
         return _fail == 0 ? 0 : 1;
     }
 
-    private static void Run(String name, Action action)
+    /// <summary>DataAdapter 场景。Fill/FillSchema/Update 在基类标注 RequiresUnreferencedCode，调用方按 System.Data 语义承担元数据保留责任</summary>
+    /// <param name="connStr">连接字符串</param>
+    [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "冒烟工程主动验证 DataAdapter 标注路径在 AOT 下的运行时行为，调用方负责元数据保留")]
+    private static void RunDataAdapter(String connStr)
     {
+        using var conn = new MySqlConnection(connStr);
+        conn.Open();
+
+        var table = new DataTable();
+        using (var adapter = new MySqlDataAdapter("SELECT Id, Name, CreateTime, Price FROM t1 ORDER BY Id", conn))
+        {
+            adapter.Fill(table);
+            if (table.Rows.Count == 0) throw new Exception("no rows");
+
+            adapter.FillSchema(table, SchemaType.Source);
+            if (table.Columns.Count < 4) throw new Exception($"列数={table.Columns.Count}");
+        }
+
+        var row = table.NewRow();
+        row["Name"] = "adapter";
+        row["CreateTime"] = DateTime.Now;
+        row["Price"] = 9.9m;
+        table.Rows.Add(row);
+
+        var insert = new MySqlCommand("INSERT INTO t1 (Name, CreateTime, Price) VALUES (@Name, @CreateTime, @Price)", conn);
+        insert.Parameters.Add(new MySqlParameter("@Name", DbType.String) { SourceColumn = "Name", Size = 64 });
+        insert.Parameters.Add(new MySqlParameter("@CreateTime", DbType.DateTime) { SourceColumn = "CreateTime" });
+        insert.Parameters.Add(new MySqlParameter("@Price", DbType.Decimal) { SourceColumn = "Price" });
+
+        using var da = new MySqlDataAdapter { InsertCommand = insert };
+        var affected = da.Update(table);
+        if (affected != 1) throw new Exception($"update={affected}");
+    }
+
+    private static void Run(String name, Action action, Boolean needsDb = true)
+    {
+        if (Skip(name, needsDb)) return;
+
         try
         {
             action();
@@ -317,8 +518,10 @@ static class Program
         }
     }
 
-    private static async Task RunAsync(String name, Func<Task> action)
+    private static async Task RunAsync(String name, Func<Task> action, Boolean needsDb = true)
     {
+        if (Skip(name, needsDb)) return;
+
         try
         {
             await action();
@@ -329,5 +532,17 @@ static class Program
             _fail++;
             Console.WriteLine($"FAIL  {name}  -> {ex.GetType().Name}: {ex.Message}");
         }
+    }
+
+    /// <summary>--no-db 模式下跳过依赖数据库的场景</summary>
+    /// <param name="name">场景名称</param>
+    /// <param name="needsDb">是否依赖数据库</param>
+    /// <returns>是否跳过</returns>
+    private static Boolean Skip(String name, Boolean needsDb)
+    {
+        if (!_noDb || !needsDb) return false;
+
+        Console.WriteLine($"SKIP  {name}  -> --no-db");
+        return true;
     }
 }

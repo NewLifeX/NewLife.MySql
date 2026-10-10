@@ -25,16 +25,19 @@ jobs:
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: 10.x
-    - name: 构建 net8.0 / net10.0 并校验 0 条 IL 告警
+    - name: 构建驱动与 EF Core 提供程序（net8.0 / net10.0）并校验 0 条 IL 告警
       run: |
         set -o pipefail
-        for tfm in net8.0 net10.0; do
-          echo "===== ${tfm} ====="
-          dotnet build NewLife.MySql/NewLife.MySql.csproj -f ${tfm} -c Release -v n 2>&1 | tee "build-${tfm}.log"
-          if grep -nE 'warning IL[0-9]{4}' "build-${tfm}.log"; then
-            echo "::error::${tfm} 存在裁剪/AOT 告警，处理方式见 Doc/AOT兼容性评估.md"
-            exit 1
-          fi
+        for proj in NewLife.MySql/NewLife.MySql.csproj NewLife.MySql.EntityFrameworkCore/NewLife.MySql.EntityFrameworkCore.csproj; do
+          for tfm in net8.0 net10.0; do
+            echo "===== ${proj} ${tfm} ====="
+            log="build-$(basename ${proj} .csproj)-${tfm}.log"
+            dotnet build "${proj}" -f ${tfm} -c Release -v n 2>&1 | tee "${log}"
+            if grep -nE 'warning IL[0-9]{4}' "${log}"; then
+              echo "::error::${proj} ${tfm} 存在裁剪/AOT 告警，处理方式见 Doc/AOT兼容性评估.md"
+              exit 1
+            fi
+          done
         done
         echo "裁剪/AOT 告警检查通过：0 条"
 
@@ -67,7 +70,30 @@ jobs:
           echo "::error::NativeAOT 发布存在 IL 告警，处理方式见 Doc/AOT兼容性评估.md"
           exit 1
         fi
-    - name: 运行原生冒烟（15 场景）
+    - name: 运行原生冒烟（20 场景 + 4 纯内存场景）
       env:
         MYSQL_CONN: "Server=127.0.0.1;Port=3306;Database=mysql;User Id=root;Password=root;"
       run: ./out/AotSmoke
+
+  native-smoke-windows:
+    name: NativeAOT 冒烟（win-x64，无数据库场景）
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup dotNET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.x
+    - name: NativeAOT 发布并校验 0 条 ILC 告警
+      shell: pwsh
+      run: |
+        dotnet publish AotSmoke/AotSmoke.csproj -c Release -r win-x64 -o out | Tee-Object -FilePath publish-win.log
+        if (Select-String -Path publish-win.log -Pattern 'warning IL\d{4}') {
+          Write-Error "NativeAOT 发布存在 IL 告警，处理方式见 Doc/AOT兼容性评估.md"
+          exit 1
+        }
+    # 运行器 MySQL 是否可用随镜像变化，此处固定运行不依赖数据库的场景（S13 与 P1~P4）
+    - name: 运行原生冒烟（--no-db）
+      shell: pwsh
+      run: ./out/AotSmoke.exe --no-db
