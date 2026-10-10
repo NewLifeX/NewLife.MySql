@@ -20,6 +20,11 @@
     <NoWarn>1701;1702;NU5104;NETSDK1138;CS7035</NoWarn>
     <AnalysisLevel>latest</AnalysisLevel>
   </PropertyGroup>
+  <PropertyGroup Condition="$([MSBuild]::IsTargetFrameworkCompatible('$(TargetFramework)', 'net8.0'))">
+    <!-- net8.0+ 启用裁剪/AOT 分析器，保证提供程序侧注解完整（0 告警）。
+         运行时 AOT 能力取决于 EF Core 本体与其编译模型支持，详见 Doc/AOT兼容性评估.md -->
+    <IsAotCompatible>true</IsAotCompatible>
+  </PropertyGroup>
   <PropertyGroup>
     <PackageId>$(AssemblyName)</PackageId>
     <Authors>$(Company)</Authors>

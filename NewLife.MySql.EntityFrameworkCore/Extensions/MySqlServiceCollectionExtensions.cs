@@ -1,5 +1,6 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using System.Diagnostics.CodeAnalysis;
 
 namespace NewLife.MySql.EntityFrameworkCore;
 
@@ -10,8 +11,9 @@ public static class MySqlServiceCollectionExtensions
     /// <param name="services">服务集合</param>
     /// <param name="connectionString">MySQL 连接字符串</param>
     /// <param name="mySqlOptionsAction">MySql 选项配置回调</param>
+    /// <typeparam name="TContext">上下文类型</typeparam>
     /// <returns></returns>
-    public static IServiceCollection AddMySql<TContext>(
+    public static IServiceCollection AddMySql<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors | DynamicallyAccessedMemberTypes.PublicProperties)] TContext>(
         this IServiceCollection services,
         String connectionString,
         Action<MySqlDbContextOptionsBuilder>? mySqlOptionsAction = null)
