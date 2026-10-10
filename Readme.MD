@@ -615,6 +615,29 @@ Console.WriteLine($"数据库类型: {conn2.DatabaseType}");  // TiDB
 
 ---
 
+## NativeAOT 部署
+
+驱动在 `net8.0+` 目标框架下已通过 NativeAOT 真实发布验证（win-x64 本地与 CI、linux-x64 CI，24 场景冒烟全通、ILC 0 告警），发布原生程序**无需任何调用方补丁**：
+
+```xml
+<PropertyGroup>
+  <PublishAot>true</PublishAot>
+</PropertyGroup>
+```
+
+```powershell
+dotnet publish -c Release -r linux-x64
+```
+
+| 说明 | 内容 |
+|------|------|
+| 生效范围 | `net8.0+`；`net6.0` 需实验开关，更早框架不支持 |
+| 已验证能力 | 连接/认证（含握手连接属性）、同步与异步查询、服务器预编译、批量（字典/数组/值数组/管道化）、事务、存储过程、Schema 元数据、DbDataSource、DataAdapter、MySqlBulkCopy、压缩协议、Binlog 订阅、链路追踪 |
+| 注意事项 | `MySqlDataAdapter` 的 Fill/FillSchema/Update 系列带 `RequiresUnreferencedCode` 标注，裁剪应用按 System.Data 语义在调用方声明保留责任 |
+| 详细评估 | [AOT 兼容性评估](Doc/AOT兼容性评估.md) |
+
+---
+
 ## 注意事项
 
 1. **MySQL 版本**：支持 5.x 及以上，推荐 8.0+
