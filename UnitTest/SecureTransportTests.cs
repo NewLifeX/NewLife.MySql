@@ -16,7 +16,7 @@ public class SecureTransportTests
 {
     /// <summary>获取可用的 Unix 套接字路径，不存在时返回 null（Windows 或未部署 MySQL 的环境）</summary>
     /// <returns>套接字路径，不可用时返回 null</returns>
-    private static String? GetSocketPath()
+    private static String GetSocketPath()
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && !RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return null;
 
