@@ -1,7 +1,7 @@
 # NewLife.MySql AOT 兼容性评估
 
 > 评估日期：2026-10-09｜基线：驱动 1.4.2026.1009 + NewLife.Core 12.0.2026.1009-beta0916｜评估方式：**真实 NativeAOT 编译 + 运行实测**（win-x64，.NET 10）+ 编译期分析器取证
-> 复验：2026-10-15（驱动 1.4.2026.1015 + NewLife.Core 12.0.2026.1013-beta0732）win-x64 原生发布件 24/24 场景全通、ILC 0 条告警，结论不变。
+> 复验：2026-10-15（驱动 1.4.2026.1015 + NewLife.Core 12.0.2026.1013-beta0732）win-x64 与 linux-x64 原生发布件均 **24/24 场景全通**、ILC 0 条告警（linux 侧为 WSL Ubuntu 24.04 + 用户态 MySQL 8.0.46），结论不变。
 
 ---
 
@@ -83,7 +83,7 @@ AOT 发布期 ILC 对驱动报告 5 条唯一：`IL2075`（Authentication）、`
 | RID / 环境 | 执行方式 | 状态 |
 |-----------|---------|------|
 | win-x64 / .NET 10 | 本地 `dotnet publish -r win-x64` 原生运行 | ✅ 24/24 PASS，ILC 0 告警 |
-| linux-x64 / .NET 10 | CI `aot.yml` → native-smoke（运行器 MySQL 8，20 数据库场景） | 作业已配置，待首次运行 |
+| linux-x64 / .NET 10 | 本地 WSL（Ubuntu 24.04）发布 + 用户态 MySQL 8.0.46 原生运行；CI `aot.yml` → native-smoke（运行器 MySQL 8，20 数据库场景） | ✅ 本地 24/24 PASS（2026-10-15，ILC 0 告警）；CI 作业待首次运行 |
 | win-x64 / .NET 10 | CI `aot.yml` → native-smoke-windows（`--no-db`，5 项纯内存场景） | 作业已配置，待首次运行 |
 | 其他 RID（linux-arm64 / osx-arm64 等） | 未覆盖 | 纯托管实现无平台特定代码，理论等价；如需可扩展 CI 矩阵 |
 
@@ -153,6 +153,18 @@ dotnet publish AotSmoke\AotSmoke.csproj -c Release -r win-x64 -o out
 .\out\AotSmoke.exe "..\Bin\UnitTest\Config\mysql.config"     # 也可传连接串或配置文件路径
 .\out\AotSmoke.exe --no-db                                   # 跳过依赖数据库的场景
 .\out\AotSmoke.exe --drop                                    # 清理冒烟库
+```
+
+**linux-x64 本地等价复现（2026-10-15 实测，免 sudo）**：
+
+```bash
+# WSL Ubuntu 24.04：同步源码到 Linux 侧后本地发布（增量构建约 1 分钟）
+rsync -a --exclude .git --exclude Bin --exclude .vs --exclude bin --exclude obj /mnt/c/X/NewLife.MySql/ ~/nlmsql-build/
+cd ~/nlmsql-build && ~/.dotnet/dotnet publish AotSmoke/AotSmoke.csproj -c Release -r linux-x64 -o /tmp/aotsmoke-linux
+
+# MySQL：apt-get download mysql-server-core-8.0 解包为用户态实例（另需 libevent-pthreads-2.1-7t64 与 libprotobuf-lite32t64 解包并设置 LD_LIBRARY_PATH）
+#   --initialize-insecure 初始化后启动（端口 3306、--server-id + --log-bin 以覆盖 S18），root 密码置为 root
+/tmp/aotsmoke-linux/AotSmoke "Server=127.0.0.1;Port=3306;User Id=root;Password=root;Database=mysql"
 ```
 
 冒烟自建 `aotsmoke` 库，运行后可 `--drop` 清理。CI（[`.github/workflows/aot.yml`](../.github/workflows/aot.yml)）在 linux-x64 + 运行器 MySQL 8 上执行 20 个数据库场景，在 windows-latest 上执行 win-x64 发布 + `--no-db` 纯内存场景，并对分析器与 ILC 的 `warning IL####` 实施硬约束（命中即失败）。
