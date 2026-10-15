@@ -70,7 +70,7 @@ jobs:
           echo "::error::NativeAOT 发布存在 IL 告警，处理方式见 Doc/AOT兼容性评估.md"
           exit 1
         fi
-    - name: 运行原生冒烟（20 场景 + 4 纯内存场景）
+    - name: 运行原生冒烟（22 场景 + 4 纯内存场景）
       env:
         MYSQL_CONN: "Server=127.0.0.1;Port=3306;Database=mysql;User Id=root;Password=root;"
       run: ./out/AotSmoke

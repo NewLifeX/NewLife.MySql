@@ -617,7 +617,7 @@ Console.WriteLine($"数据库类型: {conn2.DatabaseType}");  // TiDB
 
 ## NativeAOT 部署
 
-驱动在 `net8.0+` 目标框架下已通过 NativeAOT 真实发布验证（win-x64 本地与 CI、linux-x64 CI，24 场景冒烟全通、ILC 0 告警），发布原生程序**无需任何调用方补丁**：
+驱动在 `net8.0+` 目标框架下已通过 NativeAOT 真实发布验证（win-x64 与 linux-x64 本地实测及 CI，26 场景冒烟全通、ILC 0 告警），发布原生程序**无需任何调用方补丁**：
 
 ```xml
 <PropertyGroup>

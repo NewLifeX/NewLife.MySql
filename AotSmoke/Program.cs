@@ -414,6 +414,57 @@ static class Program
         // S19 DataAdapter 填充/架构/回写（System.Data 反射路径，调用方声明保留责任）
         Run("S19 DataAdapter", () => RunDataAdapter(_conn));
 
+        // S20 TLS/SSL 加密连接（SslStream/X509 在裁剪后可用；服务器未启用 SSL 时跳过）
+        Run("S20 TlsConnection", () =>
+        {
+            using (var probe = new MySqlConnection(_conn))
+            {
+                probe.Open();
+                using var check = new MySqlCommand(probe, "SHOW VARIABLES LIKE 'have_ssl'");
+                using var reader = check.ExecuteReader();
+                var val = reader.Read() ? Convert.ToString(reader.GetValue(1)) : null;
+                if (String.Equals(val, "DISABLED", StringComparison.OrdinalIgnoreCase) || String.Equals(val, "NO", StringComparison.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine("        （服务器未启用 SSL，跳过 TLS 场景）");
+                    return;
+                }
+            }
+
+            var b = new MySqlConnectionStringBuilder(_connBase) { Database = "aotsmoke", SslMode = "Required" };
+            using var conn = new MySqlConnection(b.ConnectionString);
+            conn.Open();
+            using var cmd = new MySqlCommand(conn, "SHOW STATUS LIKE 'Ssl_cipher'");
+            using var rc = cmd.ExecuteReader();
+            if (!rc.Read()) throw new Exception("Ssl_cipher 无结果");
+            var cipher = Convert.ToString(rc.GetValue(1));
+            if (String.IsNullOrEmpty(cipher)) throw new Exception("TLS 未生效（Ssl_cipher 为空）");
+        });
+
+        // S21 Unix Socket 连接（Linux/macOS；路径取 MYSQL_SOCKET 或常见位置，未找到时跳过）
+        Run("S21 UnixSocket", () =>
+        {
+            var paths = new List<String>();
+            var env = Environment.GetEnvironmentVariable("MYSQL_SOCKET");
+            if (!String.IsNullOrEmpty(env)) paths.Add(env);
+            paths.Add("/tmp/mysql.sock");
+            paths.Add("/var/run/mysqld/mysqld.sock");
+            paths.Add("/var/lib/mysql/mysql.sock");
+
+            var sock = paths.Find(File.Exists);
+            if (sock == null)
+            {
+                Console.WriteLine("        （未找到 Unix Socket 文件，跳过）");
+                return;
+            }
+
+            var b = new MySqlConnectionStringBuilder(_connBase) { Database = "aotsmoke", Socket = sock };
+            using var conn = new MySqlConnection(b.ConnectionString);
+            conn.Open();
+            using var cmd = new MySqlCommand(conn, "SELECT @@socket");
+            var v = Convert.ToString(cmd.ExecuteScalar());
+            if (String.IsNullOrEmpty(v)) throw new Exception("socket 变量为空");
+        });
+
         // P1 工厂创建（纯内存）
         Run("P1 ClientFactory", () =>
         {
