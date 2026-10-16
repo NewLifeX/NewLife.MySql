@@ -5,12 +5,16 @@ on:
     branches: [ master, dev ]
     paths:
       - 'NewLife.MySql/**'
+      - 'NewLife.MySql.EntityFrameworkCore/**'
       - 'AotSmoke/**'
+      - 'Directory.Packages.props'
       - '.github/workflows/aot.yml'
   pull_request:
     paths:
       - 'NewLife.MySql/**'
+      - 'NewLife.MySql.EntityFrameworkCore/**'
       - 'AotSmoke/**'
+      - 'Directory.Packages.props'
       - '.github/workflows/aot.yml'
   workflow_dispatch:
 

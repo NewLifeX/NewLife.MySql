@@ -2,9 +2,26 @@ name: test
 
 on:
   push:
-    branches: [ '*' ]
+    branches: [ master, dev ]
+    paths:
+      - 'NewLife.MySql/**'
+      - 'NewLife.MySql.EntityFramework/**'
+      - 'NewLife.MySql.EntityFrameworkCore/**'
+      - 'UnitTest/**'
+      - 'UnitTest.EntityFramework/**'
+      - 'UnitTest.EntityFrameworkCore/**'
+      - 'Directory.Packages.props'
+      - '.github/workflows/test.yml'
   pull_request:
-    branches: [ '*' ]
+    paths:
+      - 'NewLife.MySql/**'
+      - 'NewLife.MySql.EntityFramework/**'
+      - 'NewLife.MySql.EntityFrameworkCore/**'
+      - 'UnitTest/**'
+      - 'UnitTest.EntityFramework/**'
+      - 'UnitTest.EntityFrameworkCore/**'
+      - 'Directory.Packages.props'
+      - '.github/workflows/test.yml'
   workflow_dispatch:
 
 jobs:
