@@ -18,8 +18,8 @@
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.10.1" />
-    <PackageReference Include="NewLife.UnitTest" Version="1.1.2026.102" />
-    <PackageReference Include="NewLife.XCode" Version="12.2.2026.901" />
+    <PackageReference Include="NewLife.UnitTest" Version="1.1.2026.301-beta0617" />
+    <PackageReference Include="NewLife.XCode" Version="12.2.2026.1015-beta1338" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.0">
       <PrivateAssets>all</PrivateAssets>
