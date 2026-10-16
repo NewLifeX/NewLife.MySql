@@ -105,11 +105,14 @@ jobs:
       run: |
         dotnet test -c Release --no-build UnitTest.EntityFrameworkCore/UnitTest.EntityFrameworkCore.csproj
 
-  # 单元测试（龙芯 LoongArch64 / 必选平台）：GitHub 无 loong64 原生 runner，使用 QEMU 仿真 + 龙芯官方 .NET 10 SDK；
+  # 单元测试（龙芯 LoongArch64 / 观察期：可运行，失败不阻断）：GitHub 无 loong64 原生 runner，使用 QEMU 仿真 + 龙芯官方 .NET 10 SDK；
+  # 不阻断原因（2026-10-16 定位）：龙芯用户态按 128 信号/16 字节 sigset 语义，QEMU 按主线内核 64 信号/8 字节建模，
+  # 信号类系统调用返回 EINVAL，官方 .NET CLI 启动即 SIGABRT（rc=134），修复闭环前不阻断 CI。
   # 容器经 --network host 直连宿主运行器自带的 MySQL 8.0（root/root）。
   test-loongarch64:
     name: 单元测试（linux-la64 / QEMU）
     runs-on: ubuntu-latest
+    continue-on-error: true
     timeout-minutes: 120
 
     steps:

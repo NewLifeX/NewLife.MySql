@@ -105,7 +105,7 @@
 ### 🌐 广泛兼容
 
 - **框架**：`net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net8.0` / `net10.0`
-- **NativeAOT**：`net8.0+` 支持裁剪与 NativeAOT（`IsAotCompatible`，含 `AotSmoke` 冒烟与 CI 主流 RID 矩阵防回归；必选 win-x64 / linux-x64 / linux-arm64 / linux-la64，龙芯以 QEMU 仿真覆盖，见 [AOT兼容性评估](Doc/AOT兼容性评估.md)）
+- **NativeAOT**：`net8.0+` 支持裁剪与 NativeAOT（`IsAotCompatible`，含 `AotSmoke` 冒烟与 CI 主流 RID 矩阵防回归；必选 win-x64 / linux-x64 / linux-arm64；龙芯 linux-la64 以 QEMU 仿真覆盖（观察期：可运行、失败不阻断），见 [AOT兼容性评估](Doc/AOT兼容性评估.md)）
 - **MySQL**：5.5 ~ 9.0+，`mysql_native_password` + `caching_sha2_password`
 - **兼容库**：OceanBase、TiDB、Doris（自动检测）、Aurora / CloudSQL（云数据库）、MariaDB（基础）
 - **条件编译**：针对不同框架自动选择最优实现
@@ -617,7 +617,7 @@ Console.WriteLine($"数据库类型: {conn2.DatabaseType}");  // TiDB
 
 ## NativeAOT 部署
 
-驱动在 `net8.0+` 目标框架下已通过 NativeAOT 真实发布验证（win-x64 与 linux-x64 本地实测及 CI，26 场景冒烟全通、ILC 0 告警），发布原生程序**无需任何调用方补丁**；CI 按主流 RID 矩阵持续防回归（win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl，及龙芯 linux-la64 的 QEMU 仿真冒烟）：
+驱动在 `net8.0+` 目标框架下已通过 NativeAOT 真实发布验证（win-x64 与 linux-x64 本地实测及 CI，26 场景冒烟全通、ILC 0 告警），发布原生程序**无需任何调用方补丁**；CI 按主流 RID 矩阵持续防回归（win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl，及龙芯 linux-la64 的 QEMU 仿真冒烟，观察期非阻断）：
 
 ```xml
 <PropertyGroup>

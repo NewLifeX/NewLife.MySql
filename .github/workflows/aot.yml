@@ -48,7 +48,7 @@ jobs:
   # NativeAOT 冒烟矩阵：NativeAOT 官方不支持跨 OS 编译，每个 RID 用原生 runner 发布与运行。
   # 运行器镜像核实：Ubuntu（含 arm64）自带 MySQL 8 服务端（root/root，默认未启动）→ linux 双平台跑全量 26 场景；
   # Windows 仅装 MySQL CLI、macOS 无 MySQL → 其余平台用 --no-db 运行纯内存场景（S13 + P1~P4）。
-  # 必选平台（阻断）：win-x64 / linux-x64 / linux-arm64 / linux-la64；win-arm64 / osx-x64 / osx-arm64 先观察期（continue-on-error），稳定全绿后逐项转阻断。
+  # 必选平台（阻断）：win-x64 / linux-x64 / linux-arm64；win-arm64 / osx-x64 / osx-arm64 / linux-la64 先观察期（continue-on-error），稳定全绿后逐项转阻断。
   native-smoke:
     name: NativeAOT 冒烟（${{ matrix.rid }}）
     runs-on: ${{ matrix.os }}
@@ -172,13 +172,18 @@ jobs:
           ./AotSmoke/bin/aot-out/AotSmoke --no-db
         '
 
-  # 龙芯 LoongArch64 冒烟：GitHub 无 loong64 原生 runner，使用 QEMU 仿真 + 龙芯官方 .NET（必选平台，失败即阻断）。
+  # 龙芯 LoongArch64 冒烟：GitHub 无 loong64 原生 runner，使用 QEMU 仿真 + 龙芯官方 .NET（观察期：可运行，失败不阻断）。
+  # 不阻断原因（2026-10-16 定位）：龙芯用户态按 128 信号/16 字节 sigset 语义，QEMU 按主线内核 64 信号/8 字节建模，
+  # 信号类系统调用返回 EINVAL，官方 .NET CLI 启动即 SIGABRT（rc=134）。
+  # 实测 LD_PRELOAD 信号 ABI 兼容层可让 dotnet --info 正常工作（rc=0），但子进程内部信号路径仍 EINVAL、
+  # dotnet new/test 存在挂起，修复闭环前本作业不阻断 CI；工具链细节见 Doc/AOT兼容性评估.md。
   # 工具链现状（2026-10 核实）：.NET 官方将 linux-loongarch64 列为 community-supported（不发布 runtime/ILCompiler 包）；
   # 龙芯 SDK 内置 la64 运行时/Crossgen2 包但未提供 NativeAOT 目标，因此本作业以
   # 「JIT 冒烟 + 自包含原生可执行文件运行 + ReadyToRun（Crossgen2）原生代码生成」覆盖龙芯平台的发布与运行链路。
   native-smoke-loongarch64:
     name: NativeAOT 冒烟（linux-la64 / QEMU）
     runs-on: ubuntu-latest
+    continue-on-error: true
     timeout-minutes: 90
 
     steps:
