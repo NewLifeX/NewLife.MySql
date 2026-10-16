@@ -41,16 +41,59 @@ jobs:
         done
         echo "裁剪/AOT 告警检查通过：0 条"
 
+  # NativeAOT 冒烟矩阵：NativeAOT 官方不支持跨 OS 编译，每个 RID 用原生 runner 发布与运行。
+  # 运行器镜像核实：Ubuntu（含 arm64）自带 MySQL 8 服务端（root/root，默认未启动）→ linux 双平台跑全量 26 场景；
+  # Windows 仅装 MySQL CLI、macOS 无 MySQL → 其余平台用 --no-db 运行纯内存场景（S13 + P1~P4）。
+  # 必选平台（阻断）：win-x64 / linux-x64 / linux-arm64 / linux-la64；win-arm64 / osx-x64 / osx-arm64 先观察期（continue-on-error），稳定全绿后逐项转阻断。
   native-smoke:
-    name: NativeAOT 冒烟（linux-x64 + MySQL 8）
-    runs-on: ubuntu-latest
+    name: NativeAOT 冒烟（${{ matrix.rid }}）
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    continue-on-error: ${{ matrix.experimental == true }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x64
+            os: windows-latest
+            bin: AotSmoke.exe
+            db: false
+          - rid: linux-x64
+            os: ubuntu-latest
+            bin: AotSmoke
+            db: true
+          - rid: win-arm64
+            os: windows-11-arm
+            bin: AotSmoke.exe
+            db: false
+            experimental: true
+          - rid: linux-arm64
+            os: ubuntu-24.04-arm
+            bin: AotSmoke
+            db: true
+          - rid: osx-arm64
+            os: macos-latest
+            bin: AotSmoke
+            db: false
+            experimental: true
+          - rid: osx-x64
+            os: macos-15-intel
+            bin: AotSmoke
+            db: false
+            experimental: true
 
     steps:
     - uses: actions/checkout@v4
+    - name: Setup dotNET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 10.x
     - name: 安装 NativeAOT 依赖（clang / zlib）
+      if: runner.os == 'Linux'
       run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
-    # 运行器自带 MySQL 8.0（root/root，默认未启动），冒烟依赖本机 3306
+    # 运行器自带 MySQL 8.0（root/root，默认未启动），数据库场景依赖本机 3306
     - name: 启动 MySQL
+      if: matrix.db
       run: |
         sudo systemctl start mysql.service
         for i in $(seq 1 30); do
@@ -58,42 +101,132 @@ jobs:
           sleep 2
         done
         mysql -h 127.0.0.1 -uroot -proot -e "SELECT VERSION()"
-    - name: Setup dotNET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 10.x
+    - name: JIT 基线冒烟（数据库场景）
+      if: matrix.db
+      env:
+        MYSQL_CONN: "Server=127.0.0.1;Port=3306;Database=mysql;User Id=root;Password=root;"
+      run: dotnet run -c Release --project AotSmoke/AotSmoke.csproj
+    - name: JIT 基线冒烟（--no-db 纯内存场景）
+      if: ${{ !matrix.db }}
+      run: dotnet run -c Release --project AotSmoke/AotSmoke.csproj -- --no-db
     - name: NativeAOT 发布并校验 0 条 ILC 告警
+      shell: bash
       run: |
         set -o pipefail
-        dotnet publish AotSmoke/AotSmoke.csproj -c Release -r linux-x64 -o out 2>&1 | tee publish.log
+        dotnet publish AotSmoke/AotSmoke.csproj -c Release -r ${{ matrix.rid }} -o out 2>&1 | tee publish.log
         if grep -nE 'warning IL[0-9]{4}' publish.log; then
           echo "::error::NativeAOT 发布存在 IL 告警，处理方式见 Doc/AOT兼容性评估.md"
           exit 1
         fi
-    - name: 运行原生冒烟（22 场景 + 4 纯内存场景）
+    - name: 运行原生冒烟（数据库场景）
+      if: matrix.db
+      shell: bash
       env:
         MYSQL_CONN: "Server=127.0.0.1;Port=3306;Database=mysql;User Id=root;Password=root;"
-      run: ./out/AotSmoke
+      run: ./out/${{ matrix.bin }}
+    - name: 运行原生冒烟（--no-db 纯内存场景）
+      if: ${{ !matrix.db }}
+      shell: bash
+      run: ./out/${{ matrix.bin }} --no-db
 
-  native-smoke-windows:
-    name: NativeAOT 冒烟（win-x64，无数据库场景）
-    runs-on: windows-latest
+  # NativeAOT 冒烟（musl）：alpine 容器内原生发布运行，无 MySQL → 纯内存场景。
+  # 容器内 actions/setup-dotnet 不可用，改用 dotnet-install.sh；官方要求 alpine 3.15+ 且安装 clang/build-base/zlib-dev
+  native-smoke-musl:
+    name: NativeAOT 冒烟（${{ matrix.rid }}）
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-musl-x64
+            os: ubuntu-latest
+          - rid: linux-musl-arm64
+            os: ubuntu-24.04-arm
 
     steps:
     - uses: actions/checkout@v4
-    - name: Setup dotNET
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 10.x
-    - name: NativeAOT 发布并校验 0 条 ILC 告警
-      shell: pwsh
+    - name: Alpine 容器内发布并运行（--no-db）
       run: |
-        dotnet publish AotSmoke/AotSmoke.csproj -c Release -r win-x64 -o out | Tee-Object -FilePath publish-win.log
-        if (Select-String -Path publish-win.log -Pattern 'warning IL\d{4}') {
-          Write-Error "NativeAOT 发布存在 IL 告警，处理方式见 Doc/AOT兼容性评估.md"
-          exit 1
-        }
-    # 运行器 MySQL 是否可用随镜像变化，此处固定运行不依赖数据库的场景（S13 与 P1~P4）
-    - name: 运行原生冒烟（--no-db）
-      shell: pwsh
-      run: ./out/AotSmoke.exe --no-db
+        docker run --rm -v "$PWD:/src" -w /src alpine:3.20 sh -c '
+          set -e
+          apk add --no-cache bash curl clang build-base zlib-dev icu-libs >/dev/null
+          curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+          bash /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet >/dev/null
+          ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet
+          export DOTNET_CLI_TELEMETRY_OPTOUT=1
+          dotnet run -c Release --project AotSmoke/AotSmoke.csproj -- --no-db
+          if ! dotnet publish AotSmoke/AotSmoke.csproj -c Release -r ${{ matrix.rid }} -o AotSmoke/bin/aot-out > publish.log 2>&1; then
+            cat publish.log
+            exit 1
+          fi
+          if grep -nE "warning IL[0-9]{4}" publish.log; then
+            echo "NativeAOT 发布存在 IL 告警，处理方式见 Doc/AOT兼容性评估.md"
+            exit 1
+          fi
+          ./AotSmoke/bin/aot-out/AotSmoke --no-db
+        '
+
+  # 龙芯 LoongArch64 冒烟：GitHub 无 loong64 原生 runner，使用 QEMU 仿真 + 龙芯官方 .NET（必选平台，失败即阻断）。
+  # 工具链现状（2026-10 核实）：.NET 官方将 linux-loongarch64 列为 community-supported（不发布 runtime/ILCompiler 包）；
+  # 龙芯 SDK 内置 la64 运行时/Crossgen2 包但未提供 NativeAOT 目标，因此本作业以
+  # 「JIT 冒烟 + 自包含原生可执行文件运行 + ReadyToRun（Crossgen2）原生代码生成」覆盖龙芯平台的发布与运行链路。
+  native-smoke-loongarch64:
+    name: NativeAOT 冒烟（linux-la64 / QEMU）
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup QEMU
+      uses: docker/setup-qemu-action@v3
+    - name: 龙芯容器内构建并运行冒烟
+      run: |
+        docker run --rm --platform linux/loong64 \
+          -v "$PWD:/src" -w /src \
+          -e DOTNET_CLI_HOME=/tmp/dotnet-home \
+          -e DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+          -e DOTNET_NOLOGO=1 \
+          -e XDG_DATA_HOME=/tmp/dotnet-xdg \
+          -e NUGET_PACKAGES=/tmp/nuget/packages \
+          cr.loongnix.cn/extra/dotnet:8.0.7 \
+          bash -lc '
+            set -e
+            mkdir -p "$XDG_DATA_HOME/NuGet/Migrations" && touch "$XDG_DATA_HOME/NuGet/Migrations/1"
+            # 镜像内置龙芯 .NET 8 SDK；冒烟工程目标 net10.0，安装龙芯 .NET 10 SDK
+            if [ ! -x /root/dotnet10/dotnet ]; then
+              curl -sSL -o /tmp/dotnet10.tar.gz http://ftp.loongnix.cn/dotnet/10.0.12/10.0.12-1/pkg/dotnet-sdk-10.0.112-linux-loongarch64.tar.gz
+              mkdir -p /root/dotnet10 && tar -xzf /tmp/dotnet10.tar.gz -C /root/dotnet10
+            fi
+            export PATH=/root/dotnet10:$PATH
+            dotnet --info
+            echo "===== JIT 基线冒烟（--no-db 纯内存场景） ====="
+            dotnet run -c Release --project AotSmoke/AotSmoke.csproj -- --no-db
+            echo "===== 自包含原生发布（linux-loongarch64） ====="
+            dotnet publish AotSmoke/AotSmoke.csproj -c Release -r linux-loongarch64 --self-contained -o AotSmoke/bin/la64-out
+            echo "===== 运行原生可执行文件（--no-db） ====="
+            ./AotSmoke/bin/la64-out/AotSmoke --no-db
+          '
+    # ReadyToRun（Crossgen2）为附加验证：龙芯 SDK 提供 Crossgen2 包，失败不阻断（观察期）
+    - name: 龙芯容器内 ReadyToRun 发布并运行（附加）
+      continue-on-error: true
+      run: |
+        docker run --rm --platform linux/loong64 \
+          -v "$PWD:/src" -w /src \
+          -e DOTNET_CLI_HOME=/tmp/dotnet-home \
+          -e DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+          -e DOTNET_NOLOGO=1 \
+          -e XDG_DATA_HOME=/tmp/dotnet-xdg \
+          -e NUGET_PACKAGES=/tmp/nuget/packages \
+          cr.loongnix.cn/extra/dotnet:8.0.7 \
+          bash -lc '
+            set -e
+            if [ ! -x /root/dotnet10/dotnet ]; then
+              curl -sSL -o /tmp/dotnet10.tar.gz http://ftp.loongnix.cn/dotnet/10.0.12/10.0.12-1/pkg/dotnet-sdk-10.0.112-linux-loongarch64.tar.gz
+              mkdir -p /root/dotnet10 && tar -xzf /tmp/dotnet10.tar.gz -C /root/dotnet10
+            fi
+            export PATH=/root/dotnet10:$PATH
+            dotnet publish AotSmoke/AotSmoke.csproj -c Release -r linux-loongarch64 --self-contained -p:PublishReadyToRun=true -o AotSmoke/bin/la64-r2r
+            ./AotSmoke/bin/la64-r2r/AotSmoke --no-db
+          '

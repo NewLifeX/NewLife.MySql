@@ -8,9 +8,25 @@ on:
   workflow_dispatch:
 
 jobs:
+  # 单元测试矩阵：每个 RID 用原生 runner 运行；win-x64/linux-x64/linux-arm64 为必选平台。
+  # Ubuntu 运行器（x64 与 arm64 同镜像脚本）自带 MySQL 8.0 服务端；Windows 运行器只有客户端，作业内安装官方 ZIP。
   test:
-    name: 单元测试（net10.0 / net8.0）
-    runs-on: ubuntu-latest
+    name: 单元测试（${{ matrix.rid }}）
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: linux-x64
+            os: ubuntu-latest
+            kind: linux
+          - rid: linux-arm64
+            os: ubuntu-24.04-arm
+            kind: linux
+          - rid: win-x64
+            os: windows-latest
+            kind: windows
 
     steps:
     - uses: actions/checkout@v4
@@ -25,7 +41,8 @@ jobs:
           10.x
     # 运行器自带 MySQL 8.0（root/root，默认未启动），单元测试依赖本机 3306
     # 部分测试连接回环别名 127.0.0.2，需要监听全部地址
-    - name: 启动 MySQL 并准备测试库
+    - name: 启动 MySQL 并准备测试库（Linux）
+      if: matrix.kind == 'linux'
       run: |
         echo -e "[mysqld]\nbind-address = *" | sudo tee /etc/mysql/mysql.conf.d/zz-ci.cnf > /dev/null
         sudo systemctl restart mysql.service
@@ -39,13 +56,85 @@ jobs:
           GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;
           FLUSH PRIVILEGES;"
         mysql -h 127.0.0.2 -P 3306 -uroot -proot -e "SELECT VERSION()"
+    # Windows 运行器无 MySQL 服务端：下载官方 ZIP（8.0.46）初始化并以 root/root 启动
+    - name: 安装并启动 MySQL 8.0（Windows）
+      if: matrix.kind == 'windows'
+      shell: pwsh
+      run: |
+        $ver = '8.0.46'
+        $zip = "$env:RUNNER_TEMP\mysql.zip"
+        curl.exe -sSL -o $zip "https://cdn.mysql.com/Downloads/MySQL-8.0/mysql-$ver-winx64.zip"
+        Expand-Archive -Path $zip -DestinationPath C:\mysql
+        $base = "C:\mysql\mysql-$ver-winx64"
+        & "$base\bin\mysqld.exe" --initialize-insecure --basedir="$base" --datadir="C:\mysql-data"
+        if ($LASTEXITCODE -ne 0) { exit 1 }
+        Start-Process -FilePath "$base\bin\mysqld.exe" -ArgumentList "--basedir=$base", "--datadir=C:\mysql-data", "--port=3306" -WindowStyle Hidden
+        for ($i = 0; $i -lt 60; $i++) {
+          & "$base\bin\mysqladmin.exe" ping -h 127.0.0.1 -uroot --silent 2>$null
+          if ($LASTEXITCODE -eq 0) { break }
+          Start-Sleep -Seconds 2
+        }
+        & "$base\bin\mysql.exe" -h 127.0.0.1 -uroot -e "ALTER USER 'root'@'localhost' IDENTIFIED BY 'root'; CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY 'root'; GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES; CREATE DATABASE IF NOT EXISTS test;"
+        if ($LASTEXITCODE -ne 0) { exit 1 }
+        & "$base\bin\mysql.exe" -h 127.0.0.1 -uroot -proot -e "SELECT VERSION()"
     - name: Build
       run: |
         dotnet build -c Release
     - name: Test
       run: |
         dotnet test -c Release --no-build UnitTest/UnitTest.csproj
+    - name: EF Core 测试（linux-x64）
+      if: matrix.rid == 'linux-x64'
+      run: |
         dotnet test -c Release --no-build UnitTest.EntityFrameworkCore/UnitTest.EntityFrameworkCore.csproj
+
+  # 单元测试（龙芯 LoongArch64 / 必选平台）：GitHub 无 loong64 原生 runner，使用 QEMU 仿真 + 龙芯官方 .NET 10 SDK；
+  # 容器经 --network host 直连宿主运行器自带的 MySQL 8.0（root/root）。
+  test-loongarch64:
+    name: 单元测试（linux-la64 / QEMU）
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Setup QEMU
+      uses: docker/setup-qemu-action@v3
+    # 宿主运行器自带 MySQL 8.0（root/root，默认未启动），容器经 --network host 访问
+    - name: 启动 MySQL 并准备测试库
+      run: |
+        echo -e "[mysqld]\nbind-address = *" | sudo tee /etc/mysql/mysql.conf.d/zz-ci.cnf > /dev/null
+        sudo systemctl restart mysql.service
+        for i in $(seq 1 30); do
+          if mysqladmin ping -h 127.0.0.1 -uroot -proot --silent 2>/dev/null; then break; fi
+          sleep 2
+        done
+        mysql -h 127.0.0.1 -uroot -proot -e "CREATE DATABASE IF NOT EXISTS test"
+        mysql -h 127.0.0.1 -uroot -proot -e "
+          CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY 'root';
+          GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;
+          FLUSH PRIVILEGES;"
+    - name: 龙芯容器内运行单元测试
+      run: |
+        docker run --rm --platform linux/loong64 --network host \
+          -v "$PWD:/src" -w /src \
+          -e DOTNET_CLI_HOME=/tmp/dotnet-home \
+          -e DOTNET_CLI_TELEMETRY_OPTOUT=1 \
+          -e DOTNET_NOLOGO=1 \
+          -e XDG_DATA_HOME=/tmp/dotnet-xdg \
+          -e NUGET_PACKAGES=/tmp/nuget/packages \
+          cr.loongnix.cn/extra/dotnet:8.0.7 \
+          bash -lc '
+            set -e
+            mkdir -p "$XDG_DATA_HOME/NuGet/Migrations" && touch "$XDG_DATA_HOME/NuGet/Migrations/1"
+            # 镜像内置龙芯 .NET 8 SDK；测试工程目标 net10.0，安装龙芯 .NET 10 SDK
+            if [ ! -x /root/dotnet10/dotnet ]; then
+              curl -sSL -o /tmp/dotnet10.tar.gz http://ftp.loongnix.cn/dotnet/10.0.12/10.0.12-1/pkg/dotnet-sdk-10.0.112-linux-loongarch64.tar.gz
+              mkdir -p /root/dotnet10 && tar -xzf /tmp/dotnet10.tar.gz -C /root/dotnet10
+            fi
+            export PATH=/root/dotnet10:$PATH
+            dotnet --info
+            dotnet test -c Release UnitTest/UnitTest.csproj
+          '
 
   test-netfx:
     name: EF6 单元测试（net472）

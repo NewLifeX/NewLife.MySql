@@ -2,6 +2,7 @@
 
 > 评估日期：2026-10-09｜基线：驱动 1.4.2026.1009 + NewLife.Core 12.0.2026.1009-beta0916｜评估方式：**真实 NativeAOT 编译 + 运行实测**（win-x64，.NET 10）+ 编译期分析器取证
 > 复验：2026-10-15（驱动 1.4.2026.1015 + NewLife.Core 12.0.2026.1013-beta0732）场景扩展至 26 项（新增 S20 TLS 加密连接、S21 Unix Socket），win-x64 与 linux-x64 原生发布件均 **26/26 场景全通**、ILC 0 条告警（linux 侧为 WSL Ubuntu 24.04 + 用户态 MySQL 8.0.46），结论不变。
+> 复验：2026-10-16 CI 扩展至主流 RID 矩阵（对照 NewLife.Core 做法）：`aot.yml` 覆盖 win-x64 / linux-x64 / win-arm64 / linux-arm64 / osx-x64 / osx-arm64 / linux-musl-x64 / linux-musl-arm64 / **linux-la64（龙芯，QEMU 仿真）**；`test.yml` 单元测试覆盖 win-x64 / linux-x64 / linux-arm64 / linux-la64。必选平台（阻断）：win-x64 / linux-x64 / linux-arm64 / linux-la64；win-arm64 / osx-x64 / osx-arm64 / musl 先观察期（continue-on-error）。
 
 ---
 
@@ -87,9 +88,12 @@ AOT 发布期 ILC 对驱动报告 5 条唯一：`IL2075`（Authentication）、`
 | RID / 环境 | 执行方式 | 状态 |
 |-----------|---------|------|
 | win-x64 / .NET 10 | 本地 `dotnet publish -r win-x64` 原生运行 | ✅ 26/26 PASS（2026-10-15；S21 平台跳过），ILC 0 告警 |
-| linux-x64 / .NET 10 | 本地 WSL（Ubuntu 24.04）发布 + 用户态 MySQL 8.0.46 原生运行（含 S21 Unix Socket）；CI `aot.yml` → native-smoke（运行器 MySQL 8，22 数据库场景） | ✅ 本地 26/26 PASS（2026-10-15，ILC 0 告警）；CI 作业待首次运行 |
-| win-x64 / .NET 10 | CI `aot.yml` → native-smoke-windows（`--no-db`，5 项纯内存场景） | 作业已配置，待首次运行 |
-| 其他 RID（linux-arm64 / osx-arm64 等） | 未覆盖 | 纯托管实现无平台特定代码，理论等价；如需可扩展 CI 矩阵 |
+| linux-x64 / .NET 10 | 本地 WSL（Ubuntu 24.04）发布 + 用户态 MySQL 8.0.46 原生运行（含 S21 Unix Socket）；CI `aot.yml` → native-smoke（运行器 MySQL 8，全量 26 场景） | ✅ 本地 26/26 PASS（2026-10-15，ILC 0 告警）；CI 作业待首次运行 |
+| win-x64 / .NET 10 | CI `aot.yml` → native-smoke（Windows 运行器仅有 MySQL 客户端，固定 `--no-db` 纯内存场景） | 作业已配置，待首次运行 |
+| linux-arm64 / .NET 10 | CI `aot.yml` → native-smoke（ubuntu-24.04-arm + 运行器 MySQL 8，全量 26 场景） | 作业已配置（必选平台），待首次运行 |
+| win-arm64 / osx-x64 / osx-arm64 | CI `aot.yml` → native-smoke（原生 runner，`--no-db` 纯内存场景） | 作业已配置（观察期），待首次运行 |
+| linux-musl-x64 / linux-musl-arm64 | CI `aot.yml` → native-smoke-musl（alpine 容器内原生发布运行，`--no-db`） | 作业已配置（观察期），待首次运行 |
+| linux-la64（龙芯） | CI `aot.yml` → native-smoke-loongarch64：QEMU 仿真 + 龙芯官方 .NET 10（JIT 冒烟、自包含原生可执行文件运行；ReadyToRun 为附加验证） | 作业已配置，待首次运行；NativeAOT 工具链暂缺（见 §4） |
 
 ---
 
@@ -98,6 +102,7 @@ AOT 发布期 ILC 对驱动报告 5 条唯一：`IL2075`（Authentication）、`
 > **状态（2026-10-09）**：P0-1 ~ P0-3、P1-1 ~ P1-5 与 P2-1/P2-2 **已全部实施并通过验证**（详见 §1/§2 复测数据）。
 > **状态（2026-10-10）**：场景扩展至 24 项（新增 Schema/DataSource/存储过程/Binlog/DataAdapter 与 4 项纯内存）；CI 新增 Windows NativeAOT 作业并扩大分析器守卫范围（含 EF Core 提供程序）；EF Core 提供程序注解对齐后 0 告警。
 > **状态（2026-10-15）**：场景扩展至 26 项（新增 S20 TLS 加密连接与 S21 Unix Socket）；win-x64 与 linux-x64 原生发布件均 26/26 全通、ILC 0 告警。
+> **状态（2026-10-16）**：CI 扩展至主流 RID 矩阵（对照 NewLife.Core 做法）：AOT 冒烟新增 linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / linux-musl×2 / linux-la64（QEMU）；单元测试新增 win-x64 / linux-arm64 / linux-la64。必选平台（阻断）：win-x64 / linux-x64 / linux-arm64 / linux-la64；win-arm64 / osx-x64 / osx-arm64 / musl 先观察期（continue-on-error）。
 
 ### P0 功能性（不修则 AOT 下行为缺失/失败）
 
@@ -122,7 +127,7 @@ AOT 发布期 ILC 对驱动报告 5 条唯一：`IL2075`（Authentication）、`
 | # | 项 | 说明 |
 |---|---|------|
 | P2-1 | 冒烟工程 `AotSmoke` 入库 | ✅ 已入库 `AotSmoke/`（net10.0 + PublishAot），26 场景（22 数据库场景 S0~S21 + 4 纯内存场景 P1~P4，含 TLS、Unix Socket、连接属性、反射/表达式探针、链路追踪、Schema/DataSource/存储过程/Binlog/DataAdapter）；连接串支持参数/环境变量 `MYSQL_CONN`，支持 `--drop` 清理与 `--no-db` 无数据库运行；已加入解决方案 |
-| P2-2 | CI 防回归 | ✅ 已建立 `.github/workflows/aot.yml`：① 分析器守卫（驱动与 EF Core 提供程序的 net8.0/net10.0 构建，`warning IL####` 命中即失败）；② Linux NativeAOT 冒烟（linux-x64 真实发布 + 运行器自带 MySQL 8 上运行 22 个数据库场景，ILC 告警命中即失败）；③ Windows NativeAOT 冒烟（win-x64 真实发布 + `--no-db` 纯内存场景） |
+| P2-2 | CI 防回归 | ✅ 已建立 `.github/workflows/aot.yml`（RID 矩阵，对照 NewLife.Core）：① 分析器守卫（驱动与 EF Core 提供程序 net8.0/net10.0 构建，`warning IL####` 命中即失败）；② `native-smoke` 矩阵——win-x64（`--no-db`）、linux-x64 / linux-arm64（运行器 MySQL 8，全量 26 场景）、win-arm64 / osx-x64 / osx-arm64（`--no-db`），每行 JIT 基线 + 原生发布 + ILC 告警硬约束；③ `native-smoke-musl`（alpine 容器，linux-musl-x64/arm64）；④ `native-smoke-loongarch64`（QEMU 仿真 + 龙芯 .NET 10，必选平台）。单元测试侧 `.github/workflows/test.yml` 同步扩展 win-x64 / linux-x64 / linux-arm64 / linux-la64 矩阵 |
 
 ### 依赖与参考
 
@@ -140,6 +145,7 @@ AOT 发布期 ILC 对驱动报告 5 条唯一：`IL2075`（Authentication）、`
 | EF6 Provider 包 | `NewLife.MySql.EntityFramework` 目标 net472，与 NativeAOT 无关 |
 | 低版本目标 | net45/net461/netstandard2.0/2.1/net6.0 不在 AOT 支持范围（AOT 自 net8.0 起；net6.0 需实验开关） |
 | 动态能力 | 驱动不使用脚本/插件/DLR 等设计性不支持的动态能力，无需守卫降级 |
+| linux-loongarch64（龙芯） | .NET 官方将 linux-loongarch64 列为 community-supported（不发布 runtime/targeting/ILCompiler 包）；龙芯官方 .NET 10 SDK 提供 la64 运行时与 Crossgen2（ReadyToRun），尚未提供 NativeAOT 目标。CI 以 QEMU 仿真覆盖 JIT 冒烟、自包含原生可执行文件运行与单元测试；待上游或龙芯工具链提供 ILC 后启用真实 NativeAOT 发布 |
 
 ## 5. 复现方法
 
@@ -172,7 +178,7 @@ cd ~/nlmsql-build && ~/.dotnet/dotnet publish AotSmoke/AotSmoke.csproj -c Releas
 MYSQL_SOCKET=/tmp/mysqldata/mysql.sock /tmp/aotsmoke-linux/AotSmoke "Server=127.0.0.1;Port=3306;User Id=root;Password=root;Database=mysql"
 ```
 
-冒烟自建 `aotsmoke` 库，运行后可 `--drop` 清理。CI（[`.github/workflows/aot.yml`](../.github/workflows/aot.yml)）在 linux-x64 + 运行器 MySQL 8 上执行 22 个数据库场景，在 windows-latest 上执行 win-x64 发布 + `--no-db` 纯内存场景，并对分析器与 ILC 的 `warning IL####` 实施硬约束（命中即失败）。
+冒烟自建 `aotsmoke` 库，运行后可 `--drop` 清理。CI（[`.github/workflows/aot.yml`](../.github/workflows/aot.yml)）：RID 矩阵（win-x64 / linux-x64 / win-arm64 / linux-arm64 / osx-x64 / osx-arm64，每 RID 用原生 runner 真实发布与运行；linux 双平台连运行器 MySQL 8 执行全量 26 场景，其余 `--no-db`）、musl 容器（linux-musl-x64 / arm64）与龙芯 QEMU 作业（linux-la64）分别执行冒烟；对分析器与 ILC 的 `warning IL####` 实施硬约束（命中即失败）。单元测试（[`.github/workflows/test.yml`](../.github/workflows/test.yml)）同样按 win-x64 / linux-x64 / linux-arm64 / linux-la64 矩阵执行。
 
 ---
 
