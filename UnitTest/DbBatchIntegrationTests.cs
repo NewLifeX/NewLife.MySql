@@ -19,13 +19,13 @@ public class DbBatchIntegrationTests : IDisposable
         _table = "dbbatch_test_" + Rand.Next(10000);
         _conn = new MySqlConnection(_ConnStr);
         _conn.Open();
-        var sql = $"CREATE TABLE IF NOT EXISTS `{_table}` (`id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY, `name` VARCHAR(128) DEFAULT NULL, `age` INT DEFAULT NULL, `score` DECIMAL(10,2) DEFAULT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+        var sql = $"CREATE TEMPORARY TABLE IF NOT EXISTS `{_table}` (`id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY, `name` VARCHAR(128) DEFAULT NULL, `age` INT DEFAULT NULL, `score` DECIMAL(10,2) DEFAULT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
         _conn.ExecuteNonQuery(sql);
     }
 
     public void Dispose()
     {
-        _conn.ExecuteNonQuery($"DROP TABLE IF EXISTS `{_table}`");
+        _conn.ExecuteNonQuery($"DROP TEMPORARY TABLE IF EXISTS `{_table}`");
         _conn.Dispose();
     }
 

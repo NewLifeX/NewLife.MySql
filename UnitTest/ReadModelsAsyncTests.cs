@@ -20,7 +20,7 @@ public class ReadModelsAsyncTests : IDisposable
         _conn = new MySqlConnection(_ConnStr);
         _conn.Open();
 
-        _conn.ExecuteNonQuery($@"CREATE TABLE IF NOT EXISTS `{_table}` (
+        _conn.ExecuteNonQuery($@"CREATE TEMPORARY TABLE IF NOT EXISTS `{_table}` (
             `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
             `name` VARCHAR(64) DEFAULT NULL,
             `age` INT DEFAULT NULL,
@@ -31,7 +31,7 @@ public class ReadModelsAsyncTests : IDisposable
 
     public void Dispose()
     {
-        _conn.ExecuteNonQuery($"DROP TABLE IF EXISTS `{_table}`");
+        _conn.ExecuteNonQuery($"DROP TEMPORARY TABLE IF EXISTS `{_table}`");
         _conn.Dispose();
     }
 

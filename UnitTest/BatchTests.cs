@@ -23,7 +23,7 @@ public class BatchTests
     /// <summary>创建测试表</summary>
     private static void CreateTestTable(MySqlConnection conn, String tableName)
     {
-        var sql = $@"CREATE TABLE IF NOT EXISTS `{tableName}` (
+        var sql = $@"CREATE TEMPORARY TABLE IF NOT EXISTS `{tableName}` (
             `id` INT AUTO_INCREMENT PRIMARY KEY,
             `name` VARCHAR(100) NOT NULL,
             `age` INT NOT NULL DEFAULT 0,
@@ -36,7 +36,25 @@ public class BatchTests
     /// <summary>删除测试表</summary>
     private static void DropTestTable(MySqlConnection conn, String tableName)
     {
-        conn.ExecuteNonQuery($"DROP TABLE IF EXISTS `{tableName}`");
+        conn.ExecuteNonQuery($"DROP TEMPORARY TABLE IF EXISTS `{tableName}`");
+    }
+
+    /// <summary>在单个事务内执行批量命令。大批量自动提交会逐行刷盘（每行数毫秒），事务化后只在提交时刷盘一次，避免测试被磁盘 fsync 拖慢</summary>
+    /// <param name="conn">数据库连接</param>
+    /// <param name="action">批量操作</param>
+    private static void RunInTransaction(MySqlConnection conn, Action action)
+    {
+        conn.ExecuteNonQuery("BEGIN");
+        try
+        {
+            action();
+            conn.ExecuteNonQuery("COMMIT");
+        }
+        catch
+        {
+            conn.ExecuteNonQuery("ROLLBACK");
+            throw;
+        }
     }
 
     #region Prepare 基础测试
@@ -830,7 +848,8 @@ public class BatchTests
             ps.AddWithValue("name", names);
             ps.AddWithValue("age", ages);
 
-            var affected = cmd.ExecuteArrayBatch(batchSize);
+            var affected = 0;
+            RunInTransaction(conn, () => affected = cmd.ExecuteArrayBatch(batchSize));
             Assert.Equal(batchSize, affected);
 
             // 验证总行数
@@ -870,7 +889,7 @@ public class BatchTests
             var ips = insertCmd.Parameters as MySqlParameterCollection;
             ips.AddWithValue("name", insertNames);
             ips.AddWithValue("age", insertAges);
-            insertCmd.ExecuteArrayBatch(batchSize);
+            RunInTransaction(conn, () => insertCmd.ExecuteArrayBatch(batchSize));
 
             // 管道化批量更新所有行：age = age + 1000
             var updateNames = new String[batchSize];
@@ -886,7 +905,8 @@ public class BatchTests
             ups.AddWithValue("age", updateAges);
             ups.AddWithValue("name", updateNames);
 
-            var affected = updateCmd.ExecuteArrayBatch(batchSize);
+            var affected = 0;
+            RunInTransaction(conn, () => affected = updateCmd.ExecuteArrayBatch(batchSize));
             Assert.Equal(batchSize, affected);
 
             // 抽样验证

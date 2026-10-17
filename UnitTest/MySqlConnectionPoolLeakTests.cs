@@ -17,8 +17,31 @@ public class MySqlConnectionPoolLeakTests
     [DisplayName("OpenAsync_建连失败_槽位归还池不泄漏BusyCount")]
     public async Task OpenAsync_ConnectFail_SlotReturned_NoBusyLeak()
     {
+        // 握手即断开：部分环境（如本机防火墙）对“连接被拒绝”要等 2 秒以上才返回 RST，
+        // 用立即关闭连接的本地监听器可让每次建连在毫秒级失败，测试仍覆盖同一条失败归还路径
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        using var stop = new CancellationTokenSource();
+        var acceptTask = Task.Run(async () =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                TcpClient client;
+                try
+                {
+                    client = await listener.AcceptTcpClientAsync().ConfigureAwait(false);
+                }
+                catch
+                {
+                    break;
+                }
+                client.Close();
+            }
+        });
+
         var factory = new MySqlClientFactory { PoolManager = new MySqlPoolManager() };
-        var setting = new MySqlConnectionStringBuilder($"server=127.0.0.1;port={GetFreePort()};uid=root;pwd=root;database=test;MaxPoolSize=3");
+        var setting = new MySqlConnectionStringBuilder($"server=127.0.0.1;port={port};uid=root;pwd=root;database=test;MaxPoolSize=3");
         var pool = factory.PoolManager.GetPool(setting);
 
         // 缩短池满等待超时，若槽位泄漏可快速暴露（默认 15s 太久）
@@ -27,7 +50,7 @@ public class MySqlConnectionPoolLeakTests
         using var conn = new MySqlConnection(setting.ConnectionString) { Factory = factory };
         try
         {
-            // 连续多次建连失败（无人监听的端口 → 连接被拒绝，快速失败）。
+            // 连续多次建连失败（服务端接受后立即断开 → 握手失败）。
             // 修复前：每次失败裸 TryDispose 泄漏 1 槽，BusyCount 只增不减；
             // 修复后：失败路径 pool.Return 归还槽位，BusyCount 恒为 0，池容量不缩水。
             for (var i = 0; i < 6; i++)
@@ -53,21 +76,17 @@ public class MySqlConnectionPoolLeakTests
         finally
         {
             pool.Clear();
-        }
-    }
 
-    /// <summary>获取一个当前无人监听的本地空闲端口（先占用获取端口再释放，随后连接将被拒绝）</summary>
-    private static Int32 GetFreePort()
-    {
-        var listener = new TcpListener(IPAddress.Loopback, 0);
-        listener.Start();
-        try
-        {
-            return ((IPEndPoint)listener.LocalEndpoint).Port;
-        }
-        finally
-        {
+            stop.Cancel();
             listener.Stop();
+            try
+            {
+                await acceptTask.ConfigureAwait(false);
+            }
+            catch
+            {
+                // 监听器停止时 Accept 抛出异常，属预期
+            }
         }
     }
 }

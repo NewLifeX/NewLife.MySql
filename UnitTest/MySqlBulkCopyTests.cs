@@ -19,7 +19,7 @@ public class MySqlBulkCopyTests : IDisposable
         _table = "bulk_test_" + Rand.Next(10000);
         _conn = new MySqlConnection(_ConnStr);
         _conn.Open();
-        var sql = $@"CREATE TABLE IF NOT EXISTS `{_table}` (
+        var sql = $@"CREATE TEMPORARY TABLE IF NOT EXISTS `{_table}` (
             `id` INT AUTO_INCREMENT PRIMARY KEY,
             `name` VARCHAR(100) NOT NULL,
             `age` INT NOT NULL DEFAULT 0,
@@ -31,7 +31,7 @@ public class MySqlBulkCopyTests : IDisposable
 
     public void Dispose()
     {
-        _conn.ExecuteNonQuery($"DROP TABLE IF EXISTS `{_table}`");
+        _conn.ExecuteNonQuery($"DROP TEMPORARY TABLE IF EXISTS `{_table}`");
         _conn.Dispose();
     }
 
@@ -148,7 +148,18 @@ public class MySqlBulkCopyTests : IDisposable
             BatchSize = 200
         };
 
-        bulkCopy.WriteToServer(table);
+        // 单事务写入：批量复制逐行自动提交时每行都要刷盘，事务化后只在提交时刷盘一次
+        _conn.ExecuteNonQuery("BEGIN");
+        try
+        {
+            bulkCopy.WriteToServer(table);
+            _conn.ExecuteNonQuery("COMMIT");
+        }
+        catch
+        {
+            _conn.ExecuteNonQuery("ROLLBACK");
+            throw;
+        }
 
         // 验证所有行都写入
         using var cmd = new MySqlCommand(_conn, $"SELECT COUNT(*) FROM `{_table}`");

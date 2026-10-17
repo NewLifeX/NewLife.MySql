@@ -39,14 +39,14 @@ public class MySqlCommandTests : IDisposable
     /// <summary>创建测试表</summary>
     private static void CreateTestTable(MySqlConnection conn, String tableName)
     {
-        var sql = $"CREATE TABLE IF NOT EXISTS `{tableName}` (`variable` VARCHAR(128) NOT NULL PRIMARY KEY, `value` VARCHAR(1024) DEFAULT NULL, `set_time` DATETIME DEFAULT CURRENT_TIMESTAMP, `set_by` VARCHAR(128) DEFAULT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+        var sql = $"CREATE TEMPORARY TABLE IF NOT EXISTS `{tableName}` (`variable` VARCHAR(128) NOT NULL PRIMARY KEY, `value` VARCHAR(1024) DEFAULT NULL, `set_time` DATETIME DEFAULT CURRENT_TIMESTAMP, `set_by` VARCHAR(128) DEFAULT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
         conn.ExecuteNonQuery(sql);
     }
 
     /// <summary>删除测试表</summary>
     private static void DropTestTable(MySqlConnection conn, String tableName)
     {
-        conn.ExecuteNonQuery($"DROP TABLE IF EXISTS `{tableName}`");
+        conn.ExecuteNonQuery($"DROP TEMPORARY TABLE IF EXISTS `{tableName}`");
     }
 
     [Fact]

@@ -34,7 +34,7 @@ public class StoredProcedureTests : IDisposable
         _conn.ChangeDatabase("newlife_test");
 
         // 创建测试表
-        _conn.ExecuteNonQuery($"CREATE TABLE IF NOT EXISTS `{_table}` (`id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY, `name` VARCHAR(128) NOT NULL, `age` INT DEFAULT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        _conn.ExecuteNonQuery($"CREATE TEMPORARY TABLE IF NOT EXISTS `{_table}` (`id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY, `name` VARCHAR(128) NOT NULL, `age` INT DEFAULT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
         // 创建带 IN 参数的插入存储过程
         _conn.ExecuteNonQuery($"DROP PROCEDURE IF EXISTS `{_spInsert}`");
@@ -68,7 +68,7 @@ END");
             _conn.ExecuteNonQuery($"DROP PROCEDURE IF EXISTS `{_spInsert}`");
             _conn.ExecuteNonQuery($"DROP PROCEDURE IF EXISTS `{_spQuery}`");
             _conn.ExecuteNonQuery($"DROP PROCEDURE IF EXISTS `{_spInOut}`");
-            _conn.ExecuteNonQuery($"DROP TABLE IF EXISTS `{_table}`");
+            _conn.ExecuteNonQuery($"DROP TEMPORARY TABLE IF EXISTS `{_table}`");
         }
         catch { }
 

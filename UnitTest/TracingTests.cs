@@ -20,7 +20,7 @@ public class TracingTests : IDisposable
         _table = "trace_test_" + Rand.Next(10000);
         _conn = new MySqlConnection(_ConnStr);
         _conn.Open();
-        _conn.ExecuteNonQuery($@"CREATE TABLE IF NOT EXISTS `{_table}` (
+        _conn.ExecuteNonQuery($@"CREATE TEMPORARY TABLE IF NOT EXISTS `{_table}` (
             `id` INT AUTO_INCREMENT PRIMARY KEY,
             `name` VARCHAR(50) NOT NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
@@ -28,7 +28,7 @@ public class TracingTests : IDisposable
 
     public void Dispose()
     {
-        _conn.ExecuteNonQuery($"DROP TABLE IF EXISTS `{_table}`");
+        _conn.ExecuteNonQuery($"DROP TEMPORARY TABLE IF EXISTS `{_table}`");
         _conn.Dispose();
     }
 

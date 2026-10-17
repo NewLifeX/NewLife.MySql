@@ -17,13 +17,13 @@ public class ParameterizedQueryTests : IDisposable
         _table = "param_test_" + Rand.Next(10000);
         _conn = new MySqlConnection(_ConnStr);
         _conn.Open();
-        var sql = $"CREATE TABLE IF NOT EXISTS `{_table}` (`variable` VARCHAR(128) NOT NULL PRIMARY KEY, `value` VARCHAR(1024) DEFAULT NULL, `set_time` DATETIME DEFAULT CURRENT_TIMESTAMP, `set_by` VARCHAR(128) DEFAULT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
+        var sql = $"CREATE TEMPORARY TABLE IF NOT EXISTS `{_table}` (`variable` VARCHAR(128) NOT NULL PRIMARY KEY, `value` VARCHAR(1024) DEFAULT NULL, `set_time` DATETIME DEFAULT CURRENT_TIMESTAMP, `set_by` VARCHAR(128) DEFAULT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4";
         _conn.ExecuteNonQuery(sql);
     }
 
     public void Dispose()
     {
-        _conn.ExecuteNonQuery($"DROP TABLE IF EXISTS `{_table}`");
+        _conn.ExecuteNonQuery($"DROP TEMPORARY TABLE IF EXISTS `{_table}`");
         _conn.Dispose();
     }
 
@@ -692,7 +692,7 @@ public class ParameterizedQueryTests : IDisposable
     /// <summary>创建测试表</summary>
     private static void CreateTestTable(MySqlConnection conn, String tableName)
     {
-        var sql = $@"CREATE TABLE IF NOT EXISTS `{tableName}` (
+        var sql = $@"CREATE TEMPORARY TABLE IF NOT EXISTS `{tableName}` (
             `id` INT AUTO_INCREMENT PRIMARY KEY,
             `name` VARCHAR(100) NOT NULL,
             `age` INT NOT NULL DEFAULT 0,
@@ -705,7 +705,7 @@ public class ParameterizedQueryTests : IDisposable
     /// <summary>删除测试表</summary>
     private static void DropTestTable(MySqlConnection conn, String tableName)
     {
-        conn.ExecuteNonQuery($"DROP TABLE IF EXISTS `{tableName}`");
+        conn.ExecuteNonQuery($"DROP TEMPORARY TABLE IF EXISTS `{tableName}`");
     }
     #endregion
 

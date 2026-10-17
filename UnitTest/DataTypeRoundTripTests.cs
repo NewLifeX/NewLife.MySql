@@ -20,7 +20,8 @@ public class DataTypeRoundTripTests : IDisposable
         _conn = new MySqlConnection(_ConnStr);
         _conn.Open();
 
-        var sql = $@"CREATE TABLE IF NOT EXISTS `{_table}` (
+        // 临时表：每个用例独占且会话内可见，建表/删表不需要刷盘，避免逐用例 DDL 花费上百毫秒
+        var sql = $@"CREATE TEMPORARY TABLE IF NOT EXISTS `{_table}` (
             `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
             `col_tinyint` TINYINT DEFAULT NULL,
             `col_smallint` SMALLINT DEFAULT NULL,
@@ -43,7 +44,7 @@ public class DataTypeRoundTripTests : IDisposable
 
     public void Dispose()
     {
-        _conn.ExecuteNonQuery($"DROP TABLE IF EXISTS `{_table}`");
+        _conn.ExecuteNonQuery($"DROP TEMPORARY TABLE IF EXISTS `{_table}`");
         _conn.Dispose();
     }
 
