@@ -19,6 +19,8 @@ public class SqlClientTests
         // 通过Mod基础数据流BaseStream来测试数据包读取
         var len = Rand.Next(10, 1024);
         var buf = Rand.NextBytes(len);
+        // 首字节随机为 0xFF 时会被 ReadPacketAsync 当作错误包，固定为 0 消除偶发失败
+        buf[0] = 0x00;
         var seq = (Byte)Rand.Next(1, 256);
 
         var ms = new MemoryStream();
@@ -47,6 +49,7 @@ public class SqlClientTests
         // 通过Mod基础数据流BaseStream来测试数据包读取
         var len = Rand.Next(1 << 8, 1 << 16);
         var buf = Rand.NextBytes(len);
+        buf[0] = 0x00;
         var seq = (Byte)Rand.Next(1, 256);
 
         var ms = new MemoryStream();
@@ -74,6 +77,7 @@ public class SqlClientTests
         // 通过Mod基础数据流BaseStream来测试数据包读取
         var len = Rand.Next(1 << 16, 1 << 24);
         var buf = Rand.NextBytes(len);
+        buf[0] = 0x00;
         var seq = (Byte)Rand.Next(1, 256);
 
         var ms = new MemoryStream();

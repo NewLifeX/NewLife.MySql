@@ -31,8 +31,8 @@ public class MySqlParameter : DbParameter
     /// <summary>映射空</summary>
     public override Boolean SourceColumnNullMapping { get; set; }
 
-    /// <summary>数据行版本</summary>
-    public override DataRowVersion SourceVersion { get; set; }
+    /// <summary>数据行版本。默认 Current，与 ADO.NET 其它提供程序一致；否则 DataAdapter 更新时会因枚举值 0 非法而抛出 DataException</summary>
+    public override DataRowVersion SourceVersion { get; set; } = DataRowVersion.Current;
     #endregion
 
     #region 构造

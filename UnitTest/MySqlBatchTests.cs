@@ -152,6 +152,72 @@ public class MySqlBatchTests
         Assert.Equal(0, batch.BatchCommands.IndexOf(cmd1));
         Assert.Equal(1, batch.BatchCommands.IndexOf(cmd2));
     }
+
+    [Fact]
+    [DisplayName("MySqlBatchCommandCollection 索引器替换命令")]
+    public void WhenSetByIndexThenCommandReplaced()
+    {
+        var batch = new MySqlBatch();
+        batch.BatchCommands.Add(new MySqlBatchCommand("SELECT 1"));
+
+        var cmd2 = new MySqlBatchCommand("SELECT 2");
+        batch.BatchCommands[0] = cmd2;
+
+        Assert.Same(cmd2, batch.BatchCommands[0]);
+    }
+
+    [Fact]
+    [DisplayName("MySqlBatchCommandCollection CopyTo复制命令")]
+    public void WhenCopyToThenArrayFilled()
+    {
+        var batch = new MySqlBatch();
+        var cmd1 = new MySqlBatchCommand("SELECT 1");
+        var cmd2 = new MySqlBatchCommand("SELECT 2");
+        batch.BatchCommands.Add(cmd1);
+        batch.BatchCommands.Add(cmd2);
+
+        var array = new DbBatchCommand[3];
+        batch.BatchCommands.CopyTo(array, 1);
+
+        Assert.Null(array[0]);
+        Assert.Same(cmd1, array[1]);
+        Assert.Same(cmd2, array[2]);
+    }
+
+    [Fact]
+    [DisplayName("MySqlBatchCommandCollection 枚举命令")]
+    public void WhenEnumerateThenAllCommandsReturned()
+    {
+        var batch = new MySqlBatch();
+        var cmd1 = new MySqlBatchCommand("SELECT 1");
+        var cmd2 = new MySqlBatchCommand("SELECT 2");
+        batch.BatchCommands.Add(cmd1);
+        batch.BatchCommands.Add(cmd2);
+
+        var list = new List<DbBatchCommand>();
+        foreach (var item in batch.BatchCommands)
+            list.Add(item);
+
+        Assert.Equal(2, list.Count);
+        Assert.Same(cmd1, list[0]);
+        Assert.Same(cmd2, list[1]);
+    }
+
+    [Fact]
+    [DisplayName("MySqlBatchCommandCollection RemoveAt移除指定位置")]
+    public void WhenRemoveAtThenRemainingCommandsShift()
+    {
+        var batch = new MySqlBatch();
+        var cmd1 = new MySqlBatchCommand("SELECT 1");
+        var cmd2 = new MySqlBatchCommand("SELECT 2");
+        batch.BatchCommands.Add(cmd1);
+        batch.BatchCommands.Add(cmd2);
+
+        batch.BatchCommands.RemoveAt(0);
+
+        Assert.Equal(1, batch.BatchCommands.Count);
+        Assert.Same(cmd2, batch.BatchCommands[0]);
+    }
     #endregion
 
     #region MySqlBatch
