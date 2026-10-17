@@ -89,6 +89,9 @@ public class MySqlDataReader : DbDataReader
     /// <summary>关闭读取器时是否恢复底层客户端超时值</summary>
     internal Boolean RestoreTimeoutOnClose { get; set; }
 
+    /// <summary>关闭读取器时是否恢复会话变量 SQL_SELECT_LIMIT。SchemaOnly/SingleRow 会改写该变量，不恢复将污染连接池中的会话</summary>
+    internal Boolean ResetSelectLimit { get; set; }
+
     /// <summary>命令执行阶段超时。用于等待首包和结果集切换</summary>
     internal Int32 CommandPhaseTimeout { get; set; }
 
@@ -476,6 +479,10 @@ public class MySqlDataReader : DbDataReader
         }
         finally
         {
+            // 必须在本读取器仍持有连接租约时恢复会话变量，否则其它命令可能插入到恢复之前
+            if (ResetSelectLimit)
+                await ResetSelectLimitAsync().ConfigureAwait(false);
+
             if (RestoreTimeoutOnClose && Command.Connection is MySqlConnection conn && conn.Client != null)
                 conn.Client.Timeout = OriginalTimeout;
 
@@ -483,6 +490,27 @@ public class MySqlDataReader : DbDataReader
             Activity.Dispose();
             OperationLease?.Dispose();
             OperationLease = null;
+        }
+    }
+
+    /// <summary>恢复会话变量 SQL_SELECT_LIMIT。SchemaOnly/SingleRow 借助该变量限制返回行数，不恢复会让会话后续查询持续返回空结果</summary>
+    private async Task ResetSelectLimitAsync()
+    {
+        ResetSelectLimit = false;
+
+        if (Command.Connection is not MySqlConnection conn || conn.Client is not { Active: true } client) return;
+
+        try
+        {
+            // 复用同一客户端但不重入连接租约（当前读取器仍持有租约）
+            var resetConn = new MySqlConnection(conn.ConnectionString) { Client = client };
+            using var cmd = new MySqlCommand(resetConn, "SET SQL_SELECT_LIMIT=DEFAULT") { SuppressTracing = true };
+            await cmd.ExecuteNonQueryAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+            // 恢复失败时会话状态不可信，标记连接失效，避免带着行数限制归还连接池
+            client.Active = false;
         }
     }
 

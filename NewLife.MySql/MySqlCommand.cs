@@ -268,19 +268,26 @@ public class MySqlCommand : DbCommand
 
         if (CommandType == CommandType.TableDirect) sql = "Select * From " + sql;
 
-        if (behavior.HasFlag(CommandBehavior.SchemaOnly))
-        {
-            using var limitCmd = new MySqlCommand(conn, "SET SQL_SELECT_LIMIT=0") { SuppressTracing = true };
-            await limitCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
-        else if (behavior.HasFlag(CommandBehavior.SingleRow))
-        {
-            using var limitCmd = new MySqlCommand(conn, "SET SQL_SELECT_LIMIT=1") { SuppressTracing = true };
-            await limitCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-        }
-
         var operationLease = await conn.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
         var previousTimeout = client.Timeout;
+
+        // SchemaOnly/SingleRow 借用会话变量 SQL_SELECT_LIMIT 限制返回行数，读取器关闭时恢复。
+        // SET 经临时连接复用同一客户端执行，避免在已持有租约时重入连接锁
+        var selectLimit = behavior.HasFlag(CommandBehavior.SchemaOnly) ? 0 : behavior.HasFlag(CommandBehavior.SingleRow) ? 1 : -1;
+        if (selectLimit >= 0)
+        {
+            try
+            {
+                var limitConn = new MySqlConnection(conn.ConnectionString) { Client = client };
+                using var limitCmd = new MySqlCommand(limitConn, $"SET SQL_SELECT_LIMIT={selectLimit}") { SuppressTracing = true };
+                await limitCmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                operationLease.Dispose();
+                throw;
+            }
+        }
 
         var span = SuppressTracing ? default : MySqlDiagnostics.StartExecute(conn, sql, CommandType);
 
@@ -296,7 +303,9 @@ public class MySqlCommand : DbCommand
                 CommandPhaseTimeout = CommandTimeout,
                 ReadPhaseTimeout = previousTimeout,
                 // 跨度覆盖命令发送到读取器关闭的完整周期
-                Activity = span
+                Activity = span,
+                // 会话变量 SQL_SELECT_LIMIT 已改写，关闭时需恢复，避免污染连接池中的会话
+                ResetSelectLimit = selectLimit >= 0
             };
             var isBinary = await ExecuteAsync(cancellationToken).ConfigureAwait(false);
             reader.IsBinaryProtocol = isBinary;
