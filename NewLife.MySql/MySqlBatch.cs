@@ -1,6 +1,7 @@
 ﻿#if NET6_0_OR_GREATER
 using System.Data;
 using System.Data.Common;
+using NewLife;
 
 namespace NewLife.MySql;
 
@@ -122,8 +123,8 @@ public class MySqlBatch : DbBatch
     /// <returns></returns>
     private String BuildCombinedSql()
     {
-        if (_connection == null) throw new InvalidOperationException("连接未设置");
-        if (_commands.Count == 0) throw new InvalidOperationException("没有命令需要执行");
+        if (_connection == null) throw new InvalidOperationException(L.T("The connection has not been set."));
+        if (_commands.Count == 0) throw new InvalidOperationException(L.T("There are no commands to execute."));
 
         var sqls = new List<String>(_commands.Count);
         for (var i = 0; i < _commands.Count; i++)

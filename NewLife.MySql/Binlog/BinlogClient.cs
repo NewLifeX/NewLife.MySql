@@ -2,6 +2,7 @@
 using NewLife.Buffers;
 using NewLife.Log;
 using NewLife.MySql.Common;
+using NewLife;
 
 namespace NewLife.MySql.Binlog;
 
@@ -248,7 +249,7 @@ public class BinlogClient : DisposeBase
             return new BinlogPosition(file, (UInt32)pos);
         }
 
-        throw new InvalidOperationException("无法获取当前 binlog 位置，请确认 binlog 已启用");
+        throw new InvalidOperationException(L.T("Unable to obtain the current binlog position; make sure binlog is enabled."));
     }
 
     /// <summary>执行简单 SQL 语句</summary>

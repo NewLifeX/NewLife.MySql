@@ -7,6 +7,7 @@ using NewLife.Data;
 using NewLife.MySql.Common;
 using NewLife.MySql.Messages;
 using NewLife.Security;
+using NewLife;
 
 namespace NewLife.MySql;
 
@@ -90,7 +91,7 @@ class Authentication(SqlClient client)
 
             using var rs2 = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
             if (!rs2.IsOK)
-                throw new InvalidOperationException("验证失败");
+                throw new InvalidOperationException(L.T("Authentication failed."));
         }
         else if (authMethod == "authentication_webauthn_client")
         {
@@ -108,7 +109,7 @@ class Authentication(SqlClient client)
         // 解析服务器发送的 WebAuthn 请求
         var request = WebAuthnHandler.ParseRequest(challengeData);
         if (request.Challenge == null || request.RpId.IsNullOrEmpty())
-            throw new InvalidOperationException("WebAuthn: 服务器未提供有效的 challenge 或 rpId");
+            throw new InvalidOperationException(L.T("WebAuthn: the server did not provide a valid challenge or rpId."));
 
         // 构造 clientDataJSON
         var challengeB64 = WebAuthnHandler.Base64UrlEncode(request.Challenge);
@@ -127,7 +128,7 @@ class Authentication(SqlClient client)
         // 读取服务器响应
         using var rs2 = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         if (!rs2.IsOK)
-            throw new InvalidOperationException("WebAuthn 验证失败");
+            throw new InvalidOperationException(L.T("WebAuthn authentication failed."));
     }
 
     /// <summary>获取平台认证器的断言签名。默认实现需要平台特定集成（Windows Hello / macOS TouchID 等）</summary>
@@ -168,7 +169,7 @@ class Authentication(SqlClient client)
 
             using var rs0 = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
             if (!rs0.IsOK)
-                throw new InvalidOperationException("验证失败");
+                throw new InvalidOperationException(L.T("Authentication failed."));
 
             return;
         }
@@ -196,7 +197,7 @@ class Authentication(SqlClient client)
         // 读取响应
         using var rs2 = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         if (!rs2.IsOK)
-            throw new InvalidOperationException("验证失败");
+            throw new InvalidOperationException(L.T("Authentication failed."));
     }
 
     #region 辅助

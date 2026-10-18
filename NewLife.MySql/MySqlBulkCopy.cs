@@ -1,6 +1,7 @@
 ﻿using System.Data;
 using System.Data.Common;
 using NewLife.Log;
+using NewLife;
 
 namespace NewLife.MySql;
 
@@ -91,9 +92,9 @@ public class MySqlBulkCopy : IDisposable
     public async Task WriteToServerAsync(IDataReader reader, CancellationToken cancellationToken = default)
     {
         if (reader == null) throw new ArgumentNullException(nameof(reader));
-        if (DestinationTableName.IsNullOrEmpty()) throw new InvalidOperationException("DestinationTableName 不能为空");
+        if (DestinationTableName.IsNullOrEmpty()) throw new InvalidOperationException(L.T("DestinationTableName cannot be empty."));
 
-        var conn = Connection ?? throw new InvalidOperationException("Connection 不能为空");
+        var conn = Connection ?? throw new InvalidOperationException(L.T("Connection cannot be empty."));
         var ownConnection = false;
 
         // 确保连接已打开
@@ -196,7 +197,7 @@ public class MySqlBulkCopy : IDisposable
     private async Task WriteBatchAsync(MySqlConnection conn, String insertSql, List<Object?[]> batch, CancellationToken cancellationToken)
     {
         using var cmd = conn.CreateCommand() as MySqlCommand;
-        if (cmd == null) throw new InvalidOperationException("无法创建 MySqlCommand");
+        if (cmd == null) throw new InvalidOperationException(L.T("Unable to create MySqlCommand."));
 
         cmd.CommandText = insertSql;
         cmd.CommandTimeout = BulkCopyTimeout;

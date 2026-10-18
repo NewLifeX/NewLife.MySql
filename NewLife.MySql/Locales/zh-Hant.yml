@@ -1,0 +1,11 @@
+# 繁體中文譯文。鍵為英文源文，缺失時執行期回退英文。
+"Authentication failed.": "驗證失敗"
+"WebAuthn: the server did not provide a valid challenge or rpId.": "WebAuthn: 服務器未提供有效的 challenge 或 rpId"
+"WebAuthn authentication failed.": "WebAuthn 驗證失敗"
+"Unable to obtain the current binlog position; make sure binlog is enabled.": "無法獲取當前 binlog 位置，請確認 binlog 已啟用"
+"The connection has not been set.": "連接未設置"
+"There are no commands to execute.": "沒有命令需要執行"
+"DestinationTableName cannot be empty.": "DestinationTableName 不能為空"
+"Connection cannot be empty.": "Connection 不能為空"
+"Unable to create MySqlCommand.": "無法創建 MySqlCommand"
+"CommandText cannot be empty.": "CommandText 不能為空"

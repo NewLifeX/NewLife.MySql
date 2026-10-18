@@ -7,6 +7,7 @@ using NewLife.Data;
 using NewLife.Log;
 using NewLife.MySql.Common;
 using NewLife.MySql.Messages;
+using NewLife;
 
 namespace NewLife.MySql;
 
@@ -163,7 +164,7 @@ public class MySqlCommand : DbCommand
         if (IsPrepared) return;
 
         var sql = CommandText;
-        if (sql.IsNullOrEmpty()) throw new InvalidOperationException("CommandText 不能为空");
+        if (sql.IsNullOrEmpty()) throw new InvalidOperationException(L.T("CommandText cannot be empty."));
 
         var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
 
@@ -436,7 +437,7 @@ public class MySqlCommand : DbCommand
         if (parameterSets == null || parameterSets.Count == 0) return 0;
 
         var sql = CommandText;
-        if (sql.IsNullOrEmpty()) throw new InvalidOperationException("CommandText 不能为空");
+        if (sql.IsNullOrEmpty()) throw new InvalidOperationException(L.T("CommandText cannot be empty."));
 
         var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
         using var operationLease = await _DbConnection.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
@@ -510,7 +511,7 @@ public class MySqlCommand : DbCommand
         if (valueSets == null || valueSets.Count == 0) return 0;
 
         var sql = CommandText;
-        if (sql.IsNullOrEmpty()) throw new InvalidOperationException("CommandText 不能为空");
+        if (sql.IsNullOrEmpty()) throw new InvalidOperationException(L.T("CommandText cannot be empty."));
 
         var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
         using var operationLease = await _DbConnection.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
@@ -560,7 +561,7 @@ public class MySqlCommand : DbCommand
         if (count <= 0) return 0;
 
         var sql = CommandText;
-        if (sql.IsNullOrEmpty()) throw new InvalidOperationException("CommandText 不能为空");
+        if (sql.IsNullOrEmpty()) throw new InvalidOperationException(L.T("CommandText cannot be empty."));
 
         var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
         using var operationLease = await _DbConnection.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
