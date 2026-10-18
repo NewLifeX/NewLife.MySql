@@ -1,12 +1,20 @@
 # NewLife.MySql — 순수 C# 고성능 MySQL 드라이버
 
-[![NuGet](https://img.shields.io/nuget/v/NewLife.MySql.svg)](https://www.nuget.org/packages/NewLife.MySql)
-[![License](https://img.shields.io/github/license/NewLifeX/NewLife.MySql)](https://github.com/NewLifeX/NewLife.MySql/blob/master/LICENSE)
-[![Test](https://github.com/NewLifeX/NewLife.MySql/actions/workflows/test.yml/badge.svg?label=Test)](https://github.com/NewLifeX/NewLife.MySql/actions/workflows/test.yml)
 [![AOT](https://github.com/NewLifeX/NewLife.MySql/actions/workflows/aot.yml/badge.svg?label=AOT)](https://github.com/NewLifeX/NewLife.MySql/actions/workflows/aot.yml)
-[![Downloads](https://img.shields.io/nuget/dt/NewLife.MySql.svg)](https://www.nuget.org/packages/NewLife.MySql)
 
-> 🌐 [中文](Readme.MD) | [English](README.en.md) | [日本語](README.ja.md) | **한국어** | [Español](README.es.md) | [Português](README.pt.md)
+
+![GitHub License](https://img.shields.io/github/license/NewLifeX/NewLife.MySql?logo=github)
+![NuGet Downloads](https://img.shields.io/nuget/dt/NewLife.MySql?logo=nuget)
+![NuGet](https://img.shields.io/nuget/v/NewLife.MySql?logo=nuget)
+![NuGet prerelease](https://img.shields.io/nuget/vpre/NewLife.MySql?label=dev%20nuget&logo=nuget)
+[![test](https://github.com/NewLifeX/NewLife.MySql/actions/workflows/test.yml/badge.svg?branch=master)](https://github.com/NewLifeX/NewLife.MySql/actions/workflows/test.yml)
+![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-blue)
+[![contributors](https://img.shields.io/github/contributors/NewLifeX/NewLife.MySql?logo=github)](https://github.com/NewLifeX/NewLife.MySql/graphs/contributors)
+
+
+<!-- lang:start -->
+🌐 [中文](Readme.MD) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [العربية](README.ar.md)
+<!-- lang:end -->
 
 **NewLife.MySql**은 NewLife 팀이 개발한 순수 C# MySQL ADO.NET 드라이버입니다. TCP를 통해 MySQL 와이어 프로토콜(Protocol Version 10)을 직접 구현했으며, **서드파티 의존성 제로**, **완전한 async/await 지원**, **MIT 라이선스**로 상업적 사용이 자유롭습니다.
 

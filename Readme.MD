@@ -1,11 +1,20 @@
 # NewLife.MySql — 纯国产高性能 MySQL 驱动
 
-[![NuGet](https://img.shields.io/nuget/v/NewLife.MySql.svg)](https://www.nuget.org/packages/NewLife.MySql)
-[![License](https://img.shields.io/github/license/NewLifeX/NewLife.MySql)](https://github.com/NewLifeX/NewLife.MySql/blob/master/LICENSE)
-[![Test](https://github.com/NewLifeX/NewLife.MySql/actions/workflows/test.yml/badge.svg?label=Test)](https://github.com/NewLifeX/NewLife.MySql/actions/workflows/test.yml)
 [![AOT](https://github.com/NewLifeX/NewLife.MySql/actions/workflows/aot.yml/badge.svg?label=AOT)](https://github.com/NewLifeX/NewLife.MySql/actions/workflows/aot.yml)
 
-> 🌐 **中文** | [English](README.en.md) | [日本語](README.ja.md) | [한국어](README.ko.md) | [Español](README.es.md) | [Português](README.pt.md)
+
+![GitHub License](https://img.shields.io/github/license/NewLifeX/NewLife.MySql?logo=github)
+![NuGet Downloads](https://img.shields.io/nuget/dt/NewLife.MySql?logo=nuget)
+![NuGet](https://img.shields.io/nuget/v/NewLife.MySql?logo=nuget)
+![NuGet prerelease](https://img.shields.io/nuget/vpre/NewLife.MySql?label=dev%20nuget&logo=nuget)
+[![test](https://github.com/NewLifeX/NewLife.MySql/actions/workflows/test.yml/badge.svg?branch=master)](https://github.com/NewLifeX/NewLife.MySql/actions/workflows/test.yml)
+![platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-blue)
+[![contributors](https://img.shields.io/github/contributors/NewLifeX/NewLife.MySql?logo=github)](https://github.com/NewLifeX/NewLife.MySql/graphs/contributors)
+
+
+<!-- lang:start -->
+🌐 [繁體中文](README.zh-TW.md) | [English](README.en.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [العربية](README.ar.md)
+<!-- lang:end -->
 
 **NewLife.MySql** 是新生命团队出品的纯国产 MySQL 客户端驱动，基于 ADO.NET 标准接口，直接通过 TCP 实现 MySQL 协议层（Protocol Version 10）。仅依赖 `NewLife.Core`，**零第三方依赖**、**全链路真异步**、**MIT 协议商用无忧**。
 
