@@ -31,7 +31,7 @@ public sealed partial class MySqlConnection : DbConnection
     public String? ServerVersionComment { get; private set; }
 
     private DatabaseType _DatabaseType;
-    /// <summary>数据库类型。根据服务器版本字符串自动检测（MySQL/OceanBase/TiDB/Doris/Aurora/CloudSQL）</summary>
+    /// <summary>数据库类型。根据服务器版本字符串与 version_comment 自动检测（MySQL/OceanBase/TiDB/Doris/Aurora/CloudSQL）</summary>
     public DatabaseType DatabaseType => _DatabaseType;
 
     private ConnectionState _State;
@@ -245,16 +245,7 @@ public sealed partial class MySqlConnection : DbConnection
                                     var parts = comment.Split([' '], StringSplitOptions.RemoveEmptyEntries);
 
                                     // 检测产品类型并更新 DatabaseType
-                                    if (comment.Contains("OceanBase", StringComparison.OrdinalIgnoreCase))
-                                        _DatabaseType = DatabaseType.OceanBase;
-                                    else if (comment.Contains("TiDB", StringComparison.OrdinalIgnoreCase))
-                                        _DatabaseType = DatabaseType.TiDB;
-                                    else if (comment.Contains("Aurora", StringComparison.OrdinalIgnoreCase))
-                                        _DatabaseType = DatabaseType.AmazonAurora;
-                                    else if (comment.Contains("Cloud SQL", StringComparison.OrdinalIgnoreCase))
-                                        _DatabaseType = DatabaseType.GoogleCloudSql;
-                                    else if (comment.Contains("Doris", StringComparison.OrdinalIgnoreCase))
-                                        _DatabaseType = DatabaseType.Doris;
+                                    _DatabaseType = DetectDatabaseType(_Version, comment);
 
                                     // 第二段包含'.'则视为版本号，非MySQL产品拼接产品后缀；否则回退到完整注释
                                     if (parts.Length > 1 && parts[1].Contains('.'))
@@ -443,9 +434,10 @@ public sealed partial class MySqlConnection : DbConnection
     #endregion
 
     #region 辅助
-    /// <summary>根据服务器版本字符串检测数据库类型</summary>
+    /// <summary>根据服务器版本字符串与 version_comment 检测数据库类型</summary>
     /// <param name="serverVersion">服务器版本字符串，来自 HandshakeV10 握手包</param>
-    /// <returns>数据库类型（MySQL/OceanBase/TiDB/AmazonAurora/GoogleCloudSql/ApacheDoris）</returns>
+    /// <param name="versionComment">版本注释，可为空。Aurora/CloudSQL 的产品标识通常只出现在这里</param>
+    /// <returns>数据库类型（MySQL/OceanBase/TiDB/AmazonAurora/GoogleCloudSql/ApacheDoris）；无法识别时返回 MySQL</returns>
     /// <remarks>
     /// OceanBase 版本格式：5.7.x-OceanBase... 或 8.0.x-OceanBase...
     /// TiDB 版本格式：5.7.x-TiDB... 或类似格式
@@ -453,31 +445,35 @@ public sealed partial class MySqlConnection : DbConnection
     /// Google Cloud SQL 版本格式：含 "Cloud SQL" 关键词
     /// Apache Doris 版本格式：5.7.99 Doris version doris-...
     /// </remarks>
-    private static DatabaseType DetectDatabaseType(String serverVersion)
+    internal static DatabaseType DetectDatabaseType(String? serverVersion, String? versionComment = null)
     {
-        if (serverVersion.IsNullOrEmpty()) return DatabaseType.MySQL;
+        var type = DetectFromText(serverVersion);
+        if (type != DatabaseType.MySQL) return type;
 
-        // OceanBase 检测（不区分大小写）
-        if (serverVersion.Contains("OceanBase", StringComparison.OrdinalIgnoreCase))
+        return DetectFromText(versionComment);
+    }
+
+    /// <summary>从单个文本中识别产品标识</summary>
+    /// <param name="text">服务器版本字符串或 version_comment</param>
+    /// <returns>数据库类型；无产品标识时返回 MySQL</returns>
+    private static DatabaseType DetectFromText(String? text)
+    {
+        if (text.IsNullOrEmpty()) return DatabaseType.MySQL;
+
+        // 产品标识检测（不区分大小写）
+        if (text.Contains("OceanBase", StringComparison.OrdinalIgnoreCase))
             return DatabaseType.OceanBase;
-
-        // TiDB 检测（不区分大小写）
-        if (serverVersion.Contains("TiDB", StringComparison.OrdinalIgnoreCase))
+        if (text.Contains("TiDB", StringComparison.OrdinalIgnoreCase))
             return DatabaseType.TiDB;
-
-        // Amazon Aurora 检测（不区分大小写）
-        if (serverVersion.Contains("Aurora", StringComparison.OrdinalIgnoreCase))
+        if (text.Contains("Aurora", StringComparison.OrdinalIgnoreCase))
             return DatabaseType.AmazonAurora;
-
-        // Google Cloud SQL 检测（不区分大小写）
-        if (serverVersion.Contains("Cloud SQL", StringComparison.OrdinalIgnoreCase))
+        if (text.Contains("Cloud SQL", StringComparison.OrdinalIgnoreCase))
             return DatabaseType.GoogleCloudSql;
 
-        // Apache Doris 检测（不区分大小写）。版本格式：5.7.99 Doris version doris-x.x.x
-        if (serverVersion.Contains("Doris", StringComparison.OrdinalIgnoreCase))
+        // Apache Doris 版本格式：5.7.99 Doris version doris-x.x.x
+        if (text.Contains("Doris", StringComparison.OrdinalIgnoreCase))
             return DatabaseType.Doris;
 
-        // 默认为标准 MySQL
         return DatabaseType.MySQL;
     }
     #endregion

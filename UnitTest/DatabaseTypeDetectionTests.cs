@@ -1,6 +1,5 @@
 using NewLife.MySql;
 using NewLife.MySql.Common;
-using Xunit;
 
 namespace UnitTest;
 
@@ -8,118 +7,60 @@ namespace UnitTest;
 [Collection(TestCollections.InMemory)]
 public class DatabaseTypeDetectionTests
 {
-    [Fact(DisplayName = "检测MySQL版本字符串")]
-    public void DetectMySQL()
+    [Theory(DisplayName = "检测MySQL版本字符串")]
+    [InlineData("5.7.33")]
+    [InlineData("8.0.26")]
+    [InlineData("9.0.1")]
+    public void DetectMySQL(String version) => Assert.Equal(DatabaseType.MySQL, MySqlConnection.DetectDatabaseType(version));
+
+    [Theory(DisplayName = "检测OceanBase版本字符串")]
+    [InlineData("5.7.25-OceanBase-v4.0.0")]
+    [InlineData("5.7.25-OceanBase_CE-v3.1.4")]
+    [InlineData("8.0.32-OceanBase-v4.2.0")]
+    [InlineData("5.7.25-oceanbase-v4.0.0")]
+    public void DetectOceanBase(String version) => Assert.Equal(DatabaseType.OceanBase, MySqlConnection.DetectDatabaseType(version));
+
+    [Theory(DisplayName = "检测TiDB版本字符串")]
+    [InlineData("5.7.25-TiDB-v5.4.0")]
+    [InlineData("5.7.25-TiDB-v6.5.2")]
+    [InlineData("8.0.11-TiDB-v7.1.0")]
+    [InlineData("5.7.25-tidb-v5.4.0")]
+    public void DetectTiDB(String version) => Assert.Equal(DatabaseType.TiDB, MySqlConnection.DetectDatabaseType(version));
+
+    [Theory(DisplayName = "检测Apache Doris版本字符串")]
+    [InlineData("5.7.99 Doris version doris-2.0.3-rc06-37d31a5")]
+    [InlineData("5.7.99 Doris version doris-3.0.0")]
+    [InlineData("5.7.99 Doris version doris-4.1.2")]
+    [InlineData("5.7.99 dORIS version doris-2.0.0")]
+    public void DetectDoris(String version) => Assert.Equal(DatabaseType.Doris, MySqlConnection.DetectDatabaseType(version));
+
+    [Fact(DisplayName = "检测Amazon Aurora")]
+    public void DetectAurora()
     {
-        var connStr = "Server=localhost;Database=test;User Id=root;Password=pass;";
-        using var conn = new MySqlConnection(connStr);
-
-        // 模拟 MySQL 5.7 版本字符串
-        SetServerVersion(conn, "5.7.33");
-        Assert.Equal(DatabaseType.MySQL, conn.DatabaseType);
-
-        // 模拟 MySQL 8.0 版本字符串
-        SetServerVersion(conn, "8.0.26");
-        Assert.Equal(DatabaseType.MySQL, conn.DatabaseType);
-
-        // 模拟 MySQL 9.0 版本字符串
-        SetServerVersion(conn, "9.0.1");
-        Assert.Equal(DatabaseType.MySQL, conn.DatabaseType);
+        // Aurora 的版本号与 MySQL 相同，产品标识在 version_comment 中
+        Assert.Equal(DatabaseType.AmazonAurora, MySqlConnection.DetectDatabaseType("5.7.12-log", "Aurora MySQL Community Edition (GPL)"));
+        Assert.Equal(DatabaseType.AmazonAurora, MySqlConnection.DetectDatabaseType("8.0.32", "aurora MySQL"));
+        Assert.Equal(DatabaseType.AmazonAurora, MySqlConnection.DetectDatabaseType("5.7.25-Aurora"));
     }
 
-    [Fact(DisplayName = "检测OceanBase版本字符串")]
-    public void DetectOceanBase()
+    [Fact(DisplayName = "检测Google Cloud SQL")]
+    public void DetectCloudSql()
     {
-        var connStr = "Server=localhost;Database=test;User Id=root;Password=pass;";
-        using var conn = new MySqlConnection(connStr);
-
-        // 模拟 OceanBase 4.x 版本字符串（基于 MySQL 5.7）
-        SetServerVersion(conn, "5.7.25-OceanBase-v4.0.0");
-        Assert.Equal(DatabaseType.OceanBase, conn.DatabaseType);
-
-        // 模拟 OceanBase 3.x 版本字符串（基于 MySQL 5.7）
-        SetServerVersion(conn, "5.7.25-OceanBase_CE-v3.1.4");
-        Assert.Equal(DatabaseType.OceanBase, conn.DatabaseType);
-
-        // 模拟 OceanBase 基于 MySQL 8.0 的版本
-        SetServerVersion(conn, "8.0.32-OceanBase-v4.2.0");
-        Assert.Equal(DatabaseType.OceanBase, conn.DatabaseType);
-
-        // 测试大小写不敏感
-        SetServerVersion(conn, "5.7.25-oceanbase-v4.0.0");
-        Assert.Equal(DatabaseType.OceanBase, conn.DatabaseType);
+        // Cloud SQL 的版本号通常带 -google 后缀，产品标识在 version_comment 中
+        Assert.Equal(DatabaseType.GoogleCloudSql, MySqlConnection.DetectDatabaseType("8.0.26-google", "Google Cloud SQL"));
+        Assert.Equal(DatabaseType.GoogleCloudSql, MySqlConnection.DetectDatabaseType("8.0.32", "google cloud sql"));
+        Assert.Equal(DatabaseType.GoogleCloudSql, MySqlConnection.DetectDatabaseType("8.0.26-Cloud SQL"));
     }
 
-    [Fact(DisplayName = "检测TiDB版本字符串")]
-    public void DetectTiDB()
-    {
-        var connStr = "Server=localhost;Database=test;User Id=root;Password=pass;";
-        using var conn = new MySqlConnection(connStr);
-
-        // 模拟 TiDB 5.x 版本字符串
-        SetServerVersion(conn, "5.7.25-TiDB-v5.4.0");
-        Assert.Equal(DatabaseType.TiDB, conn.DatabaseType);
-
-        // 模拟 TiDB 6.x 版本字符串
-        SetServerVersion(conn, "5.7.25-TiDB-v6.5.2");
-        Assert.Equal(DatabaseType.TiDB, conn.DatabaseType);
-
-        // 模拟 TiDB 7.x 版本字符串
-        SetServerVersion(conn, "8.0.11-TiDB-v7.1.0");
-        Assert.Equal(DatabaseType.TiDB, conn.DatabaseType);
-
-        // 测试大小写不敏感
-        SetServerVersion(conn, "5.7.25-tidb-v5.4.0");
-        Assert.Equal(DatabaseType.TiDB, conn.DatabaseType);
-    }
-
-    [Fact(DisplayName = "检测Apache Doris版本字符串")]
-    public void DetectDoris()
-    {
-        var connStr = "Server=localhost;Database=test;User Id=root;Password=pass;";
-        using var conn = new MySqlConnection(connStr);
-
-        // 模拟 Doris 2.0 版本字符串
-        SetServerVersion(conn, "5.7.99 Doris version doris-2.0.3-rc06-37d31a5");
-        Assert.Equal(DatabaseType.Doris, conn.DatabaseType);
-
-        // 模拟 Doris 3.0 版本字符串
-        SetServerVersion(conn, "5.7.99 Doris version doris-3.0.0");
-        Assert.Equal(DatabaseType.Doris, conn.DatabaseType);
-
-        // 模拟 Doris 4.0 版本字符串
-        SetServerVersion(conn, "5.7.99 Doris version doris-4.1.2");
-        Assert.Equal(DatabaseType.Doris, conn.DatabaseType);
-
-        // 测试大小写不敏感
-        SetServerVersion(conn, "5.7.99 dORIS version doris-2.0.0");
-        Assert.Equal(DatabaseType.Doris, conn.DatabaseType);
-    }
-
-    [Fact(DisplayName = "空版本字符串应返回MySQL")]
+    [Fact(DisplayName = "空版本与普通MySQL注释回退MySQL")]
     public void EmptyVersionShouldReturnMySQL()
     {
-        var connStr = "Server=localhost;Database=test;User Id=root;Password=pass;";
-        using var conn = new MySqlConnection(connStr);
-
-        SetServerVersion(conn, "");
-        Assert.Equal(DatabaseType.MySQL, conn.DatabaseType);
-
-        SetServerVersion(conn, null!);
-        Assert.Equal(DatabaseType.MySQL, conn.DatabaseType);
+        Assert.Equal(DatabaseType.MySQL, MySqlConnection.DetectDatabaseType(""));
+        Assert.Equal(DatabaseType.MySQL, MySqlConnection.DetectDatabaseType(null));
+        Assert.Equal(DatabaseType.MySQL, MySqlConnection.DetectDatabaseType("8.0.26", "MySQL Community Server - GPL"));
     }
 
-    /// <summary>使用反射设置连接的服务器版本（用于测试）</summary>
-    private static void SetServerVersion(MySqlConnection conn, String version)
-    {
-        var versionField = typeof(MySqlConnection).GetField("_Version", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        versionField?.SetValue(conn, version);
-
-        var dbTypeField = typeof(MySqlConnection).GetField("_DatabaseType", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        
-        // 调用私有的 DetectDatabaseType 方法
-        var detectMethod = typeof(MySqlConnection).GetMethod("DetectDatabaseType", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-        var dbType = detectMethod?.Invoke(null, new object[] { version });
-        dbTypeField?.SetValue(conn, dbType);
-    }
+    [Fact(DisplayName = "版本号产品标识优先于注释")]
+    public void VersionTakesPrecedenceOverComment()
+        => Assert.Equal(DatabaseType.TiDB, MySqlConnection.DetectDatabaseType("5.7.25-TiDB-v6.5.2", "Aurora MySQL"));
 }
