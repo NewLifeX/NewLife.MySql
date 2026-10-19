@@ -33,7 +33,7 @@ public class MySqlParameterCollection : DbParameterCollection
     {
         if (value == null) throw new ArgumentNullException(nameof(value));
 
-        var param = value as MySqlParameter ?? throw new ArgumentException("参数必须是 MySqlParameter 类型", nameof(value));
+        var param = value as MySqlParameter ?? throw new ArgumentException(L.T("Parameter must be of type MySqlParameter."), nameof(value));
         _items.Add(param);
         return _items.Count - 1;
     }
@@ -107,7 +107,7 @@ public class MySqlParameterCollection : DbParameterCollection
     {
         if (value == null) throw new ArgumentNullException(nameof(value));
 
-        var param = value as MySqlParameter ?? throw new ArgumentException("参数必须是 MySqlParameter 类型", nameof(value));
+        var param = value as MySqlParameter ?? throw new ArgumentException(L.T("Parameter must be of type MySqlParameter."), nameof(value));
         _items.Insert(index, param);
     }
 
@@ -140,7 +140,7 @@ public class MySqlParameterCollection : DbParameterCollection
     protected override DbParameter GetParameter(String parameterName)
     {
         var idx = IndexOf(parameterName);
-        if (idx < 0) throw new ArgumentException($"未找到参数 {parameterName}", nameof(parameterName));
+        if (idx < 0) throw new ArgumentException(L.T("Parameter '{0}' was not found.", parameterName), nameof(parameterName));
         return _items[idx];
     }
 
@@ -149,7 +149,7 @@ public class MySqlParameterCollection : DbParameterCollection
     /// <param name="value">参数对象</param>
     protected override void SetParameter(Int32 index, DbParameter value)
     {
-        if (value is not MySqlParameter param) throw new ArgumentException("参数必须是 MySqlParameter 类型", nameof(value));
+        if (value is not MySqlParameter param) throw new ArgumentException(L.T("Parameter must be of type MySqlParameter."), nameof(value));
         _items[index] = param;
     }
 
@@ -159,7 +159,7 @@ public class MySqlParameterCollection : DbParameterCollection
     protected override void SetParameter(String parameterName, DbParameter value)
     {
         var idx = IndexOf(parameterName);
-        if (idx < 0) throw new ArgumentException($"未找到参数 {parameterName}", nameof(parameterName));
+        if (idx < 0) throw new ArgumentException(L.T("Parameter '{0}' was not found.", parameterName), nameof(parameterName));
         SetParameter(idx, value);
     }
     #endregion

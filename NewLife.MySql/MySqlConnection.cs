@@ -359,7 +359,7 @@ public sealed partial class MySqlConnection : DbConnection
             IsolationLevel.ReadUncommitted => "READ UNCOMMITTED",
             IsolationLevel.Unspecified or IsolationLevel.RepeatableRead => "REPEATABLE READ",
             IsolationLevel.Serializable => "SERIALIZABLE",
-            _ => throw new NotSupportedException(isolationLevel + ""),
+            _ => throw new NotSupportedException(L.T("Unsupported isolation level: {0}.", isolationLevel)),
         };
 
         // 事务起始语句属驱动内部记账，不产生 Execute 跨度，避免污染调用方链路

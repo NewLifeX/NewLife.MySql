@@ -37,7 +37,7 @@ sealed class MySqlTransaction(MySqlConnection connection, IsolationLevel isolati
     {
         var conn = connection;
         if (conn == null || conn.State != ConnectionState.Open) throw new ObjectDisposedException(nameof(Connection));
-        if (!_open) throw new InvalidOperationException("Transaction has already been committed or is not pending");
+        if (!_open) throw new InvalidOperationException(L.T("Transaction has already been committed or is not pending."));
 
         using var span = MySqlDiagnostics.StartTransaction(conn, "Commit");
         try
@@ -60,7 +60,7 @@ sealed class MySqlTransaction(MySqlConnection connection, IsolationLevel isolati
     {
         var conn = connection;
         if (conn == null || conn.State != ConnectionState.Open) throw new ObjectDisposedException(nameof(Connection));
-        if (!_open) throw new InvalidOperationException("Transaction has already been committed or is not pending");
+        if (!_open) throw new InvalidOperationException(L.T("Transaction has already been committed or is not pending."));
 
         using var span = MySqlDiagnostics.StartTransaction(conn, "Rollback");
         try

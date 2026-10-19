@@ -75,7 +75,7 @@ public class MySqlPool : ObjectPool<SqlClient>
     {
         var set = Setting ?? throw new ArgumentNullException(nameof(Setting));
         var connStr = set.ConnectionString;
-        if (connStr.IsNullOrEmpty()) throw new InvalidOperationException("连接字符串不能为空");
+        if (connStr.IsNullOrEmpty()) throw new InvalidOperationException(L.T("Connection string cannot be empty."));
 
         return new SqlClient(set);
     }

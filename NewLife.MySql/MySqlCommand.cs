@@ -166,7 +166,7 @@ public class MySqlCommand : DbCommand
         var sql = CommandText;
         if (sql.IsNullOrEmpty()) throw new InvalidOperationException(L.T("CommandText cannot be empty."));
 
-        var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
+        var client = _DbConnection?.Client ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
         // 将 @param 替换为 ? 占位符，同时记录参数在 SQL 中的出现顺序
         var paramOrder = new List<Int32>();
@@ -202,7 +202,7 @@ public class MySqlCommand : DbCommand
 
     /// <summary>取消命令执行。当前驱动未实现，调用即抛出异常，避免静默无操作误导调用方</summary>
     /// <exception cref="NotSupportedException">暂不支持取消</exception>
-    public override void Cancel() => throw new NotSupportedException("MySqlCommand.Cancel 暂未实现，无法取消正在执行的命令");
+    public override void Cancel() => throw new NotSupportedException(L.T("MySqlCommand.Cancel is not implemented yet, so the running command cannot be canceled."));
 
     /// <summary>异步执行读取器。多语句由服务端拆分，通过NextResult()遍历多结果集。
     /// 在 ConnectionTimeout 时间内对网络临时故障自动重连重试；事务内或关闭重试时直接执行</summary>
@@ -242,7 +242,7 @@ public class MySqlCommand : DbCommand
                 // 指数退避：500ms → 1000ms → 2000ms → 上限 5000ms
                 delay = Math.Min(delay * 2, 5000);
 
-                XTrace.WriteLine($"MySQL 网络断线自动重连（{ex.GetType().Name}: {ex.Message}），已等待 {waitMs}ms");
+                XTrace.WriteLine("MySQL network connection lost, reconnecting after {0}ms ({1}: {2})", waitMs, ex.GetType().Name, ex.Message);
 
                 // 清除预编译状态：重连后服务端上的 StatementId 已失效
                 _statementId = -1;
@@ -439,11 +439,11 @@ public class MySqlCommand : DbCommand
         var sql = CommandText;
         if (sql.IsNullOrEmpty()) throw new InvalidOperationException(L.T("CommandText cannot be empty."));
 
-        var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
+        var client = _DbConnection?.Client ?? throw new InvalidOperationException(L.T("Connection is not open."));
         using var operationLease = await _DbConnection.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
 
         // 重置网络流
-        if (!client.Reset()) throw new InvalidOperationException("数据库连接已断开");
+        if (!client.Reset()) throw new InvalidOperationException(L.T("The database connection has been closed."));
 
         // 从第一组参数推断参数定义
         var firstSet = parameterSets[0];
@@ -513,11 +513,11 @@ public class MySqlCommand : DbCommand
         var sql = CommandText;
         if (sql.IsNullOrEmpty()) throw new InvalidOperationException(L.T("CommandText cannot be empty."));
 
-        var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
+        var client = _DbConnection?.Client ?? throw new InvalidOperationException(L.T("Connection is not open."));
         using var operationLease = await _DbConnection.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
 
         // 重置网络流
-        if (!client.Reset()) throw new InvalidOperationException("数据库连接已断开");
+        if (!client.Reset()) throw new InvalidOperationException(L.T("The database connection has been closed."));
 
         // 值数组版本按位置绑定，未预编译时自动 Prepare（SQL 中占位符顺序需与值数组一致）
         var needClose = false;
@@ -563,10 +563,10 @@ public class MySqlCommand : DbCommand
         var sql = CommandText;
         if (sql.IsNullOrEmpty()) throw new InvalidOperationException(L.T("CommandText cannot be empty."));
 
-        var client = _DbConnection?.Client ?? throw new InvalidOperationException("连接未打开");
+        var client = _DbConnection?.Client ?? throw new InvalidOperationException(L.T("Connection is not open."));
         using var operationLease = await _DbConnection.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
 
-        if (!client.Reset()) throw new InvalidOperationException("数据库连接已断开");
+        if (!client.Reset()) throw new InvalidOperationException(L.T("The database connection has been closed."));
 
         // 确保已预编译
         var needClose = false;
@@ -740,11 +740,11 @@ public class MySqlCommand : DbCommand
     /// <returns>是否使用了二进制协议（COM_STMT_EXECUTE）</returns>
     private async Task<Boolean> ExecuteAsync(CancellationToken cancellationToken)
     {
-        var client = _DbConnection.Client ?? throw new InvalidOperationException("连接未打开");
+        var client = _DbConnection.Client ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
         // 重置网络流，清理残留数据。如果连接已断开则抛出异常
         if (!client.Reset())
-            throw new InvalidOperationException("数据库连接已断开");
+            throw new InvalidOperationException(L.T("The database connection has been closed."));
 
         // 预编译路径：使用 COM_STMT_EXECUTE 二进制协议
         if (IsPrepared)

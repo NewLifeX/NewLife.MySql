@@ -98,7 +98,7 @@ class Authentication(SqlClient client)
             await PerformWebAuthnAuthenticationAsync(authData.ToArray(), cancellationToken).ConfigureAwait(false);
         }
         else
-            throw new NotSupportedException(authMethod);
+            throw new NotSupportedException(L.T("Unsupported authentication method: {0}.", authMethod));
     }
 
     /// <summary>执行 WebAuthn/FIDO2 认证（authentication_webauthn_client 插件）</summary>

@@ -137,7 +137,7 @@ public class SqlClient : DisposeBase
         var server = set.Server;
         var socketPath = set.Socket;
         if (server.IsNullOrEmpty() && socketPath.IsNullOrEmpty())
-            throw new InvalidOperationException("未指定服务器地址（Server 或 Socket）");
+            throw new InvalidOperationException(L.T("Server address is not specified (Server or Socket)."));
 
         var port = set.Port;
         if (port == 0) port = 3306;
@@ -169,7 +169,7 @@ public class SqlClient : DisposeBase
             {
                 span?.SetError(ex);
                 socket.Dispose();
-                throw new TimeoutException($"Unix Socket 连接 {socketPath} 超时({msTimeout}ms)");
+                throw new TimeoutException(L.T("Unix socket connection to {0} timed out ({1}ms).", socketPath, msTimeout));
             }
             catch (Exception ex)
             {
@@ -180,7 +180,7 @@ public class SqlClient : DisposeBase
             _rawSocket = socket;
             _stream = new NetworkStream(socket, ownsSocket: true);
 #else
-            throw new PlatformNotSupportedException("Unix域套接字仅支持 .NET 5.0+ 平台（Linux/macOS）");
+            throw new PlatformNotSupportedException(L.T("Unix domain sockets are only supported on .NET 5.0+ platforms (Linux/macOS)."));
 #endif
         }
         else
@@ -197,7 +197,7 @@ public class SqlClient : DisposeBase
                 if (completedTask != connectTask)
                 {
                     client.Close();
-                    throw new TimeoutException($"连接 {server}:{port} 超时({msTimeout}ms)");
+                    throw new TimeoutException(L.T("Connection to {0}:{1} timed out ({2}ms).", server, port, msTimeout));
                 }
                 await connectTask.ConfigureAwait(false);
 #endif
@@ -206,7 +206,7 @@ public class SqlClient : DisposeBase
             {
                 span?.SetError(ex);
                 client.Close();
-                throw new TimeoutException($"连接 {server}:{port} 超时({msTimeout}ms)");
+                throw new TimeoutException(L.T("Connection to {0}:{1} timed out ({2}ms).", server, port, msTimeout));
             }
             catch (Exception ex)
             {
@@ -269,13 +269,13 @@ public class SqlClient : DisposeBase
                     }
                 }
                 else if (sslMode.EqualIgnoreCase("Required"))
-                    throw new NotSupportedException("服务器不支持 SSL 连接");
+                    throw new NotSupportedException(L.T("The server does not support SSL connections."));
             }
 
             // 验证方法
             var method = welcome.AuthMethod;
             if (!method.IsNullOrEmpty() && !method.EqualIgnoreCase("mysql_native_password", "caching_sha2_password", "authentication_webauthn_client"))
-                throw new NotSupportedException("不支持验证方式 " + method);
+                throw new NotSupportedException(L.T("Unsupported authentication method: {0}.", method));
 
             // 异步验证
             var auth = new Authentication(this);
@@ -504,7 +504,7 @@ public class SqlClient : DisposeBase
     /// </remarks>
     public async Task<ServerPacket> ReadPacketAsync(CancellationToken cancellationToken = default)
     {
-        var ms = _stream ?? throw new InvalidOperationException("未打开连接");
+        var ms = _stream ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
         // 压缩协议
         if (_useCompression)
@@ -539,7 +539,7 @@ public class SqlClient : DisposeBase
             if (len > maxPacketSize)
             {
                 Active = false;
-                throw new InvalidOperationException($"数据包大小 ({len}) 超过上限 ({maxPacketSize})");
+                throw new InvalidOperationException(L.T("Packet size ({0}) exceeds the maximum allowed ({1}).", len, maxPacketSize));
             }
 
             var pk = new OwnerPacket(len);
@@ -569,7 +569,7 @@ public class SqlClient : DisposeBase
         {
             // 内部读超时导致的取消，标记连接不可用
             Active = false;
-            throw new TimeoutException($"读取数据包超时({timeout}s)");
+            throw new TimeoutException(L.T("Timed out reading a packet ({0}s).", timeout));
         }
         catch (OperationCanceledException)
         {
@@ -644,7 +644,7 @@ public class SqlClient : DisposeBase
     /// <returns>异步任务</returns>
     public async Task SendPacketAsync(IPacket pk, CancellationToken cancellationToken = default, Boolean flush = true)
     {
-        var ms = _stream ?? throw new InvalidOperationException("未打开连接");
+        var ms = _stream ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
         // 压缩协议
         if (_useCompression)
@@ -729,12 +729,12 @@ public class SqlClient : DisposeBase
                     if (uncompressedLen > maxPacketSize)
                     {
                         Active = false;
-                        throw new InvalidOperationException($"解压后数据包大小 ({uncompressedLen}) 超过上限 ({maxPacketSize})");
+                        throw new InvalidOperationException(L.T("Decompressed packet size ({0}) exceeds the maximum allowed ({1}).", uncompressedLen, maxPacketSize));
                     }
                     if (compressedLen > maxPacketSize)
                     {
                         Active = false;
-                        throw new InvalidOperationException($"压缩数据包大小 ({compressedLen}) 超过上限 ({maxPacketSize})");
+                        throw new InvalidOperationException(L.T("Compressed packet size ({0}) exceeds the maximum allowed ({1}).", compressedLen, maxPacketSize));
                     }
 
                     // 保留尚未消费的跨包数据（不完整普通包尾部）
@@ -816,7 +816,7 @@ public class SqlClient : DisposeBase
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             Active = false;
-            throw new TimeoutException($"读取数据包超时({timeout}s)");
+            throw new TimeoutException(L.T("Timed out reading a packet ({0}s).", timeout));
         }
         catch (OperationCanceledException)
         {
@@ -1006,7 +1006,7 @@ public class SqlClient : DisposeBase
     /// <returns>异步任务</returns>
     public async Task FlushAsync(CancellationToken cancellationToken = default)
     {
-        var ms = _stream ?? throw new InvalidOperationException("未打开连接");
+        var ms = _stream ?? throw new InvalidOperationException(L.T("Connection is not open."));
         await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -1168,7 +1168,7 @@ public class SqlClient : DisposeBase
 
         // 读取 OK 响应
         using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-        if (!rs.IsOK) throw new MySqlException("切换数据库失败");
+        if (!rs.IsOK) throw new MySqlException(L.T("Failed to change the current database."));
 
         // 更新当前数据库名
         Database = databaseName;
@@ -1191,7 +1191,7 @@ public class SqlClient : DisposeBase
         await SendCommandAsync(DbCmd.CREATE_DB, databaseName, false, cancellationToken).ConfigureAwait(false);
 
         using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-        if (!rs.IsOK) throw new MySqlException("创建数据库失败");
+        if (!rs.IsOK) throw new MySqlException(L.T("Failed to create the database."));
     }
 
     /// <summary>异步删除数据库。使用 COM_DROP_DB 二进制命令</summary>
@@ -1211,7 +1211,7 @@ public class SqlClient : DisposeBase
         await SendCommandAsync(DbCmd.DROP_DB, databaseName, false, cancellationToken).ConfigureAwait(false);
 
         using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-        if (!rs.IsOK) throw new MySqlException("删除数据库失败");
+        if (!rs.IsOK) throw new MySqlException(L.T("Failed to drop the database."));
     }
 
     #endregion
@@ -1296,7 +1296,7 @@ public class SqlClient : DisposeBase
     /// <returns>正数为行数据长度（数据在 _rowBuffer[0..len]）；负数或零表示 EOF（取反为 EOF 包长度）</returns>
     private async Task<Int32> ReadRowPacketAsync(CancellationToken cancellationToken)
     {
-        var ms = _stream ?? throw new InvalidOperationException("未打开连接");
+        var ms = _stream ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
         var timeout = Timeout;
         using var cts = timeout > 0
@@ -1338,7 +1338,7 @@ public class SqlClient : DisposeBase
                 if (len > maxPacketSize)
                 {
                     Active = false;
-                    throw new InvalidOperationException($"行数据包大小 ({len}) 超过上限 ({maxPacketSize})");
+                    throw new InvalidOperationException(L.T("Row packet size ({0}) exceeds the maximum allowed ({1}).", len, maxPacketSize));
                 }
                 _rowBuffer = new Byte[len];
             }
@@ -1367,7 +1367,7 @@ public class SqlClient : DisposeBase
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             Active = false;
-            throw new TimeoutException($"读取数据包超时({timeout}s)");
+            throw new TimeoutException(L.T("Timed out reading a packet ({0}s).", timeout));
         }
     }
 
@@ -1881,7 +1881,7 @@ public class SqlClient : DisposeBase
     private async Task<Int32> ExecutePipelineValuesCoreAsync(Int32 statementId, IList<Object?[]> parameterSets, CancellationToken cancellationToken)
     {
         var count = parameterSets.Count;
-        var ms = _stream ?? throw new InvalidOperationException("未打开连接");
+        var ms = _stream ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
         // 读取任务使用独立取消源：发送方向一旦失败，可主动取消后台读取，避免它成为野任务在后台继续读取网络流
         using var readCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
@@ -2039,7 +2039,7 @@ public class SqlClient : DisposeBase
 
         using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         if (!rs.IsOK)
-            throw new MySqlException("终止线程失败");
+            throw new MySqlException(L.T("Failed to kill the thread."));
     }
 
     /// <summary>异步设置连接选项。使用 COM_SET_OPTION 二进制命令</summary>
@@ -2148,7 +2148,7 @@ public class SqlClient : DisposeBase
 
         using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         if (!rs.IsOK)
-            throw new MySqlException("注册从属服务器失败");
+            throw new MySqlException(L.T("Failed to register the replica."));
     }
 
     /// <summary>异步停止 Binlog 转储并注销从属服务器。使用 COM_QUIT 关闭连接</summary>

@@ -58,7 +58,7 @@ class ReadBuffer
             _buffer ??= new Byte[_bufferSize];
 
             var n = await stream.ReadAsync(_buffer, 0, _buffer.Length, token).ConfigureAwait(false);
-            if (n == 0) throw new EndOfStreamException("读取MySQL数据包时连接意外关闭");
+            if (n == 0) throw new EndOfStreamException(L.T("The connection was closed unexpectedly while reading a MySQL packet."));
             _pos = 0;
             _len = n;
         }

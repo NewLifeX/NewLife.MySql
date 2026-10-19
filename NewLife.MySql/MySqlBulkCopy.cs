@@ -216,10 +216,14 @@ public class MySqlBulkCopy : IDisposable
     /// <summary>日志</summary>
     public ILog? Log { get => _log; set => _log = value; }
 
+    private String? _logPrefix;
+    /// <summary>日志前缀。前缀在翻译之后拼接，不参与本地化查表</summary>
+    public String LogPrefix { get => _logPrefix ??= "[BulkCopy] "; set => _logPrefix = value; }
+
     /// <summary>写日志</summary>
     /// <param name="format">格式字符串</param>
     /// <param name="args">参数</param>
-    public void WriteLog(String format, params Object?[] args) => Log?.Info(format, args);
+    public void WriteLog(String format, params Object?[] args) => Log?.InfoPrefixed(LogPrefix, format, args);
     #endregion
 }
 

@@ -58,6 +58,10 @@ public class BinlogClient : DisposeBase
     /// <summary>日志</summary>
     public ILog Log { get; set; } = Logger.Null;
 
+    private String? _logPrefix;
+    /// <summary>日志前缀。前缀在翻译之后拼接，不参与本地化查表</summary>
+    public String LogPrefix { get => _logPrefix ??= "[Binlog] "; set => _logPrefix = value; }
+
     private SqlClient? _client;
     private CancellationTokenSource? _cts;
     private readonly Random _rnd = new();
@@ -185,7 +189,7 @@ public class BinlogClient : DisposeBase
                 OnError?.Invoke(ex);
                 if (!AutoReconnect) break;
 
-                Log.Error("Binlog 读取异常，{0}ms 后重连：{1}", ReconnectInterval, ex.Message);
+                Log.ErrorPrefixed(LogPrefix, "Binlog read error; reconnecting in {0}ms: {1}", ReconnectInterval, ex.Message);
                 await Task.Delay(ReconnectInterval, _cts.Token).ConfigureAwait(false);
                 await ReconnectAsync(_cts.Token).ConfigureAwait(false);
                 continue;
@@ -222,7 +226,7 @@ public class BinlogClient : DisposeBase
         if (Position == null || Position.FileName.IsNullOrEmpty())
             Position = await GetCurrentPositionAsync(cancellationToken).ConfigureAwait(false);
 
-        Log.Info("开始订阅 Binlog: {0} ServerId={1}", Position, ServerId);
+        Log.InfoPrefixed(LogPrefix, "Started subscribing to binlog: {0} ServerId={1}", Position, ServerId);
 
         // 注册从属服务器
         var host = setting.Server ?? "";
@@ -277,7 +281,7 @@ public class BinlogClient : DisposeBase
                 OnError?.Invoke(ex);
                 if (!AutoReconnect) break;
 
-                Log.Error("Binlog 读取异常，{0}ms 后重连：{1}", ReconnectInterval, ex.Message);
+                Log.ErrorPrefixed(LogPrefix, "Binlog read error; reconnecting in {0}ms: {1}", ReconnectInterval, ex.Message);
                 try
                 {
                     await Task.Delay(ReconnectInterval, cancellationToken).ConfigureAwait(false);
@@ -300,7 +304,7 @@ public class BinlogClient : DisposeBase
             }
             catch (Exception ex)
             {
-                Log.Error("事件处理异常：{0}", ex.Message);
+                Log.ErrorPrefixed(LogPrefix, "Event handler error: {0}", ex.Message);
             }
         }
 
@@ -344,7 +348,7 @@ public class BinlogClient : DisposeBase
 
         await ConnectAndDumpAsync(cancellationToken).ConfigureAwait(false);
 
-        Log.Info("Binlog 重连成功: {0}", Position);
+        Log.InfoPrefixed(LogPrefix, "Binlog reconnected: {0}", Position);
     }
 
     /// <summary>根据数据库和表名过滤事件</summary>
@@ -576,6 +580,6 @@ public class BinlogClient : DisposeBase
     /// <summary>写日志</summary>
     /// <param name="format">格式化字符串</param>
     /// <param name="args">参数</param>
-    public void WriteLog(String format, params Object[] args) => Log?.Info(format, args);
+    public void WriteLog(String format, params Object[] args) => Log?.InfoPrefixed(LogPrefix, format, args);
     #endregion
 }

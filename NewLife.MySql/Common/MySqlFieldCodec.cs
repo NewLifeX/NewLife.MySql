@@ -38,7 +38,7 @@ public static class MySqlFieldCodec
     {
         // 字段值大小上限检测，防止超大 BLOB/TEXT 导致 OOM
         if (len > MaxFieldSize)
-            throw new InvalidDataException($"字段值长度 ({len}) 超过上限 ({MaxFieldSize})");
+            throw new InvalidDataException(L.T("Field value length ({0}) exceeds the maximum allowed ({1}).", len, MaxFieldSize));
 
         var span = reader.ReadBytes(len);
 
@@ -221,7 +221,7 @@ public static class MySqlFieldCodec
     {
         var len = (Int32)reader.ReadLength();
         if (len > MaxFieldSize)
-            throw new InvalidDataException($"字段值长度 ({len}) 超过上限 ({MaxFieldSize})");
+            throw new InvalidDataException(L.T("Field value length ({0}) exceeds the maximum allowed ({1}).", len, MaxFieldSize));
         return len;
     }
 
