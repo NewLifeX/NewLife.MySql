@@ -216,4 +216,73 @@ public class MySqlConnectionTests
                 Assert.NotEmpty(dt2.Rows);
         }
     }
+
+    [Fact(DisplayName = "数据库一致性判断忽略空值与大小写")]
+    public void IsSameDatabase_MatchesEmptyAndCaseInsensitive()
+    {
+        Assert.True(MySqlConnection.IsSameDatabase(null, null));
+        Assert.True(MySqlConnection.IsSameDatabase("", ""));
+        Assert.True(MySqlConnection.IsSameDatabase(null, ""));
+        Assert.True(MySqlConnection.IsSameDatabase("sys", "SYS"));
+        Assert.False(MySqlConnection.IsSameDatabase("sys", "information_schema"));
+        Assert.False(MySqlConnection.IsSameDatabase("sys", null));
+        Assert.False(MySqlConnection.IsSameDatabase(null, "sys"));
+    }
+
+    [Fact(DisplayName = "无数据库连接关闭后归还池槽位")]
+    public async Task Close_WithoutDatabase_ReturnsPoolSlot()
+    {
+        var builder = new MySqlConnectionStringBuilder(_ConnStr) { Database = null };
+        var factory = new MySqlClientFactory { PoolManager = new MySqlPoolManager() };
+        var pool = factory.PoolManager.GetPool(new MySqlConnectionStringBuilder(builder.ConnectionString));
+
+        using var connection = new MySqlConnection(builder.ConnectionString) { Factory = factory };
+        await connection.OpenAsync();
+        Assert.Equal(1, pool.BusyCount);
+
+        connection.Close();
+        Assert.Equal(0, pool.BusyCount);
+
+        pool.Clear();
+    }
+
+    [Fact(DisplayName = "切换数据库后切回关闭仍归还池槽位")]
+    public async Task Close_AfterSwitchBack_ReturnsPoolSlot()
+    {
+        var factory = new MySqlClientFactory { PoolManager = new MySqlPoolManager() };
+        var setting = new MySqlConnectionStringBuilder(_ConnStr);
+        var pool = factory.PoolManager.GetPool(setting);
+
+        using var connection = new MySqlConnection(setting.ConnectionString) { Factory = factory };
+        await connection.OpenAsync();
+
+        var client = connection.Client!;
+        var original = client.Database;
+        await client.SetDatabaseAsync("information_schema");
+        await client.SetDatabaseAsync(original);
+
+        connection.Close();
+        Assert.Equal(0, pool.BusyCount);
+
+        pool.Clear();
+    }
+
+    [Fact(DisplayName = "切换数据库未切回关闭时销毁连接并释放池槽位")]
+    public async Task Close_AfterSwitchWithoutSwitchBack_ReleasesPoolSlot()
+    {
+        var factory = new MySqlClientFactory { PoolManager = new MySqlPoolManager() };
+        var setting = new MySqlConnectionStringBuilder(_ConnStr);
+        var pool = factory.PoolManager.GetPool(setting);
+
+        using var connection = new MySqlConnection(setting.ConnectionString) { Factory = factory };
+        await connection.OpenAsync();
+
+        var client = connection.Client!;
+        await client.SetDatabaseAsync("information_schema");
+
+        connection.Close();
+        Assert.Equal(0, pool.BusyCount);
+
+        pool.Clear();
+    }
 }

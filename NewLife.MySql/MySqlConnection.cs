@@ -98,11 +98,13 @@ public sealed partial class MySqlConnection : DbConnection
             // 检查当前数据库是否与原始数据库一致
             // 如果不一致，说明调用过 SetDatabaseAsync 且未切回，连接状态被污染，直接销毁
             // 如果一致，说明要么未切换过数据库，要么切换后又切回来了，可以安全归还连接池
-            if (!client.Active || client.Database != Setting.Database)
+            if (!client.Active || !IsSameDatabase(Setting.Database, client.Database))
             {
                 // 连接已失效（如批量写入中途失败标记 Active=false）或数据库状态被污染，销毁连接不归还连接池，
-                // 避免脏连接被后续查询复用导致协议错位、读取超时
+                // 避免脏连接被后续查询复用导致协议错位、读取超时。
+                // 销毁后仍需 Return 释放池槽位：池槽位只有 Return 才释放，裸 TryDispose 会永久泄漏槽位。
                 client.TryDispose();
+                pool?.Return(client);
             }
             else if (pool != null)
             {
@@ -118,6 +120,14 @@ public sealed partial class MySqlConnection : DbConnection
         if (State != ConnectionState.Closed)
             SetState(ConnectionState.Closed);
     }
+
+    /// <summary>判断连接当前数据库是否与连接字符串原始数据库一致。空值等价，名称忽略大小写</summary>
+    /// <param name="originalDb">连接字符串中的原始数据库名</param>
+    /// <param name="currentDb">连接当前使用的数据库名</param>
+    /// <returns>一致返回 true</returns>
+    internal static Boolean IsSameDatabase(String? originalDb, String? currentDb)
+        => (originalDb.IsNullOrEmpty() && currentDb.IsNullOrEmpty()) ||
+           (!originalDb.IsNullOrEmpty() && !currentDb.IsNullOrEmpty() && originalDb.EqualIgnoreCase(currentDb));
 
     private void SetState(ConnectionState newState)
     {
