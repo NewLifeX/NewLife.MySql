@@ -22,7 +22,7 @@ public class MySqlDatabaseCreator : RelationalDatabaseCreator
     public override void Create()
     {
         var dbName = GetDatabaseName();
-        if (dbName.IsNullOrEmpty()) throw new InvalidOperationException("连接字符串未指定数据库名，无法创建");
+        if (dbName.IsNullOrEmpty()) throw new InvalidOperationException(L.T("The connection string does not specify a database name; unable to create it."));
 
         // 连接服务器（information_schema）执行 CREATE DATABASE，避免连接不存在的库失败
         using var conn = CreateServerConnection();
@@ -83,7 +83,7 @@ public class MySqlDatabaseCreator : RelationalDatabaseCreator
     public override void Delete()
     {
         var dbName = GetDatabaseName();
-        if (dbName.IsNullOrEmpty()) throw new InvalidOperationException("连接字符串未指定数据库名，无法删除");
+        if (dbName.IsNullOrEmpty()) throw new InvalidOperationException(L.T("The connection string does not specify a database name; unable to drop it."));
 
         using var conn = CreateServerConnection();
         using var command = conn.CreateCommand();

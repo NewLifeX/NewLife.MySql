@@ -1,0 +1,5 @@
+# ru 词表。键为英文源文，与源码字符串逐字一致；缺少的键运行时回退英文。
+"Unsupported EDM type: {0}.": "Неподдерживаемый тип EDM: {0}."
+"The connection string does not specify a database name.": "В строке подключения не указано имя базы данных."
+"Unsupported command tree type: {0}.": "Неподдерживаемый тип дерева команд: {0}."
+"Unsupported arithmetic operation: {0}.": "Неподдерживаемая арифметическая операция: {0}."

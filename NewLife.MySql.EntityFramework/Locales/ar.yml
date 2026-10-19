@@ -1,0 +1,5 @@
+# ar 词表。键为英文源文，与源码字符串逐字一致；缺少的键运行时回退英文。
+"Unsupported EDM type: {0}.": "نوع EDM غير مدعوم: {0}."
+"The connection string does not specify a database name.": "سلسلة الاتصال لا تحدد اسم قاعدة بيانات."
+"Unsupported command tree type: {0}.": "نوع شجرة أوامر غير مدعوم: {0}."
+"Unsupported arithmetic operation: {0}.": "عملية حسابية غير مدعومة: {0}."

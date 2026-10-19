@@ -4,6 +4,7 @@ using System.Data.Entity.Core.Common.CommandTrees;
 using System.Data.Entity.Core.Metadata.Edm;
 using System.Data.Entity.Infrastructure;
 using System.Data.Entity.Migrations.Sql;
+using NewLife;
 
 namespace NewLife.MySql.EntityFramework;
 
@@ -96,7 +97,7 @@ public class MySqlProviderServices : DbProviderServices
         var builder = new MySqlConnectionStringBuilder(connection.ConnectionString);
         var dbName = builder.Database;
         if (String.IsNullOrEmpty(dbName))
-            throw new InvalidOperationException("连接字符串未指定数据库名");
+            throw new InvalidOperationException(L.T("The connection string does not specify a database name."));
 
         // 连接到服务器（不指定数据库）创建数据库
         using var conn = CloneConnectionWithoutDatabase(connection);
@@ -144,7 +145,7 @@ public class MySqlProviderServices : DbProviderServices
         var builder = new MySqlConnectionStringBuilder(connection.ConnectionString);
         var dbName = builder.Database;
         if (String.IsNullOrEmpty(dbName))
-            throw new InvalidOperationException("连接字符串未指定数据库名");
+            throw new InvalidOperationException(L.T("The connection string does not specify a database name."));
 
         using var conn = CloneConnectionWithoutDatabase(connection);
         EnsureConnectionOpen(conn);

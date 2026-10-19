@@ -1,0 +1,5 @@
+# zh-Hant 词表。键为英文源文，与源码字符串逐字一致；缺少的键运行时回退英文。
+"Unsupported EDM type: {0}.": "不支援的 EDM 類型：{0}。"
+"The connection string does not specify a database name.": "連線字串未指定資料庫名稱。"
+"Unsupported command tree type: {0}.": "不支援的命令樹類型：{0}。"
+"Unsupported arithmetic operation: {0}.": "不支援的算術運算：{0}。"

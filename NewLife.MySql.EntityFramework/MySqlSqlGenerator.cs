@@ -2,6 +2,7 @@
 using System.Data.Entity.Core.Common.CommandTrees.ExpressionBuilder;
 using System.Data.Entity.Core.Metadata.Edm;
 using System.Text;
+using NewLife;
 
 namespace NewLife.MySql.EntityFramework;
 
@@ -30,7 +31,7 @@ internal class MySqlSqlGenerator
             DbUpdateCommandTree update => GenerateUpdate(update),
             DbDeleteCommandTree delete => GenerateDelete(delete),
             DbFunctionCommandTree function => GenerateFunction(function),
-            _ => throw new NotSupportedException($"不支持的命令树类型：{commandTree.GetType().Name}"),
+            _ => throw new NotSupportedException(L.T("Unsupported command tree type: {0}.", commandTree.GetType().Name)),
         };
     }
 
@@ -1099,7 +1100,7 @@ internal class MySqlSqlGenerator
             DbExpressionKind.Multiply => " * ",
             DbExpressionKind.Divide => " / ",
             DbExpressionKind.Modulo => " % ",
-            _ => throw new NotSupportedException($"不支持的算术运算：{arithmetic.ExpressionKind}"),
+            _ => throw new NotSupportedException(L.T("Unsupported arithmetic operation: {0}.", arithmetic.ExpressionKind)),
         });
         GenerateExpression(sb, arithmetic.Arguments[1], parameters);
         sb.Append(')');

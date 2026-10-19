@@ -50,6 +50,10 @@
     <ProjectReference Include="..\NewLife.MySql\NewLife.MySql.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <!-- NewLife.Core.props 不随传递依赖导入，这里显式声明编译期词表输入 -->
+    <AdditionalFiles Include="Locales\*.yml" />
+  </ItemGroup>
+  <ItemGroup>
     <Using Include="NewLife" />
   </ItemGroup>
   <ItemGroup>

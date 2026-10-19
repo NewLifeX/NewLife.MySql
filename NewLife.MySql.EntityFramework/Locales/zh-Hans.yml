@@ -1,0 +1,5 @@
+# zh-Hans 词表。键为英文源文，与源码字符串逐字一致；缺少的键运行时回退英文。
+"Unsupported EDM type: {0}.": "不支持的 EDM 类型：{0}。"
+"The connection string does not specify a database name.": "连接字符串未指定数据库名。"
+"Unsupported command tree type: {0}.": "不支持的命令树类型：{0}。"
+"Unsupported arithmetic operation: {0}.": "不支持的算术运算：{0}。"

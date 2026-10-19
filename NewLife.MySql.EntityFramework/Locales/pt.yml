@@ -1,0 +1,5 @@
+# pt 词表。键为英文源文，与源码字符串逐字一致；缺少的键运行时回退英文。
+"Unsupported EDM type: {0}.": "Tipo EDM não suportado: {0}."
+"The connection string does not specify a database name.": "A cadeia de conexão não especifica um nome de banco de dados."
+"Unsupported command tree type: {0}.": "Tipo de árvore de comandos não suportado: {0}."
+"Unsupported arithmetic operation: {0}.": "Operação aritmética não suportada: {0}."

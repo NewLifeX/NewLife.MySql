@@ -1,6 +1,7 @@
 ﻿using System.Data.Entity.Core.Common;
 using System.Data.Entity.Core.Metadata.Edm;
 using System.Xml;
+using NewLife;
 
 namespace NewLife.MySql.EntityFramework;
 
@@ -96,11 +97,11 @@ internal class MySqlProviderManifest : DbXmlEnabledProviderManifest
                 PrimitiveTypeKind.Guid => TypeUsage.CreateDefaultTypeUsage(StoreTypeNameToStorePrimitiveType["char"]),
                 PrimitiveTypeKind.String => GetStringStoreType(edmType),
                 PrimitiveTypeKind.Binary => GetBinaryStoreType(edmType),
-                _ => throw new NotSupportedException($"不支持的 EDM 类型：{primitiveType.PrimitiveTypeKind}"),
+                _ => throw new NotSupportedException(L.T("Unsupported EDM type: {0}.", primitiveType.PrimitiveTypeKind)),
             };
         }
 
-        throw new NotSupportedException($"不支持的 EDM 类型：{edmType.EdmType.Name}");
+        throw new NotSupportedException(L.T("Unsupported EDM type: {0}.", edmType.EdmType.Name));
     }
     #endregion
 

@@ -1,0 +1,3 @@
+# es 词表。键为英文源文，与源码字符串逐字一致；缺少的键运行时回退英文。
+"The connection string does not specify a database name; unable to create it.": "La cadena de conexión no especifica un nombre de base de datos; no se puede crear."
+"The connection string does not specify a database name; unable to drop it.": "La cadena de conexión no especifica un nombre de base de datos; no se puede eliminar."

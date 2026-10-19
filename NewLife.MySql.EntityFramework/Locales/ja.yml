@@ -1,0 +1,5 @@
+# ja 词表。键为英文源文，与源码字符串逐字一致；缺少的键运行时回退英文。
+"Unsupported EDM type: {0}.": "サポートされていない EDM 型です: {0}。"
+"The connection string does not specify a database name.": "接続文字列にデータベース名が指定されていません。"
+"Unsupported command tree type: {0}.": "サポートされていないコマンドツリー型です: {0}。"
+"Unsupported arithmetic operation: {0}.": "サポートされていない算術演算です: {0}。"
