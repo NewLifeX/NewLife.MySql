@@ -1,0 +1,11 @@
+# Deutsch 词表（de）。键为英文源文，与源码字符串逐字一致；缺少的键运行时回退英文。
+"Authentication failed.": "Authentifizierung fehlgeschlagen."
+"WebAuthn: the server did not provide a valid challenge or rpId.": "WebAuthn: Der Server hat keine gültige Challenge oder rpId bereitgestellt."
+"WebAuthn authentication failed.": "WebAuthn-Authentifizierung fehlgeschlagen."
+"Unable to obtain the current binlog position; make sure binlog is enabled.": "Die aktuelle Binlog-Position konnte nicht ermittelt werden; stellen Sie sicher, dass Binlog aktiviert ist."
+"The connection has not been set.": "Die Verbindung wurde nicht festgelegt."
+"There are no commands to execute.": "Es sind keine Befehle auszuführen."
+"DestinationTableName cannot be empty.": "DestinationTableName darf nicht leer sein."
+"Connection cannot be empty.": "Verbindung darf nicht leer sein."
+"Unable to create MySqlCommand.": "MySqlCommand konnte nicht erstellt werden."
+"CommandText cannot be empty.": "CommandText darf nicht leer sein."

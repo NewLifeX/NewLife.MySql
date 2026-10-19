@@ -1,0 +1,11 @@
+# العربية 词表（ar）。键为英文源文，与源码字符串逐字一致；缺少的键运行时回退英文。
+"Authentication failed.": "فشلت المصادقة."
+"WebAuthn: the server did not provide a valid challenge or rpId.": "WebAuthn: لم يوفّر الخادم تحديًا أو rpId صالحًا."
+"WebAuthn authentication failed.": "فشلت مصادقة WebAuthn."
+"Unable to obtain the current binlog position; make sure binlog is enabled.": "تعذّر الحصول على موضع binlog الحالي؛ تأكد من تمكين binlog."
+"The connection has not been set.": "لم يتم تعيين الاتصال."
+"There are no commands to execute.": "لا توجد أوامر لتنفيذها."
+"DestinationTableName cannot be empty.": "لا يمكن أن يكون DestinationTableName فارغًا."
+"Connection cannot be empty.": "لا يمكن أن يكون الاتصال فارغًا."
+"Unable to create MySqlCommand.": "تعذّر إنشاء MySqlCommand."
+"CommandText cannot be empty.": "لا يمكن أن يكون CommandText فارغًا."

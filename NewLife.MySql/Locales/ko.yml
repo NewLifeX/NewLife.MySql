@@ -1,0 +1,11 @@
+# 한국어 词表（ko）。键为英文源文，与源码字符串逐字一致；缺少的键运行时回退英文。
+"Authentication failed.": "인증에 실패했습니다."
+"WebAuthn: the server did not provide a valid challenge or rpId.": "WebAuthn: 서버가 유효한 챌린지 또는 rpId를 제공하지 않았습니다."
+"WebAuthn authentication failed.": "WebAuthn 인증에 실패했습니다."
+"Unable to obtain the current binlog position; make sure binlog is enabled.": "현재 binlog 위치를 가져올 수 없습니다. binlog가 활성화되어 있는지 확인하세요."
+"The connection has not been set.": "연결이 설정되지 않았습니다."
+"There are no commands to execute.": "실행할 명령이 없습니다."
+"DestinationTableName cannot be empty.": "DestinationTableName은(는) 비워 둘 수 없습니다."
+"Connection cannot be empty.": "연결은 비워 둘 수 없습니다."
+"Unable to create MySqlCommand.": "MySqlCommand를 만들 수 없습니다."
+"CommandText cannot be empty.": "CommandText는 비워 둘 수 없습니다."

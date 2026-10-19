@@ -1,0 +1,11 @@
+# 日本語 词表（ja）。键为英文源文，与源码字符串逐字一致；缺少的键运行时回退英文。
+"Authentication failed.": "認証に失敗しました。"
+"WebAuthn: the server did not provide a valid challenge or rpId.": "WebAuthn: サーバーが有効なチャレンジまたは rpId を提供しませんでした。"
+"WebAuthn authentication failed.": "WebAuthn 認証に失敗しました。"
+"Unable to obtain the current binlog position; make sure binlog is enabled.": "現在の binlog 位置を取得できません。binlog が有効になっていることを確認してください。"
+"The connection has not been set.": "接続が設定されていません。"
+"There are no commands to execute.": "実行するコマンドがありません。"
+"DestinationTableName cannot be empty.": "DestinationTableName は空にできません。"
+"Connection cannot be empty.": "接続は空にできません。"
+"Unable to create MySqlCommand.": "MySqlCommand を作成できません。"
+"CommandText cannot be empty.": "CommandText は空にできません。"

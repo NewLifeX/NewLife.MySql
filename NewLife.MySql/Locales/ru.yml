@@ -1,0 +1,11 @@
+# Русский 词表（ru）。键为英文源文，与源码字符串逐字一致；缺少的键运行时回退英文。
+"Authentication failed.": "Сбой проверки подлинности."
+"WebAuthn: the server did not provide a valid challenge or rpId.": "WebAuthn: сервер не предоставил допустимый challenge или rpId."
+"WebAuthn authentication failed.": "Сбой проверки подлинности WebAuthn."
+"Unable to obtain the current binlog position; make sure binlog is enabled.": "Не удалось получить текущую позицию binlog; убедитесь, что binlog включён."
+"The connection has not been set.": "Соединение не задано."
+"There are no commands to execute.": "Нет команд для выполнения."
+"DestinationTableName cannot be empty.": "DestinationTableName не может быть пустым."
+"Connection cannot be empty.": "Соединение не может быть пустым."
+"Unable to create MySqlCommand.": "Не удалось создать MySqlCommand."
+"CommandText cannot be empty.": "CommandText не может быть пустым."
