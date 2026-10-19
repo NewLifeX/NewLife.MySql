@@ -5,6 +5,7 @@ using Xunit;
 namespace UnitTest;
 
 /// <summary>数据库类型检测测试</summary>
+[Collection(TestCollections.InMemory)]
 public class DatabaseTypeDetectionTests
 {
     [Fact(DisplayName = "检测MySQL版本字符串")]

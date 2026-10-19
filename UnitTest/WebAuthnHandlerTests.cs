@@ -7,6 +7,7 @@ namespace UnitTest;
 
 /// <summary>WebAuthn 认证处理器测试。覆盖 CBOR 请求解析、断言响应构造、clientDataJSON 与 Base64URL 编解码</summary>
 /// <remarks>对应待确认项 SYS-3：平台认证器需真实硬件，此处覆盖驱动侧全部可测逻辑（CBOR 协议编解码）</remarks>
+[Collection(TestCollections.InMemory)]
 public class WebAuthnHandlerTests
 {
     #region 请求解析
