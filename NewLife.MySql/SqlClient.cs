@@ -915,7 +915,7 @@ public class SqlClient : DisposeBase
     /// <summary>zlib 压缩。MySQL 压缩协议使用 zlib 格式（带 2 字节头 + adler32），与 .NET DeflateStream 的 DEFLATE 格式不兼容</summary>
     /// <param name="data">待压缩数据</param>
     /// <returns>zlib 压缩字节</returns>
-    private static Byte[] ZlibCompress(Byte[] data) => ZlibCompress(new ReadOnlySpan<Byte>(data));
+    internal static Byte[] ZlibCompress(Byte[] data) => ZlibCompress(new ReadOnlySpan<Byte>(data));
 
     /// <summary>zlib 压缩。MySQL 压缩协议使用 zlib 格式（带 2 字节头 + adler32），与 .NET DeflateStream 的 DEFLATE 格式不兼容</summary>
     /// <param name="data">待压缩数据</param>
@@ -954,7 +954,7 @@ public class SqlClient : DisposeBase
     /// <param name="outputOffset">目标偏移</param>
     /// <param name="outputCount">目标容量</param>
     /// <returns>实际解压字节数</returns>
-    private static Int32 ZlibDecompress(Byte[] compressed, Int32 offset, Int32 count, Byte[] output, Int32 outputOffset, Int32 outputCount)
+    internal static Int32 ZlibDecompress(Byte[] compressed, Int32 offset, Int32 count, Byte[] output, Int32 outputOffset, Int32 outputCount)
     {
 #if NET6_0_OR_GREATER
         using var cs = new MemoryStream(compressed, offset, count);

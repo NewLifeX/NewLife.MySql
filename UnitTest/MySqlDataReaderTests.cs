@@ -1,4 +1,3 @@
-﻿using System.Reflection;
 using NewLife.MySql;
 
 namespace UnitTest;
@@ -14,15 +13,7 @@ public class MySqlDataReaderTests
     private static MySqlDataReader CreateReader(Object[] values)
     {
         var reader = new MySqlDataReader();
-        var type = typeof(MySqlDataReader);
-
-        // 设置私有字段 _Values
-        var valuesField = type.GetField("_Values", BindingFlags.NonPublic | BindingFlags.Instance)!;
-        valuesField.SetValue(reader, values);
-
-        // 设置私有字段 _FieldCount
-        var fieldCountField = type.GetField("_FieldCount", BindingFlags.NonPublic | BindingFlags.Instance)!;
-        fieldCountField.SetValue(reader, values.Length);
+        reader.SetValues(values);
 
         return reader;
     }

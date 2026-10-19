@@ -352,7 +352,7 @@ public class BinlogClient : DisposeBase
     }
 
     /// <summary>根据数据库和表名过滤事件</summary>
-    private Boolean FilterEvent(BinlogEvent ev)
+    internal Boolean FilterEvent(BinlogEvent ev)
     {
         // 只过滤行相关事件
         if (!IsRowEvent(ev.EventType) && ev.EventType != BinlogEventType.TABLE_MAP_EVENT)
@@ -400,7 +400,7 @@ public class BinlogClient : DisposeBase
 
     #region 事件解析
     /// <summary>解析 Binlog 事件内容</summary>
-    private void ParseEvent(BinlogEvent ev)
+    internal void ParseEvent(BinlogEvent ev)
     {
         switch (ev.EventType)
         {

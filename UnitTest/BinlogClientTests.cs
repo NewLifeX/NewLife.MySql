@@ -1,6 +1,5 @@
-﻿using System.Text;
+using System.Text;
 using NewLife.MySql.Binlog;
-using NewLife.Reflection;
 
 namespace UnitTest;
 
@@ -73,9 +72,7 @@ public class BinlogClientTests
 
         // 非行事件（如 QUERY_EVENT）不应被过滤
         var ev = new BinlogEvent { EventType = BinlogEventType.QUERY_EVENT };
-
-        var method = client.GetType().GetMethod("FilterEvent", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-        var result = (Boolean)method!.Invoke(client, [ev])!;
+        var result = client.FilterEvent(ev);
 
         Assert.True(result);
     }
@@ -86,15 +83,13 @@ public class BinlogClientTests
         var client = new BinlogClient();
         client.TableNames.Add("user");
 
-        var method = client.GetType().GetMethod("FilterEvent", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-
         // 匹配的表名应通过
         var ev1 = new BinlogEvent
         {
             EventType = BinlogEventType.WRITE_ROWS_EVENT,
             TableName = "user",
         };
-        Assert.True((Boolean)method!.Invoke(client, [ev1])!);
+        Assert.True(client.FilterEvent(ev1));
 
         // 不匹配的表名应被过滤
         var ev2 = new BinlogEvent
@@ -102,7 +97,7 @@ public class BinlogClientTests
             EventType = BinlogEventType.WRITE_ROWS_EVENT,
             TableName = "order",
         };
-        Assert.False((Boolean)method!.Invoke(client, [ev2])!);
+        Assert.False(client.FilterEvent(ev2));
     }
 
     [Fact(DisplayName = "测试FilterEvent按数据库过滤")]
@@ -111,8 +106,6 @@ public class BinlogClientTests
         var client = new BinlogClient();
         client.DatabaseNames.Add("mydb");
 
-        var method = client.GetType().GetMethod("FilterEvent", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-
         // 匹配的数据库应通过
         var ev1 = new BinlogEvent
         {
@@ -120,7 +113,7 @@ public class BinlogClientTests
             DatabaseName = "mydb",
             TableName = "user",
         };
-        Assert.True((Boolean)method!.Invoke(client, [ev1])!);
+        Assert.True(client.FilterEvent(ev1));
 
         // 不匹配的数据库应被过滤
         var ev2 = new BinlogEvent
@@ -129,7 +122,7 @@ public class BinlogClientTests
             DatabaseName = "otherdb",
             TableName = "user",
         };
-        Assert.False((Boolean)method!.Invoke(client, [ev2])!);
+        Assert.False(client.FilterEvent(ev2));
     }
 
     [Fact(DisplayName = "测试FilterEvent无过滤条件全部放行")]
@@ -138,22 +131,19 @@ public class BinlogClientTests
         var client = new BinlogClient();
         // 不设置过滤条件
 
-        var method = client.GetType().GetMethod("FilterEvent", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-
         var ev = new BinlogEvent
         {
             EventType = BinlogEventType.WRITE_ROWS_EVENT,
             DatabaseName = "anydb",
             TableName = "anytable",
         };
-        Assert.True((Boolean)method!.Invoke(client, [ev])!);
+        Assert.True(client.FilterEvent(ev));
     }
 
     [Fact(DisplayName = "测试ParseRotateEvent解析")]
     public void TestParseRotateEvent()
     {
         var client = new BinlogClient();
-        var method = client.GetType().GetMethod("ParseEvent", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
         // 构造 ROTATE_EVENT 数据：position(8) + filename
         var fileName = "binlog.000002";
@@ -168,7 +158,7 @@ public class BinlogClientTests
             Data = data,
         };
 
-        method!.Invoke(client, [ev]);
+        client.ParseEvent(ev);
 
         Assert.Equal("binlog.000002", ev.NextBinlogFile);
         Assert.Equal(4ul, ev.NextBinlogPosition);
@@ -182,7 +172,6 @@ public class BinlogClientTests
     public void TestParseQueryEvent()
     {
         var client = new BinlogClient();
-        var method = client.GetType().GetMethod("ParseEvent", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
         // 构造 QUERY_EVENT 数据：
         // thread_id(4) + exec_time(4) + db_name_len(1) + error_code(2) + status_vars_len(2) + status_vars + db_name + NUL + sql
@@ -215,7 +204,7 @@ public class BinlogClientTests
             Data = data,
         };
 
-        method!.Invoke(client, [ev]);
+        client.ParseEvent(ev);
 
         Assert.Equal("testdb", ev.QueryDatabase);
         Assert.Equal("INSERT INTO user VALUES(1)", ev.Query);
@@ -225,7 +214,6 @@ public class BinlogClientTests
     public void TestParseTableMapEvent()
     {
         var client = new BinlogClient();
-        var method = client.GetType().GetMethod("ParseEvent", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
         // 构造 TABLE_MAP_EVENT 数据：
         // table_id(6) + flags(2) + db_name_len(1) + db_name + NUL + tbl_name_len(1) + tbl_name + NUL + col_count(1) + col_types
@@ -271,7 +259,7 @@ public class BinlogClientTests
             Data = data,
         };
 
-        method!.Invoke(client, [ev]);
+        client.ParseEvent(ev);
 
         Assert.Equal(42ul, ev.TableId);
         Assert.Equal("mydb", ev.DatabaseName);
@@ -287,7 +275,6 @@ public class BinlogClientTests
     public void TestParseRowsEventAssociatesTableMap()
     {
         var client = new BinlogClient();
-        var method = client.GetType().GetMethod("ParseEvent", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
         // 先解析 TABLE_MAP_EVENT 建立映射
         var dbName = "mydb";
@@ -315,7 +302,7 @@ public class BinlogClientTests
         Array.Copy(colTypes, 0, mapData, off, colTypes.Length);
 
         var tableMapEv = new BinlogEvent { EventType = BinlogEventType.TABLE_MAP_EVENT, Data = mapData };
-        method!.Invoke(client, [tableMapEv]);
+        client.ParseEvent(tableMapEv);
 
         // 构造 WRITE_ROWS_EVENT_V1 数据
         // table_id(6) + flags(2) + col_count(1) + columns-present-bitmap + row_data
@@ -330,7 +317,7 @@ public class BinlogClientTests
         rowsData[9] = 0xFF;
 
         var rowsEv = new BinlogEvent { EventType = BinlogEventType.WRITE_ROWS_EVENT_V1, Data = rowsData };
-        method!.Invoke(client, [rowsEv]);
+        client.ParseEvent(rowsEv);
 
         // 验证关联了表映射信息
         Assert.Equal(99ul, rowsEv.TableId);
@@ -357,11 +344,10 @@ public class BinlogClientTests
     public void TestParseEventIgnoresNullData()
     {
         var client = new BinlogClient();
-        var method = client.GetType().GetMethod("ParseEvent", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
         // 数据为 null 不应抛异常
         var ev = new BinlogEvent { EventType = BinlogEventType.TABLE_MAP_EVENT, Data = null };
-        method!.Invoke(client, [ev]);
+        client.ParseEvent(ev);
 
         Assert.Null(ev.TableName);
     }
@@ -370,11 +356,10 @@ public class BinlogClientTests
     public void TestParseEventIgnoresShortData()
     {
         var client = new BinlogClient();
-        var method = client.GetType().GetMethod("ParseEvent", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
         // 数据不足 8 字节不应抛异常
         var ev = new BinlogEvent { EventType = BinlogEventType.TABLE_MAP_EVENT, Data = [0x01, 0x02] };
-        method!.Invoke(client, [ev]);
+        client.ParseEvent(ev);
 
         Assert.Null(ev.TableName);
     }

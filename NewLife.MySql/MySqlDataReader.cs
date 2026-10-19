@@ -63,6 +63,14 @@ public class MySqlDataReader : DbDataReader
     /// <summary>当前行数值集合</summary>
     public Object[]? Values => _Values;
 
+    /// <summary>设置当前行数值集合与字段数。供内部与单元测试构造读取器状态</summary>
+    /// <param name="values">当前行数值数组</param>
+    internal void SetValues(Object[]? values)
+    {
+        _Values = values;
+        _FieldCount = values?.Length ?? 0;
+    }
+
     /// <summary>取走当前行值数组。调用后下次 Read 将分配新数组，避免逐列复制开销</summary>
     /// <remarks>供 DbTable 等上层组件直接持有行数据使用，无需额外分配和复制</remarks>
     /// <returns>当前行数组，调用方拥有所有权</returns>
