@@ -41,3 +41,7 @@
 "Event handler error: {0}": "خطأ في معالج الأحداث: {0}"
 "Binlog reconnected: {0}": "تمت إعادة الاتصال بـ binlog: {0}"
 "MySQL network connection lost, reconnecting after {0}ms ({1}: {2})": "فُقد اتصال شبكة MySQL؛ إعادة الاتصال بعد {0}ms ({1}: {2})"
+"[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred skip TLS and use cached plain-text fallback": "[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred تخطي TLS واستخدام النص العادي الاحتياطي المخزّن مؤقتًا"
+"[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred fallback to plain text: {3}: {4}": "[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred الرجوع إلى النص العادي: {3}: {4}"
+"SQL: {0}": "SQL: {0}"
+"BatchCount: {0}": "عدد الدفعات: {0}"

@@ -265,7 +265,7 @@ public class MySqlCommand : DbCommand
         if (sql.IsNullOrEmpty()) throw new ArgumentNullException(nameof(CommandText));
 
         var conn = _DbConnection;
-        var client = conn.Client ?? throw new InvalidOperationException("连接未打开");
+        var client = conn.Client ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
         if (CommandType == CommandType.TableDirect) sql = "Select * From " + sql;
 
@@ -683,15 +683,13 @@ public class MySqlCommand : DbCommand
         if (!debugSql.IsNullOrEmpty())
         {
             sb.AppendLine();
-            sb.Append("SQL: ");
-            sb.Append(debugSql);
+            sb.Append(L.T("SQL: {0}", debugSql));
         }
 
         if (batchCount > 1)
         {
             sb.AppendLine();
-            sb.Append("BatchCount: ");
-            sb.Append(batchCount.Value);
+            sb.Append(L.T("BatchCount: {0}", batchCount.Value));
         }
 
         var message = sb.Return(true);

@@ -41,3 +41,7 @@
 "Event handler error: {0}": "事件处理异常：{0}"
 "Binlog reconnected: {0}": "Binlog 重连成功：{0}"
 "MySQL network connection lost, reconnecting after {0}ms ({1}: {2})": "MySQL 网络断线自动重连，已等待 {0}ms（{1}：{2}）"
+"[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred skip TLS and use cached plain-text fallback": "[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred 跳过 TLS，使用缓存的明文回退"
+"[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred fallback to plain text: {3}: {4}": "[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred 回退到明文：{3}：{4}"
+"SQL: {0}": "SQL：{0}"
+"BatchCount: {0}": "批次数：{0}"

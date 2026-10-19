@@ -41,3 +41,7 @@
 "Event handler error: {0}": "Ошибка обработчика событий: {0}"
 "Binlog reconnected: {0}": "Binlog переподключён: {0}"
 "MySQL network connection lost, reconnecting after {0}ms ({1}: {2})": "Сетевое соединение MySQL потеряно; повторное подключение через {0}ms ({1}: {2})"
+"[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred skip TLS and use cached plain-text fallback": "[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred пропустить TLS и использовать кэшированный резервный вариант с открытым текстом"
+"[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred fallback to plain text: {3}: {4}": "[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred переход на открытый текст: {3}: {4}"
+"SQL: {0}": "SQL: {0}"
+"BatchCount: {0}": "Количество пакетов: {0}"

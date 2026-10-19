@@ -58,6 +58,23 @@ function Get-PlaceholderSpecs([string]$text) {
     return $map
 }
 
+function Get-SourceMessageKeys([string]$text) {
+    # 提取参与本地化的源码消息：L.T、带前缀日志助手与 XTrace 日志
+    $keys = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $patterns = @(
+        'L\.T\(\s*"((?:[^"\\]|\\.)*)"',
+        '(?:InfoPrefixed|ErrorPrefixed|DebugPrefixed|WarnPrefixed)\([^,]+,\s*"((?:[^"\\]|\\.)*)"',
+        'WritePrefixed\([^,]+,[^,]+,\s*"((?:[^"\\]|\\.)*)"',
+        'XTrace\.Write(?:Line)?\(\s*"((?:[^"\\]|\\.)*)"'
+    )
+    foreach ($p in $patterns) {
+        foreach ($m in [regex]::Matches($text, $p)) {
+            [void]$keys.Add((Unescape-Yaml $m.Groups[1].Value))
+        }
+    }
+    return ,$keys
+}
+
 function Read-Locale([string]$path) {
     $entries = [ordered]@{}
     $errors = @()
@@ -125,9 +142,6 @@ foreach ($file in Get-ChildItem $localeDir -Filter *.yml | Sort-Object Name) {
     }
 }
 
-foreach ($e in $allErrors) { Write-Host $e -ForegroundColor Red }
-foreach ($w in $allWarnings) { Write-Host $w -ForegroundColor Yellow }
-
 # 孤儿键：基准表中的键在源码里完全找不到（改文案后遗留的死条目）
 $orphans = @()
 if (!$SkipOrphan) {
@@ -147,11 +161,19 @@ if (!$SkipOrphan) {
         }
     }
     foreach ($o in $orphans) { $allErrors += "孤儿键（源码中找不到）：$o" }
+
+    # 反向检查：源码中参与本地化的消息必须存在于基准表，避免新增消息漏词表
+    foreach ($key in (Get-SourceMessageKeys $sourceText)) {
+        # [MySqlPacket] 为结构化诊断日志，按约定保持英文
+        if ($key.StartsWith('[MySqlPacket]')) { continue }
+        if (!$reference.Entries.Contains($key)) {
+            $allErrors += "源码消息缺少词表键：$key"
+        }
+    }
 }
 
-if ($allErrors.Count -gt 0) {
-    foreach ($o in $orphans) { Write-Host "孤儿键（源码中找不到）：$o" -ForegroundColor Red }
-}
+foreach ($e in $allErrors) { Write-Host $e -ForegroundColor Red }
+foreach ($w in $allWarnings) { Write-Host $w -ForegroundColor Yellow }
 
 $count = (Get-ChildItem $localeDir -Filter *.yml).Count
 if ($allErrors.Count -gt 0) {

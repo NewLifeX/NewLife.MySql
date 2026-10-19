@@ -37,7 +37,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     private Boolean _loadingDefaults;
 
     /// <summary>DataAdapter 路径裁剪声明提示（DataSet 架构与更新依赖 System.Data 内部反射）</summary>
-    private const String TrimMessage = "DataSet 架构与更新路径依赖 System.Data 运行时反射，NativeAOT 与裁剪下不可用";
+    private const String TrimMessage = "DataSet schema and update paths rely on System.Data runtime reflection and are unavailable under NativeAOT or trimming";
 
     /// <summary>是否加载默认值</summary>
     internal Boolean LoadDefaults { get => _loadingDefaults; set => _loadingDefaults = value; }

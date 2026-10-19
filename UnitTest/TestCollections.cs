@@ -20,6 +20,9 @@ public static class TestCollections
 
     /// <summary>表结构操作集合。创建/删除测试表，需要串行执行</summary>
     public const String TableOperations = "TableOperations";
+
+    /// <summary>多语言集合。Localization.Culture 是进程级全局状态，禁止与其它集合并行</summary>
+    public const String Localization = "Localization";
 }
 
 /// <summary>只读操作集合定义</summary>
@@ -55,5 +58,11 @@ public class DataModificationCollection
 /// <summary>表结构操作集合定义</summary>
 [CollectionDefinition(TestCollections.TableOperations)]
 public class TableOperationsCollection
+{
+}
+
+/// <summary>多语言集合定义。禁用并行，避免全局文化状态影响其它测试</summary>
+[CollectionDefinition(TestCollections.Localization, DisableParallelization = true)]
+public class LocalizationCollection
 {
 }

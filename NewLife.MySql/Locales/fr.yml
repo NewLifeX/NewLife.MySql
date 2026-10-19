@@ -41,3 +41,7 @@
 "Event handler error: {0}": "Erreur du gestionnaire d'événements : {0}"
 "Binlog reconnected: {0}": "Binlog reconnecté : {0}"
 "MySQL network connection lost, reconnecting after {0}ms ({1}: {2})": "Connexion réseau MySQL perdue ; reconnexion après {0}ms ({1} : {2})"
+"[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred skip TLS and use cached plain-text fallback": "[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred ignorer TLS et utiliser le repli en texte clair mis en cache"
+"[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred fallback to plain text: {3}: {4}": "[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred repli en texte clair : {3} : {4}"
+"SQL: {0}": "SQL : {0}"
+"BatchCount: {0}": "Nombre de lots : {0}"

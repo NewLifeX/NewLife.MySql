@@ -41,3 +41,7 @@
 "Event handler error: {0}": "이벤트 처리기 오류: {0}"
 "Binlog reconnected: {0}": "Binlog에 다시 연결되었습니다: {0}"
 "MySQL network connection lost, reconnecting after {0}ms ({1}: {2})": "MySQL 네트워크 연결이 끊어졌습니다. {0}ms 후 다시 연결합니다({1}: {2})"
+"[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred skip TLS and use cached plain-text fallback": "[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred TLS를 건너뛰고 캐시된 일반 텍스트 폴백을 사용합니다"
+"[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred fallback to plain text: {3}: {4}": "[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred 일반 텍스트로 폴백합니다: {3}: {4}"
+"SQL: {0}": "SQL: {0}"
+"BatchCount: {0}": "일괄 처리 수: {0}"
