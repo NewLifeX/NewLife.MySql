@@ -11,10 +11,10 @@
 [![contributors](https://img.shields.io/github/contributors/NewLifeX/NewLife.MySql?logo=github)](https://github.com/NewLifeX/NewLife.MySql/graphs/contributors)
 
 <!-- lang:start -->
-🌐 [中文](Readme.MD) | [English](README.en.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [العربية](README.ar.md)
+🌐 [English](README.md) | [简体中文](README.zh-CN.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [العربية](README.ar.md)
 <!-- lang:end -->
 
-> 本翻譯可能落後，以簡體中文版為準。
+> ⚠️ 本翻譯可能落後於[英文 README](README.md)，內容以英文版為準。
 
 NewLife.MySql 是純 C# 實作的 MySQL 協定驅動，相容 ADO.NET、Entity Framework Core 與 XCode，支援連線集區、交易、預處理和非同步操作。
 

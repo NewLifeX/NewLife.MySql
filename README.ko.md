@@ -15,8 +15,10 @@
 
 
 <!-- lang:start -->
-🌐 [中文](Readme.MD) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [العربية](README.ar.md)
+🌐 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [العربية](README.ar.md)
 <!-- lang:end -->
+
+> ⚠️ 이 번역은 업데이트가 늦어질 수 있습니다. 정식 내용은 [영어 README](README.md)를 기준으로 합니다.
 
 **NewLife.MySql**은 NewLife 팀이 개발한 순수 C# MySQL ADO.NET 드라이버입니다. TCP를 통해 MySQL 와이어 프로토콜(Protocol Version 10)을 직접 구현했으며, **서드파티 의존성 제로**, **완전한 async/await 지원**, **MIT 라이선스**로 상업적 사용이 자유롭습니다.
 

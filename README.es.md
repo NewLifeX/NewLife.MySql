@@ -15,8 +15,10 @@
 
 
 <!-- lang:start -->
-🌐 [中文](Readme.MD) | [繁體中文](README.zh-TW.md) | [English](README.en.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [العربية](README.ar.md)
+🌐 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [العربية](README.ar.md)
 <!-- lang:end -->
+
+> ⚠️ Esta traducción puede quedar desactualizada; la versión autorizada es el [README en inglés](README.md).
 
 **NewLife.MySql** es un driver ADO.NET para MySQL en C# puro desarrollado por el equipo NewLife. Implementa el protocolo de cable MySQL (Protocol Version 10) directamente sobre TCP, con **cero dependencias de terceros**, **soporte async/await completo** y **licencia MIT** para uso comercial sin preocupaciones.
 

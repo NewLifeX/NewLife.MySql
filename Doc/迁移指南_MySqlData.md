@@ -63,7 +63,7 @@ NewLife.MySql 严格遵循 ADO.NET 标准接口，类名遵循 `MySql*` 命名�
 Server=localhost;Port=3306;Database=mydb;User Id=root;Password=pass;
 ```
 
-支持的全部参数别名参见 [快速开始](Readme.MD#连接字符串)。
+支持的全部参数别名参见 [快速开始](README.zh-CN.md#连接字符串)。
 
 ### 5. 代码示例
 

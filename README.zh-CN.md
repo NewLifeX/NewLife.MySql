@@ -15,12 +15,14 @@
 
 
 <!-- lang:start -->
-🌐 [繁體中文](README.zh-TW.md) | [English](README.en.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [العربية](README.ar.md)
+🌐 [English](README.md) | [繁體中文](README.zh-TW.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [العربية](README.ar.md)
 <!-- lang:end -->
 
 **NewLife.MySql** 是新生命团队出品的纯国产 MySQL 客户端驱动，基于 ADO.NET 标准接口，直接通过 TCP 实现 MySQL 协议层（Protocol Version 10）。仅依赖 `NewLife.Core`，**零第三方依赖**、**全链路真异步**、**MIT 协议商用无忧**。
 
 独创的**管道化批量执行**（Pipeline）在万级行批量写入场景下可达 **2×~3×** 加速（vs 逐行基线），是大数据批量操作、信创国产化替代的理想选择。
+
+> ℹ️ 本中文版与 [English README](README.md) 同批维护；若两者内容不一致，以英文版为对外口径。
 
 ---
 
@@ -668,6 +670,6 @@ dotnet publish -c Release -r linux-x64
 | [性能测试报告](Doc/性能测试报告.md) | 批量操作基准性能测试详细数据 |
 | [更新日志 (中文)](Doc/ChangeLog.md) | 中文版版本更新记录 |
 | [Changelog (EN)](Doc/ChangeLog.en.md) | English release changelog |
-| [英文 README](README.en.md) | English documentation with performance charts |
+| [English README](README.md) | English documentation with performance charts |
 | [迁移指南：MySql.Data → NL](Doc/迁移指南_MySqlData.md) | 从 Oracle 官方驱动迁移的步骤和注意事项 |
 | [迁移指南：MySqlConnector → NL](Doc/迁移指南_MySqlConnector.md) | 从社区主流驱动迁移的步骤和注意事项 |
