@@ -285,4 +285,51 @@ public class MySqlConnectionTests
 
         pool.Clear();
     }
+
+    [Fact(DisplayName = "DisposeAsync关闭连接并释放池槽位")]
+    public async Task DisposeAsync_ClosesConnection()
+    {
+        var factory = new MySqlClientFactory { PoolManager = new MySqlPoolManager() };
+        var setting = new MySqlConnectionStringBuilder(_ConnStr);
+        var pool = factory.PoolManager.GetPool(setting);
+
+        var connection = new MySqlConnection(setting.ConnectionString) { Factory = factory };
+        await connection.OpenAsync();
+        Assert.Equal(1, pool.BusyCount);
+
+        await connection.DisposeAsync();
+
+        Assert.Equal(ConnectionState.Closed, connection.State);
+        Assert.Equal(0, pool.BusyCount);
+
+        pool.Clear();
+    }
+
+    [Fact(DisplayName = "PingAsync在活动连接上返回true")]
+    public async Task Ping_WhenActive_ReturnsTrue()
+    {
+        using var connection = new MySqlConnection(_ConnStr);
+        await connection.OpenAsync();
+
+        Assert.True(await connection.Client!.PingAsync());
+    }
+
+    [Fact(DisplayName = "ReconnectAsync重建连接并可继续执行")]
+    public async Task ReconnectAsync_RebuildsConnection()
+    {
+        using var connection = new MySqlConnection(_ConnStr);
+        await connection.OpenAsync();
+
+        var oldClient = connection.Client!;
+        oldClient.TryDispose();
+
+        await connection.ReconnectAsync(CancellationToken.None);
+
+        Assert.NotSame(oldClient, connection.Client);
+        Assert.True(connection.Client!.Active);
+
+        using var cmd = connection.CreateCommand();
+        cmd.CommandText = "SELECT 1";
+        Assert.Equal(1, Convert.ToInt32(cmd.ExecuteScalar()));
+    }
 }
