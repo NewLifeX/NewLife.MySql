@@ -15,7 +15,7 @@
 
 
 <!-- lang:start -->
-🌐 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [العربية](README.ar.md)
+🌐 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [العربية](README.ar.md)
 <!-- lang:end -->
 
 **NewLife.MySql** は NewLife チームによる純粋 C# 製の MySQL クライアントドライバーです。標準の ADO.NET インターフェースを基盤に、MySQL プロトコル層（Protocol Version 10）を TCP 上で直接実装しています。依存は `NewLife.Core` のみで、**サードパーティ依存ゼロ**、**全経路で真の非同期**、**MIT ライセンス**による商用利用も安心です。

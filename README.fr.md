@@ -15,7 +15,7 @@
 
 
 <!-- lang:start -->
-🌐 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [العربية](README.ar.md)
+🌐 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [العربية](README.ar.md)
 <!-- lang:end -->
 
 **NewLife.MySql** est un pilote client MySQL en C# pur développé par l'équipe NewLife. Construit sur les interfaces standard ADO.NET, il implémente directement la couche protocole MySQL (Protocol Version 10) au-dessus de TCP. Il ne dépend que de `NewLife.Core`, avec **zéro dépendance tierce**, une **asynchronie réelle de bout en bout** et une **licence MIT** pour un usage commercial sans arrière-pensée.

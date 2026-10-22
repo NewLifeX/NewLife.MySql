@@ -15,7 +15,7 @@
 
 
 <!-- lang:start -->
-🌐 [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [한국어](README.ko.md) | [العربية](README.ar.md)
+🌐 [English](README.md) | [简体中文](README.zh-CN.md) | [繁體中文](README.zh-TW.md) | [Español](README.es.md) | [Deutsch](README.de.md) | [日本語](README.ja.md) | [Français](README.fr.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [한국어](README.ko.md)
 <!-- lang:end -->
 
 **NewLife.MySql** برنامج تشغيل عميل MySQL مكتوب بلغة C# خالصة من فريق NewLife. بُني على واجهات ADO.NET القياسية، ويُنفّذ طبقة بروتوكول MySQL (إصدار البروتوكول 10) مباشرةً فوق TCP. يعتمد على `NewLife.Core` فقط، بـ**صفر تبعيات خارجية**، و**غير متزامن حقيقي من الطرف إلى الطرف**، و**ترخيص MIT** يتيح الاستخدام التجاري دون قلق.
