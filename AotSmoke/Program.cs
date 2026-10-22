@@ -1,9 +1,12 @@
 using System.Data;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Linq.Expressions;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
+using NewLife;
 using NewLife.MySql;
 using NewLife.MySql.Binlog;
 using NewLife.MySql.Common;
@@ -513,6 +516,29 @@ static class Program
             if (conn is not MySqlConnection) throw new Exception($"连接类型异常：{conn.GetType().Name}");
             using var cmd = ds.CreateCommand("SELECT 1");
             if (cmd.CommandText != "SELECT 1") throw new Exception("CreateCommand 未生效");
+        }, needsDb: false);
+
+        // P5 本地化词表与程序集标题（纯内存，验证裁剪后语言表仍可用）
+        Run("P5 Localization", () =>
+        {
+            var saved = Localization.Culture;
+            try
+            {
+                foreach (var name in new[] { "zh-Hans", "zh-Hant", "es", "de", "ja", "fr", "pt", "ru", "ko", "ar" })
+                {
+                    Localization.Culture = CultureInfo.GetCultureInfo(name);
+                    var text = Localization.Translate("Connection is not open.");
+                    if (text == "Connection is not open.") throw new Exception($"{name} translation missing");
+                }
+
+                Localization.Culture = CultureInfo.GetCultureInfo("zh-Hans");
+                var title = typeof(MySqlConnection).Assembly.GetCustomAttribute<AssemblyTitleAttribute>()?.Title ?? "";
+                if (Localization.Translate(title) == title) throw new Exception("assembly title translation missing");
+            }
+            finally
+            {
+                Localization.Culture = saved;
+            }
         }, needsDb: false);
 
         Console.WriteLine(_fail == 0 ? "ALL PASS" : $"FAILED={_fail}");

@@ -4,6 +4,7 @@ using NewLife;
 using NewLife.Log;
 using NewLife.MySql;
 using NewLife.MySql.Binlog;
+using Xunit.Abstractions;
 
 namespace UnitTest;
 
@@ -11,6 +12,11 @@ namespace UnitTest;
 [Collection(TestCollections.Localization)]
 public class LocalizationTests
 {
+    private static readonly String[] Languages = ["zh-Hans", "zh-Hant", "es", "de", "ja", "fr", "pt", "ru", "ko", "ar"];
+    private readonly ITestOutputHelper _output;
+
+    public LocalizationTests(ITestOutputHelper output) => _output = output;
+
     static LocalizationTests() => GC.KeepAlive(typeof(MySqlConnection));
 
     [Fact(DisplayName = "运行时消息按目标语言翻译")]
@@ -80,14 +86,68 @@ public class LocalizationTests
     [Fact(DisplayName = "全部内置语言均有译文")]
     public void AllLanguagesTranslate()
     {
+        var samples = new (String Template, Object?[] Args)[]
+        {
+            ("Connection is not open.", []),
+            ("Authentication failed.", []),
+            ("The server does not support SSL connections.", []),
+            ("The database connection has been closed.", []),
+            ("Transaction has already been committed or is not pending.", []),
+            ("Binlog reconnected: {0}", ["mysql-bin.000001"]),
+            ("Packet size ({0}) exceeds the maximum allowed ({1}).", [1024, 512]),
+        };
+
         var saved = Localization.Culture;
         try
         {
-            foreach (var name in new[] { "zh-Hans", "zh-Hant", "es", "de", "ja", "fr", "pt", "ru", "ko", "ar" })
+            foreach (var name in Languages)
             {
                 Localization.Culture = CultureInfo.GetCultureInfo(name);
-                Assert.True(L.T("Connection is not open.") != "Connection is not open.", $"{name} 缺少译文");
+                foreach (var (template, args) in samples)
+                {
+                    var text = Localization.Translate(template, args);
+                    Assert.True(text != template, $"{name} 缺少译文：{template}");
+                }
             }
+        }
+        finally
+        {
+            Localization.Culture = saved;
+        }
+    }
+
+    [Fact(DisplayName = "按语言输出日志样例供人工观测")]
+    public void LogProbe_WritesTranslatedSamples()
+    {
+        var saved = Localization.LogCulture;
+        try
+        {
+            foreach (var name in Languages)
+            {
+                Localization.LogCulture = CultureInfo.GetCultureInfo(name);
+                _output.WriteLine($"[{name}] {Localization.TranslateForLog("Connection is not open.")}");
+                _output.WriteLine($"[{name}] {Localization.TranslateForLog("Binlog reconnected: {0}", "mysql-bin.000001")}");
+            }
+        }
+        finally
+        {
+            Localization.LogCulture = saved;
+        }
+    }
+
+    [Fact(DisplayName = "服务器原文与包追踪日志保持英文")]
+    public void ServerAndPacketMessagesStayEnglish()
+    {
+        var saved = Localization.Culture;
+        try
+        {
+            Localization.Culture = CultureInfo.GetCultureInfo("zh-Hans");
+
+            const String server = "Table 'test.t1' doesn't exist";
+            Assert.Equal(server, Localization.Translate(server));
+
+            const String packet = "[MySqlPacket] {0} db={1} seq={2} len={3} kind={4} data={5}{6}";
+            Assert.StartsWith("[MySqlPacket]", Localization.Translate(packet, "=>", "test", 0, 1, "OK", "", ""));
         }
         finally
         {

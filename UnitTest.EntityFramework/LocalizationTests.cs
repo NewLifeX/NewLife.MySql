@@ -8,6 +8,7 @@ using NewLife.MySql.EntityFramework;
 namespace UnitTest.EntityFramework;
 
 /// <summary>EF6 提供程序运行时词表测试</summary>
+[Collection("GlobalState")]
 public class LocalizationTests
 {
     [Fact]
@@ -29,6 +30,13 @@ public class LocalizationTests
 
             Localization.Culture = CultureInfo.GetCultureInfo("en-US");
             Assert.Equal("The connection string does not specify a database name.", Localization.Translate("The connection string does not specify a database name."));
+
+            foreach (var name in new[] { "zh-Hans", "zh-Hant", "es", "de", "ja", "fr", "pt", "ru", "ko", "ar" })
+            {
+                Localization.Culture = CultureInfo.GetCultureInfo(name);
+                var text = Localization.Translate("The connection string does not specify a database name.");
+                Assert.True(text != "The connection string does not specify a database name.", $"{name} 缺少译文");
+            }
         }
         finally
         {
