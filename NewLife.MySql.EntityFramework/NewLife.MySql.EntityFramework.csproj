@@ -2,8 +2,9 @@
 <Project Sdk="Microsoft.NET.Sdk" ToolsVersion="Current">
   <PropertyGroup>
     <TargetFrameworks>net45;net461</TargetFrameworks>
-    <AssemblyTitle>新生命MySql EF6提供程序</AssemblyTitle>
-    <Description>基于NewLife.MySql的Entity Framework 6数据库提供程序，纯国产零依赖，支持管道化批量操作</Description>
+    <AssemblyTitle>NewLife MySql EF6 Provider</AssemblyTitle>
+    <Description>Entity Framework 6 database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations.</Description>
+    <PackageDescription>基于 NewLife.MySql 的 Entity Framework 6 数据库提供程序，纯 .NET 实现，零第三方依赖，支持管道化批量操作。Entity Framework 6 database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations.</PackageDescription>
     <Company>新生命开发团队</Company>
     <Copyright>©2002-2026 NewLife</Copyright>
     <VersionPrefix>1.4</VersionPrefix>

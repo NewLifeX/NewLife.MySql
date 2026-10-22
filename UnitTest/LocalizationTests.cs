@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Reflection;
 using NewLife;
 using NewLife.Log;
 using NewLife.MySql;
@@ -212,5 +213,31 @@ public class LocalizationTests
         }
 
         Assert.Equal("[BulkCopy] Rows copied: 100", Assert.Single(messages));
+    }
+
+    [Fact(DisplayName = "程序集标题与描述可翻译")]
+    public void AssemblyMetadataTranslates()
+    {
+        var assembly = typeof(MySqlConnection).Assembly;
+        var title = assembly.GetCustomAttribute<AssemblyTitleAttribute>()?.Title;
+        var description = assembly.GetCustomAttribute<AssemblyDescriptionAttribute>()?.Description;
+        Assert.False(title.IsNullOrEmpty());
+        Assert.False(description.IsNullOrEmpty());
+
+        var saved = Localization.Culture;
+        try
+        {
+            Localization.Culture = CultureInfo.GetCultureInfo("zh-Hans");
+            Assert.Equal("新生命MySQL驱动", Localization.Translate(title!));
+            Assert.Contains("纯 C#", Localization.Translate(description!));
+
+            Localization.Culture = CultureInfo.GetCultureInfo("en-US");
+            Assert.Equal(title, Localization.Translate(title!));
+            Assert.Equal(description, Localization.Translate(description!));
+        }
+        finally
+        {
+            Localization.Culture = saved;
+        }
     }
 }

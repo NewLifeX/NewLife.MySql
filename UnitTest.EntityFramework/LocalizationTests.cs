@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Globalization;
+using System.Reflection;
 using NewLife;
 using NewLife.MySql;
 using NewLife.MySql.EntityFramework;
@@ -28,6 +29,32 @@ public class LocalizationTests
 
             Localization.Culture = CultureInfo.GetCultureInfo("en-US");
             Assert.Equal("The connection string does not specify a database name.", Localization.Translate("The connection string does not specify a database name."));
+        }
+        finally
+        {
+            Localization.Culture = saved;
+        }
+    }
+
+    [Fact]
+    [DisplayName("程序集标题与描述可翻译")]
+    public void AssemblyMetadataTranslates()
+    {
+        var assembly = typeof(MySqlProviderServices).Assembly;
+        var title = assembly.GetCustomAttribute<AssemblyTitleAttribute>()?.Title;
+        var description = assembly.GetCustomAttribute<AssemblyDescriptionAttribute>()?.Description;
+        Assert.False(title.IsNullOrEmpty());
+        Assert.False(description.IsNullOrEmpty());
+
+        var saved = Localization.Culture;
+        try
+        {
+            Localization.Culture = CultureInfo.GetCultureInfo("zh-Hans");
+            Assert.Equal("新生命MySql EF6提供程序", Localization.Translate(title!));
+            Assert.Contains("基于 NewLife.MySql", Localization.Translate(description!));
+
+            Localization.Culture = CultureInfo.GetCultureInfo("en-US");
+            Assert.Equal(title, Localization.Translate(title!));
         }
         finally
         {

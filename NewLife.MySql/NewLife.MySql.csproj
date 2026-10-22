@@ -1,8 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk" ToolsVersion="Current">
   <PropertyGroup>
     <TargetFrameworks>net45;net461;netstandard2.0;netstandard2.1;net6.0;net8.0;net10.0</TargetFrameworks>
-    <AssemblyTitle>新生命MySQL驱动</AssemblyTitle>
+    <AssemblyTitle>NewLife MySQL Driver</AssemblyTitle>
     <Description>Pure C# high-performance MySQL ADO.NET driver. Zero third-party dependencies, full async/await, Pipelined Batch Execution for 2~3× faster batch DML. MIT license. Supports net45~net10, MySQL 5.x~9.0+, OceanBase, TiDB, Doris, Aurora, CloudSQL; NativeAOT compatible on net8.0+; OpenTelemetry-compatible tracing (ActivitySource) on net6.0+.</Description>
+    <PackageDescription>纯 C# 高性能 MySQL ADO.NET 驱动，零第三方依赖，支持管道化批量执行、EF6/EF Core、NativeAOT 与 OpenTelemetry 链路追踪。Pure C# high-performance MySQL ADO.NET driver with zero third-party dependencies, pipelined batch execution, EF6/EF Core, NativeAOT and OpenTelemetry tracing.</PackageDescription>
     <Company>新生命开发团队</Company>
     <Copyright>©2002-2026 NewLife</Copyright>
     <VersionPrefix>1.4</VersionPrefix>

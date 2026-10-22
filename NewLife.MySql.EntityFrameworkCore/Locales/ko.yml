@@ -1,3 +1,5 @@
 # ko 词表。键为英文源文，与源码字符串逐字一致；缺少的键运行时回退英文。
 "The connection string does not specify a database name; unable to create it.": "연결 문자열에 데이터베이스 이름이 지정되지 않아 만들 수 없습니다."
 "The connection string does not specify a database name; unable to drop it.": "연결 문자열에 데이터베이스 이름이 지정되지 않아 삭제할 수 없습니다."
+"NewLife MySql EF Core Provider": "NewLife MySql EF Core Provider"
+"Entity Framework Core database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations and DbBatch.": "Entity Framework Core database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations and DbBatch."

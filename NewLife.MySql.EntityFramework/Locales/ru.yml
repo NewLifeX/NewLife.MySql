@@ -3,3 +3,5 @@
 "The connection string does not specify a database name.": "В строке подключения не указано имя базы данных."
 "Unsupported command tree type: {0}.": "Неподдерживаемый тип дерева команд: {0}."
 "Unsupported arithmetic operation: {0}.": "Неподдерживаемая арифметическая операция: {0}."
+"NewLife MySql EF6 Provider": "NewLife MySql EF6 Provider"
+"Entity Framework 6 database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations.": "Entity Framework 6 database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations."

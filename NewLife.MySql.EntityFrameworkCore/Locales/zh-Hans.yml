@@ -1,3 +1,5 @@
 # zh-Hans 词表。键为英文源文，与源码字符串逐字一致；缺少的键运行时回退英文。
 "The connection string does not specify a database name; unable to create it.": "连接字符串未指定数据库名，无法创建。"
 "The connection string does not specify a database name; unable to drop it.": "连接字符串未指定数据库名，无法删除。"
+"NewLife MySql EF Core Provider": "新生命MySql EFCore提供程序"
+"Entity Framework Core database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations and DbBatch.": "基于 NewLife.MySql 的 Entity Framework Core 数据库提供程序，纯 .NET 实现，零第三方依赖，支持管道化批量操作和 DbBatch。"

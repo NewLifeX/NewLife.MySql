@@ -3,3 +3,5 @@
 "The connection string does not specify a database name.": "连接字符串未指定数据库名。"
 "Unsupported command tree type: {0}.": "不支持的命令树类型：{0}。"
 "Unsupported arithmetic operation: {0}.": "不支持的算术运算：{0}。"
+"NewLife MySql EF6 Provider": "新生命MySql EF6提供程序"
+"Entity Framework 6 database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations.": "基于 NewLife.MySql 的 Entity Framework 6 数据库提供程序，纯 .NET 实现，零第三方依赖，支持管道化批量操作。"
