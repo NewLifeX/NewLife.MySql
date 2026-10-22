@@ -41,4 +41,4 @@ jobs:
       run: pwsh -NoProfile -File ./tools/sync-readme-package.ps1 -Check
     - name: Check README coverage
       shell: pwsh
-      run: pwsh -NoProfile -File ./tools/check-readme-coverage.ps1
+      run: pwsh -NoProfile -File ./tools/check-readme-coverage.ps1 -RequireFull

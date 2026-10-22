@@ -25,6 +25,12 @@ jobs:
           8.x
           9.x
           10.x
+    - name: Localization gate
+      shell: pwsh
+      run: |
+        pwsh -NoProfile -File ./tools/check-locales.ps1 -RequireTranslated
+        pwsh -NoProfile -File ./tools/check-readme-coverage.ps1 -RequireFull
+        pwsh -NoProfile -File ./tools/sync-readme-package.ps1 -Check
     - name: Build
       env:
         LANG: en_US.UTF-8

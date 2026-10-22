@@ -38,6 +38,12 @@ jobs:
           fi
         done
         echo "依赖检查通过：未发现预发布依赖"
+    - name: Localization gate
+      shell: pwsh
+      run: |
+        pwsh -NoProfile -File ./tools/check-locales.ps1 -RequireTranslated
+        pwsh -NoProfile -File ./tools/check-readme-coverage.ps1 -RequireFull
+        pwsh -NoProfile -File ./tools/sync-readme-package.ps1 -Check
     - name: Build
       env:
         LANG: en_US.UTF-8

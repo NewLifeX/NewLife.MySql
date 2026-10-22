@@ -187,10 +187,22 @@ jobs:
     - uses: actions/checkout@v4
     - name: Check locales
       shell: pwsh
-      run: pwsh -NoProfile -File ./tools/check-locales.ps1
+      run: pwsh -NoProfile -File ./tools/check-locales.ps1 -RequireTranslated
+    - name: Check translation coverage
+      shell: pwsh
+      run: pwsh -NoProfile -File ./tools/report-locales.ps1 -RequireTranslated
     - name: Check English messages
       shell: pwsh
       run: pwsh -NoProfile -File ./tools/check-english-exceptions.ps1
+    - name: Check assembly metadata
+      shell: pwsh
+      run: pwsh -NoProfile -File ./tools/check-assembly-metadata.ps1
+    - name: Check config metadata
+      shell: pwsh
+      run: pwsh -NoProfile -File ./tools/check-config-metadata.ps1
     - name: Check README languages
       shell: pwsh
       run: pwsh -NoProfile -File ./tools/sync-readme-languages.ps1 -Check
+    - name: Check README package copy
+      shell: pwsh
+      run: pwsh -NoProfile -File ./tools/sync-readme-package.ps1 -Check
