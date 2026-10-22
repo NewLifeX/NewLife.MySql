@@ -22,7 +22,7 @@
 
 独创的**管道化批量执行**（Pipeline）在万级行批量写入场景下可达 **2×~3×** 加速（vs 逐行基线），是大数据批量操作、信创国产化替代的理想选择。
 
-> ℹ️ 本中文版与 [English README](README.md) 同批维护；若两者内容不一致，以英文版为对外口径。
+> ℹ️ 本中文版与 [English README](README.md) 同批维护。
 
 ---
 
@@ -171,7 +171,7 @@ dotnet add package NewLife.MySql
 ### 连接字符串
 
 ```
-Server=localhost;Port=3306;Database=mydb;User Id=root;Password=pass;
+Server=localhost;Port=3306;Database=mydb;User Id=root;******;
 ```
 
 | 参数 | 别名 | 默认值 | 说明 |
@@ -190,9 +190,9 @@ Server=localhost;Port=3306;Database=mydb;User Id=root;Password=pass;
 ### 打开连接
 
 ```csharp
-using var conn = new MySqlConnection("Server=localhost;Database=mydb;User Id=root;Password=pass;");
+using var conn = new MySqlConnection("Server=localhost;Database=mydb;User Id=root;******;");
 conn.Open();
-// using 结束时自动关闭并归还连接池
+// The connection is closed automatically and returned to the pool when the using scope ends
 ```
 
 ### 查询结果集
@@ -226,7 +226,7 @@ var count = cmd.ExecuteScalar();
 using var cmd = new MySqlCommand(conn, "INSERT INTO users(name, age) VALUES('Tom', 25)");
 var affectedRows = cmd.ExecuteNonQuery();
 
-// 快捷方式
+// Shortcut
 var rows = conn.ExecuteNonQuery("DELETE FROM logs WHERE created < '2024-01-01'");
 ```
 
@@ -249,7 +249,7 @@ while (reader.Read())
 ```
 
 ```csharp
-// 参数化插入
+// Parameterized insert
 using var cmd = new MySqlCommand(conn, "INSERT INTO users(name, age, created) VALUES(@name, @age, @dt)");
 cmd.Parameters.AddWithValue("name", "Alice");
 cmd.Parameters.AddWithValue("age", 30);
@@ -258,7 +258,7 @@ cmd.ExecuteNonQuery();
 ```
 
 ```csharp
-// NULL 值传递
+// Passing NULL values
 cmd.Parameters.AddWithValue("email", DBNull.Value);
 ```
 
@@ -319,7 +319,7 @@ var outParam = new MySqlParameter { ParameterName = "p_result", Direction = Para
 cmd.Parameters.Add(outParam);
 
 cmd.ExecuteNonQuery();
-var result = outParam.Value; // 输出参数值
+var result = outParam.Value; // Output parameter value
 ```
 
 ---
@@ -333,11 +333,11 @@ using var cmd = new MySqlCommand(conn, "INSERT INTO users(name, age) VALUES(@nam
 cmd.Parameters.AddWithValue("name", "Tom");
 cmd.Parameters.AddWithValue("age", 25);
 
-cmd.Prepare(); // 服务端预编译
+cmd.Prepare(); // Server-side prepare
 
-cmd.ExecuteNonQuery(); // 第一次执行
+cmd.ExecuteNonQuery(); // First execution
 
-// 修改参数后再次执行（无需重新编译）
+// Execute again after changing parameters (no recompilation needed)
 cmd.Parameters[0].Value = "Jerry";
 cmd.Parameters[1].Value = 30;
 cmd.ExecuteNonQuery();
@@ -369,7 +369,7 @@ var paramSets = new List<IDictionary<String, Object?>>
     new Dictionary<String, Object?> { ["name"] = "Charlie", ["age"] = 22 },
 };
 var totalAffected = cmd.ExecuteBatch(paramSets);
-// 或 await cmd.ExecuteBatchAsync(paramSets);
+// or await cmd.ExecuteBatchAsync(paramSets);
 ```
 
 ### 方案 B：数组绑定（Oracle 风格）
@@ -382,7 +382,7 @@ cmd.Parameters.AddWithValue("name", new[] { "Alice", "Bob", "Charlie" });
 cmd.Parameters.AddWithValue("age", new[] { 25, 30, 22 });
 
 var totalAffected = cmd.ExecuteArrayBatch(3);
-// 或 await cmd.ExecuteArrayBatchAsync(3);
+// or await cmd.ExecuteArrayBatchAsync(3);
 ```
 
 ### 方案 C：管道化执行
@@ -390,7 +390,7 @@ var totalAffected = cmd.ExecuteArrayBatch(3);
 连接字符串开启 `Pipeline=true`，批量发送后批量接收，网络往返仅一次：
 
 ```csharp
-var connStr = "Server=localhost;Database=mydb;User Id=root;Password=pass;Pipeline=true;";
+var connStr = "Server=localhost;Database=mydb;User Id=root;******;Pipeline=true;";
 using var conn = new MySqlConnection(connStr);
 conn.Open();
 
@@ -449,7 +449,7 @@ public class AppDbContext : DbContext
 }
 
 var options = new DbContextOptionsBuilder<AppDbContext>()
-    .UseMySql("Server=localhost;Database=mydb;User Id=root;Password=pass;")
+    .UseMySql("Server=localhost;Database=mydb;User Id=root;******;")
     .Options;
 
 using var context = new AppDbContext(options);
@@ -471,11 +471,11 @@ using var context = new AppDbContext(options);
 ## SSL/TLS 加密连接
 
 ```csharp
-// 服务器支持则加密，不支持则明文
-var connStr = "Server=localhost;Database=mydb;User Id=root;Password=pass;SslMode=Preferred;";
+// Encrypt if the server supports it, otherwise use plaintext
+var connStr = "Server=localhost;Database=mydb;User Id=root;******;SslMode=Preferred;";
 
-// 必须加密，不支持则抛异常
-var connStr2 = "Server=localhost;Database=mydb;User Id=root;Password=pass;SslMode=Required;";
+// Require encryption; throw if the server does not support it
+var connStr2 = "Server=localhost;Database=mydb;User Id=root;******;SslMode=Required;";
 ```
 
 | SslMode | 行为 |
@@ -489,10 +489,10 @@ var connStr2 = "Server=localhost;Database=mydb;User Id=root;Password=pass;SslMod
 ## Schema 信息查询
 
 ```csharp
-var databases = conn.GetSchema("Databases");  // 数据库列表
-var tables = conn.GetSchema("Tables");         // 表列表
-var columns = conn.GetSchema("Columns");       // 列信息
-var indexes = conn.GetSchema("Indexes");       // 索引信息
+var databases = conn.GetSchema("Databases");  // Database list
+var tables = conn.GetSchema("Tables");         // Table list
+var columns = conn.GetSchema("Columns");       // Column information
+var indexes = conn.GetSchema("Indexes");       // Index information
 ```
 
 ---
@@ -565,7 +565,7 @@ var connStr = "Server=localhost;Database=mydb;...;MinPoolSize=5;MaxPoolSize=50;C
 ```csharp
 using XCode.DataAccessLayer;
 
-DAL.AddConnStr("mysql", "Server=localhost;Database=mydb;User Id=root;Password=pass;", null, "MySql");
+DAL.AddConnStr("mysql", "Server=localhost;Database=mydb;User Id=root;******;", null, "MySql");
 
 var dal = DAL.Create("mysql");
 var tables = dal.Tables;
@@ -580,7 +580,7 @@ var tables = dal.Tables;
 ```csharp
 using var conn = new MySqlConnection("Server=localhost;Database=db1;...");
 conn.Open();
-conn.ChangeDatabase("db2"); // 内部 Close + Reopen
+conn.ChangeDatabase("db2"); // Internally Close + Reopen
 ```
 
 > ⚠️ 不支持在事务中途切换（事务会丢失），推荐为每个数据库创建独立连接。
@@ -601,16 +601,16 @@ await conn.Client.SetDatabaseAsync("information_schema"); // COM_INIT_DB
 
 ```csharp
 // OceanBase
-var connStr = "Server=oceanbase-host;Port=2881;Database=test;User Id=root;Password=pass;";
+var connStr = "Server=oceanbase-host;Port=2881;Database=test;User Id=root;******;";
 using var conn = new MySqlConnection(connStr);
 conn.Open();
-Console.WriteLine($"数据库类型: {conn.DatabaseType}");  // OceanBase
+Console.WriteLine($"Database type: {conn.DatabaseType}");  // OceanBase
 
 // TiDB
-var connStr2 = "Server=tidb-host;Port=4000;Database=test;User Id=root;Password=pass;";
+var connStr2 = "Server=tidb-host;Port=4000;Database=test;User Id=root;******;";
 using var conn2 = new MySqlConnection(connStr2);
 conn2.Open();
-Console.WriteLine($"数据库类型: {conn2.DatabaseType}");  // TiDB
+Console.WriteLine($"Database type: {conn2.DatabaseType}");  // TiDB
 ```
 
 基础 SQL、事务、参数化查询、批量操作均兼容。

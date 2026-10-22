@@ -16,6 +16,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# 支持 -Languages zh-CN,zh-TW 这种逗号分隔写法
+$Languages = @($Languages | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+
 $configPath = Join-Path $Root $Config
 if (!(Test-Path -LiteralPath $configPath)) { throw "未找到语言配置：$configPath" }
 
