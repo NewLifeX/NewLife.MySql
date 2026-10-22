@@ -12,7 +12,8 @@ param(
     [String[]]$SourceDir = @(),
     [Switch]$SkipOrphan,
     [Switch]$RequireTranslated,
-    [String]$AllowIdentical = "tools/locales-identical.allow.json"
+    [String]$AllowIdentical = "tools/locales-identical.allow.json",
+    [String]$ExtraKeys = "tools/locales-extra-keys.json"
 )
 
 $ErrorActionPreference = "Stop"
@@ -32,7 +33,7 @@ if (!$LocaleDir) {
     $failed = $false
     foreach ($dir in $discovered) {
         $projectDir = Split-Path -Parent $dir.FullName
-        & pwsh -NoProfile -File $PSCommandPath -LocaleDir $dir.FullName -Baseline $Baseline -SourceDir $projectDir -SkipOrphan:$SkipOrphan -RequireTranslated:$RequireTranslated -AllowIdentical $AllowIdentical
+        & pwsh -NoProfile -File $PSCommandPath -LocaleDir $dir.FullName -Baseline $Baseline -SourceDir $projectDir -SkipOrphan:$SkipOrphan -RequireTranslated:$RequireTranslated -AllowIdentical $AllowIdentical -ExtraKeys $ExtraKeys
         if ($LASTEXITCODE -ne 0) { $failed = $true }
     }
     if ($failed) { exit 1 }
@@ -47,6 +48,16 @@ if (!(Test-Path $localeDir)) {
 
 if (!$SourceDir -or $SourceDir.Count -eq 0) {
     $SourceDir = @(Split-Path -Parent $localeDir)
+}
+
+$extraSet = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+if ($ExtraKeys) {
+    $extraPath = if ([IO.Path]::IsPathRooted($ExtraKeys)) { $ExtraKeys } else { Join-Path $root $ExtraKeys }
+    if (Test-Path -LiteralPath $extraPath) {
+        $extraData = Get-Content -LiteralPath $extraPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $extraList = if ($extraData -is [Array]) { $extraData } elseif ($extraData.keys) { $extraData.keys } else { @() }
+        foreach ($k in $extraList) { [void]$extraSet.Add([String]$k) }
+    }
 }
 
 $allowSet = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
@@ -199,6 +210,7 @@ if (!$SkipOrphan) {
         ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join "`n"
 
     foreach ($key in $reference.Entries.Keys) {
+        if ($extraSet.Contains($key)) { continue }
         # 源码中的字面量形式：制表符写作 \t，引号写作 \"
         $escaped = $key.Replace('\', '\\').Replace('"', '\"').Replace("`t", '\t').Replace("`r", '\r').Replace("`n", '\n')
         if (!$sourceText.Contains($key) -and !$sourceText.Contains($escaped)) {

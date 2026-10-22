@@ -47,3 +47,4 @@
 "BatchCount: {0}": "批次数：{0}"
 "NewLife MySQL Driver": "新生命MySQL驱动"
 "Pure C# high-performance MySQL ADO.NET driver. Zero third-party dependencies, full async/await, Pipelined Batch Execution for 2~3× faster batch DML. MIT license. Supports net45~net10, MySQL 5.x~9.0+, OceanBase, TiDB, Doris, Aurora, CloudSQL; NativeAOT compatible on net8.0+; OpenTelemetry-compatible tracing (ActivitySource) on net6.0+.": "纯 C# 高性能 MySQL ADO.NET 驱动。零第三方依赖、全异步/await、管道化批量执行让批量 DML 提速 2~3 倍。MIT 协议。支持 net45~net10、MySQL 5.x~9.0+、OceanBase、TiDB、Doris、Aurora、CloudSQL；net8.0+ 兼容 NativeAOT；net6.0+ 提供兼容 OpenTelemetry 的链路追踪（ActivitySource）。"
+"Rows copied: {0}": "已复制 {0} 行"

@@ -212,7 +212,27 @@ public class LocalizationTests
             Localization.LogCulture = saved;
         }
 
-        Assert.Equal("[BulkCopy] Rows copied: 100", Assert.Single(messages));
+        Assert.Equal("[BulkCopy] 已复制 100 行", Assert.Single(messages));
+    }
+
+    [Fact(DisplayName = "空 CommandText 抛出本地化消息")]
+    public void EmptyCommandTextUsesLocalizedMessage()
+    {
+        var saved = Localization.Culture;
+        try
+        {
+            Localization.Culture = CultureInfo.GetCultureInfo("zh-Hans");
+
+            using var conn = new MySqlConnection("Server=localhost;Database=test;Uid=root");
+            using var cmd = conn.CreateCommand();
+
+            var ex = Assert.Throws<ArgumentNullException>(() => cmd.ExecuteReader());
+            Assert.Contains("CommandText 不能为空", ex.Message);
+        }
+        finally
+        {
+            Localization.Culture = saved;
+        }
     }
 
     [Fact(DisplayName = "程序集标题与描述可翻译")]

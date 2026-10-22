@@ -314,8 +314,9 @@ internal class SchemaProvider(MySqlConnection connection)
         collection.AddColumn(DbMetaDataColumnNames.ReservedWord, typeof(String));
 
         var text = "NewLife.MySql.ReservedWords.txt";
-        using var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(text) ??
-            throw new Exception(L.T("Resource {0} not found in {1}.", text, Assembly.GetExecutingAssembly()));
+        var assembly = Assembly.GetExecutingAssembly();
+        using var stream = assembly.GetManifestResourceStream(text) ??
+            throw new Exception(L.T("Resource {0} not found in {1}.", text, assembly.GetName().Name ?? assembly.FullName));
 
         using var streamReader = new StreamReader(stream);
         for (var line = streamReader.ReadLine(); line != null; line = streamReader.ReadLine())

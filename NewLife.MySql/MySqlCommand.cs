@@ -262,7 +262,7 @@ public class MySqlCommand : DbCommand
     private async Task<DbDataReader> ExecuteDbDataReaderCoreAsync(CommandBehavior behavior, CancellationToken cancellationToken)
     {
         var sql = CommandText;
-        if (sql.IsNullOrEmpty()) throw new ArgumentNullException(nameof(CommandText));
+        if (sql.IsNullOrEmpty()) throw new ArgumentNullException(nameof(CommandText), L.T("CommandText cannot be empty."));
 
         var conn = _DbConnection;
         var client = conn.Client ?? throw new InvalidOperationException(L.T("Connection is not open."));

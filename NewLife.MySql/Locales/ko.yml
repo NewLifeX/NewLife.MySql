@@ -47,3 +47,4 @@
 "BatchCount: {0}": "일괄 처리 수: {0}"
 "NewLife MySQL Driver": "NewLife MySQL Driver"
 "Pure C# high-performance MySQL ADO.NET driver. Zero third-party dependencies, full async/await, Pipelined Batch Execution for 2~3× faster batch DML. MIT license. Supports net45~net10, MySQL 5.x~9.0+, OceanBase, TiDB, Doris, Aurora, CloudSQL; NativeAOT compatible on net8.0+; OpenTelemetry-compatible tracing (ActivitySource) on net6.0+.": "Pure C# high-performance MySQL ADO.NET driver. Zero third-party dependencies, full async/await, Pipelined Batch Execution for 2~3× faster batch DML. MIT license. Supports net45~net10, MySQL 5.x~9.0+, OceanBase, TiDB, Doris, Aurora, CloudSQL; NativeAOT compatible on net8.0+; OpenTelemetry-compatible tracing (ActivitySource) on net6.0+."
+"Rows copied: {0}": "Rows copied: {0}"
