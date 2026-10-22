@@ -32,7 +32,7 @@ $version = $nupkg.BaseName.Substring("NewLife.MySql.".Length)
 Write-Host "包版本：$version"
 
 $consumer = Join-Path $work "Consumer"
-& dotnet new console -n Consumer -o $consumer --framework net10.0 --force --nologo | Out-Null
+& dotnet new console -n Consumer -o $consumer --framework net10.0 --force | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "创建消费工程失败" }
 
 $nugetConfig = @"
@@ -47,7 +47,7 @@ $nugetConfig = @"
 "@
 [IO.File]::WriteAllText((Join-Path $consumer "NuGet.config"), $nugetConfig, (New-Object System.Text.UTF8Encoding($false)))
 
-& dotnet add (Join-Path $consumer "Consumer.csproj") package NewLife.MySql --version $version --nologo
+& dotnet add (Join-Path $consumer "Consumer.csproj") package NewLife.MySql --version $version
 if ($LASTEXITCODE -ne 0) { throw "添加本地包失败" }
 
 $program = @'
@@ -80,7 +80,7 @@ Console.WriteLine("OK: " + zh + " | " + ja + " | " + zhTitle);
 
 Push-Location $consumer
 try {
-    & dotnet run -c Release --nologo
+    & dotnet run -c Release
     if ($LASTEXITCODE -ne 0) { throw "消费端运行失败" }
 }
 finally {
