@@ -1,0 +1,8 @@
+{
+  "comment": "这些键允许译文与英文原文完全相同（品牌、协议标识、SQL 关键字等）。新增前先确认确实不应翻译。",
+  "keys": [
+    "SQL: {0}",
+    "WebAuthn: the server did not provide a valid challenge or rpId.",
+    "WebAuthn authentication failed."
+  ]
+}

@@ -10,6 +10,10 @@ on:
       - 'UnitTest/**'
       - 'UnitTest.EntityFramework/**'
       - 'UnitTest.EntityFrameworkCore/**'
+      - 'Locales/**'
+      - 'tools/**'
+      - 'README*.md'
+      - 'readme-*.json'
       - 'Directory.Packages.props'
       - '.github/workflows/test.yml'
   pull_request:
@@ -20,6 +24,10 @@ on:
       - 'UnitTest/**'
       - 'UnitTest.EntityFramework/**'
       - 'UnitTest.EntityFrameworkCore/**'
+      - 'Locales/**'
+      - 'tools/**'
+      - 'README*.md'
+      - 'readme-*.json'
       - 'Directory.Packages.props'
       - '.github/workflows/test.yml'
   workflow_dispatch:
@@ -179,16 +187,10 @@ jobs:
     - uses: actions/checkout@v4
     - name: Check locales
       shell: pwsh
-      run: |
-        $failed = $false
-        Get-ChildItem -Path . -Recurse -Directory -Filter Locales | ForEach-Object {
-          if (Test-Path (Join-Path $_.FullName 'zh-Hans.yml')) {
-            $src = Split-Path $_.FullName -Parent
-            pwsh -File ./check-locales.ps1 -LocaleDir $_.FullName -Baseline zh-Hans.yml -SourceDir $src
-            if ($LASTEXITCODE -ne 0) { $failed = $true }
-          }
-        }
-        if ($failed) { exit 1 }
+      run: pwsh -NoProfile -File ./tools/check-locales.ps1
+    - name: Check English messages
+      shell: pwsh
+      run: pwsh -NoProfile -File ./tools/check-english-exceptions.ps1
     - name: Check README languages
       shell: pwsh
-      run: pwsh -File ./sync-readme-languages.ps1 -Check
+      run: pwsh -NoProfile -File ./tools/sync-readme-languages.ps1 -Check

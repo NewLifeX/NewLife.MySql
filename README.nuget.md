@@ -1,4 +1,4 @@
-<!-- generated from README.md by sync-readme-package.ps1; do not edit -->
+<!-- generated from README.md by tools/sync-readme-package.ps1; do not edit -->
 
 # NewLife.MySql — Pure C# High-Performance MySQL Driver
 

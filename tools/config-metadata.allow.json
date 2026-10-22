@@ -1,0 +1,12 @@
+{
+  "comment": "协议字段等非用户可见文案的豁免清单。file 为相对仓库根的路径，value 为特性值。",
+  "items": [
+    { "file": "NewLife.MySql/Common/ConnectAttributes.cs", "value": "_client_name" },
+    { "file": "NewLife.MySql/Common/ConnectAttributes.cs", "value": "_client_version" },
+    { "file": "NewLife.MySql/Common/ConnectAttributes.cs", "value": "_client_licence" },
+    { "file": "NewLife.MySql/Common/ConnectAttributes.cs", "value": "_pid" },
+    { "file": "NewLife.MySql/Common/ConnectAttributes.cs", "value": "_os" },
+    { "file": "NewLife.MySql/Common/ConnectAttributes.cs", "value": "_platform" },
+    { "file": "NewLife.MySql/Common/ConnectAttributes.cs", "value": "_framework" }
+  ]
+}
