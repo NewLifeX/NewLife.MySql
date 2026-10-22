@@ -3,5 +3,5 @@
 "The connection string does not specify a database name.": "연결 문자열에 데이터베이스 이름이 지정되지 않았습니다."
 "Unsupported command tree type: {0}.": "지원되지 않는 명령 트리 형식입니다: {0}."
 "Unsupported arithmetic operation: {0}.": "지원되지 않는 산술 연산입니다: {0}."
-"NewLife MySql EF6 Provider": "NewLife MySql EF6 Provider"
-"Entity Framework 6 database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations.": "Entity Framework 6 database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations."
+"NewLife MySql EF6 Provider": "NewLife MySql EF6 공급자"
+"Entity Framework 6 database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations.": "NewLife.MySql을 기반으로 한 Entity Framework 6 데이터베이스 공급자입니다. 순수 .NET, 서드파티 종속성 없음, 파이프라인 방식의 일괄 작업을 지원합니다."

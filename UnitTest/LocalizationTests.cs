@@ -95,6 +95,8 @@ public class LocalizationTests
             ("Transaction has already been committed or is not pending.", []),
             ("Binlog reconnected: {0}", ["mysql-bin.000001"]),
             ("Packet size ({0}) exceeds the maximum allowed ({1}).", [1024, 512]),
+            ("Rows copied: {0}", [100]),
+            ("NewLife MySQL Driver", []),
         };
 
         var saved = Localization.Culture;
@@ -307,6 +309,12 @@ public class LocalizationTests
         var saved = Localization.Culture;
         try
         {
+            foreach (var name in Languages)
+            {
+                Localization.Culture = CultureInfo.GetCultureInfo(name);
+                Assert.True(Localization.Translate(title!) != title, $"{name} 缺少标题译文");
+            }
+
             Localization.Culture = CultureInfo.GetCultureInfo("zh-Hans");
             Assert.Equal("新生命MySQL驱动", Localization.Translate(title!));
             Assert.Contains("纯 C#", Localization.Translate(description!));

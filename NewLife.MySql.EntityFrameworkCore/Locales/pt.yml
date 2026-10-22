@@ -1,5 +1,5 @@
 # pt 词表。键为英文源文，与源码字符串逐字一致；缺少的键运行时回退英文。
 "The connection string does not specify a database name; unable to create it.": "A cadeia de conexão não especifica um nome de banco de dados; não é possível criar."
 "The connection string does not specify a database name; unable to drop it.": "A cadeia de conexão não especifica um nome de banco de dados; não é possível excluir."
-"NewLife MySql EF Core Provider": "NewLife MySql EF Core Provider"
-"Entity Framework Core database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations and DbBatch.": "Entity Framework Core database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations and DbBatch."
+"NewLife MySql EF Core Provider": "Provedor EF Core NewLife MySql"
+"Entity Framework Core database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations and DbBatch.": "Provedor de banco de dados Entity Framework Core baseado em NewLife.MySql. .NET puro, zero dependências de terceiros, suporta operações em lote canalizadas e DbBatch."

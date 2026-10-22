@@ -1,5 +1,5 @@
 # ar 词表。键为英文源文，与源码字符串逐字一致；缺少的键运行时回退英文。
 "The connection string does not specify a database name; unable to create it.": "سلسلة الاتصال لا تحدد اسم قاعدة بيانات؛ تعذر الإنشاء."
 "The connection string does not specify a database name; unable to drop it.": "سلسلة الاتصال لا تحدد اسم قاعدة بيانات؛ تعذر الحذف."
-"NewLife MySql EF Core Provider": "NewLife MySql EF Core Provider"
-"Entity Framework Core database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations and DbBatch.": "Entity Framework Core database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations and DbBatch."
+"NewLife MySql EF Core Provider": "موفّر NewLife MySql EF Core"
+"Entity Framework Core database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations and DbBatch.": "موفّر قاعدة بيانات Entity Framework Core مبني على NewLife.MySql. .NET خالص، بلا تبعيات خارجية، ويدعم العمليات الدفعية بالأنابيب وDbBatch."

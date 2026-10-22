@@ -3,5 +3,5 @@
 "The connection string does not specify a database name.": "La chaîne de connexion ne spécifie pas de nom de base de données."
 "Unsupported command tree type: {0}.": "Type d'arborescence de commandes non pris en charge : {0}."
 "Unsupported arithmetic operation: {0}.": "Opération arithmétique non prise en charge : {0}."
-"NewLife MySql EF6 Provider": "NewLife MySql EF6 Provider"
-"Entity Framework 6 database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations.": "Entity Framework 6 database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations."
+"NewLife MySql EF6 Provider": "Fournisseur EF6 NewLife MySql"
+"Entity Framework 6 database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations.": "Fournisseur de base de données Entity Framework 6 basé sur NewLife.MySql. .NET pur, aucune dépendance tierce, prend en charge les opérations par lots pipelinées."

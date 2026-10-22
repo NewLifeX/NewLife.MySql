@@ -3,5 +3,5 @@
 "The connection string does not specify a database name.": "接続文字列にデータベース名が指定されていません。"
 "Unsupported command tree type: {0}.": "サポートされていないコマンドツリー型です: {0}。"
 "Unsupported arithmetic operation: {0}.": "サポートされていない算術演算です: {0}。"
-"NewLife MySql EF6 Provider": "NewLife MySql EF6 Provider"
-"Entity Framework 6 database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations.": "Entity Framework 6 database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations."
+"NewLife MySql EF6 Provider": "NewLife MySql EF6 プロバイダー"
+"Entity Framework 6 database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations.": "NewLife.MySql を基盤とした Entity Framework 6 データベースプロバイダー。純粋な .NET、サードパーティ依存ゼロ、パイプライン化されたバッチ操作に対応。"
