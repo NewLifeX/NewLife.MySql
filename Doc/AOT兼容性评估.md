@@ -83,6 +83,8 @@ AOT 发布期 ILC 对驱动报告 5 条唯一：`IL2075`（Authentication）、`
 
 > 提示：ILC 只认 `UnconditionalSuppressMessage`，不认 `#pragma warning disable`；库内声明一律用特性（沿用 Core 的结论）。
 
+> 发布期上游告警（2026-10-24）：Linux 目标 AOT 发布时，ILC 对 `NewLife.Core` 的 `MachineInfo.ReadDeviceInfo` 报 3 条 `IL2035`——该方法带 Android 专用的 `[DynamicDependency(..., "Mono.Android")]`，非 Android 目标下 `Mono.Android` 程序集不存在，因而无法解析。告警来自上游 Core 的 Android 保留声明，与本库代码无关，且 Windows / macOS 目标的发布路径不触发（实测 win-x64 为 0 条）；`.github/workflows/aot.yml` 的两处 ILC 守卫只白名单这一条来源（方法名 + 程序集名精确匹配），其它 IL2035 与全部其它 IL 告警仍阻断。
+
 ### 2.4 验证矩阵（RID 与执行环境）
 
 | RID / 环境 | 执行方式 | 状态 |

@@ -21,7 +21,8 @@ if (!$Dir) { $Dir = $root }
 elseif (![IO.Path]::IsPathRooted($Dir)) { $Dir = Join-Path $root $Dir }
 
 $skip = @('bin', 'obj', '.git', 'Locales', 'Bin', '.tmp')
-$skipPrefix = '^(UnitTest|Test|Benchmark|Samples|AotSmoke|Bin)(\.|\\)'
+# 路径分隔符随平台变化（Windows 为 '\'，Linux/macOS 为 '/'），匹配前统一归一化为 '/'
+$skipPrefix = '^(UnitTest|Test|Benchmark|Samples|AotSmoke|Bin)(\.|/)'
 if ($Exclude.Count -gt 0) { $skip += $Exclude }
 
 $callPattern = '(?:throw\s+new\s+\w+Exception|L\.T|Localization\.Translate(?:ForLog)?|XTrace\.Write(?:Line)?|Log\??\.(?:Info|Error|Warn|Debug|Trace|Write)|WriteLog|Console\.Write(?:Line)?)\s*\(\s*"((?:[^"\\]|\\.)*)"'
@@ -29,10 +30,10 @@ $cjkPattern = '[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]'
 
 $hits = @()
 $files = Get-ChildItem -Path $Dir -Recurse -File -Filter *.cs |
-    Where-Object { $_.FullName -notmatch '\\(bin|obj|\.git)\\' } |
+    Where-Object { $_.FullName -notmatch '[\\/](bin|obj|\.git)[\\/]' } |
     Where-Object {
-        $relative = $_.FullName.Substring($Dir.Length).TrimStart('\')
-        $segments = $relative.Split('\')
+        $relative = ($_.FullName.Substring($Dir.Length).TrimStart('\', '/')) -replace '\\', '/'
+        $segments = $relative.Split('/')
         ($relative -notmatch $skipPrefix) -and -not ($segments | Where-Object { $skip -contains $_ })
     }
 
@@ -44,7 +45,7 @@ foreach ($file in $files) {
             $text = $m.Groups[1].Value
             if ($text -match $cjkPattern) {
                 $hits += [pscustomobject]@{
-                    File = $file.FullName.Substring($root.Length).TrimStart('\')
+                    File = ($file.FullName.Substring($root.Length).TrimStart('\', '/')) -replace '\\', '/'
                     Line = $lineNo
                     Message = $text
                 }

@@ -118,10 +118,19 @@ jobs:
       run: |
         set -o pipefail
         dotnet publish AotSmoke/AotSmoke.csproj -c Release -r ${{ matrix.rid }} -o out 2>&1 | tee publish.log
-        if grep -nE 'warning IL[0-9]{4}' publish.log; then
+        # 已知上游告警（白名单，不计入失败）：NewLife.Core 的 MachineInfo.ReadDeviceInfo 带 Android 专用
+        # [DynamicDependency(..., "Mono.Android")]，桌面/Linux AOT 发布时该程序集不存在，ILC 报 IL2035。
+        # 只放行该方法这一条来源；其它 IL 告警仍阻断。见 Doc/AOT兼容性评估.md §2.3。
+        known='IL2035: NewLife\.MachineInfo\.ReadDeviceInfo\(\): Unresolved assembly .Mono\.Android'
+        ignored=$(grep -cE "$known" publish.log || true)
+        hits=$(grep -E 'warning IL[0-9]{4}' publish.log | grep -vE "$known" || true)
+        echo "上游白名单命中 ${ignored:-0} 条（IL2035 / NewLife.MachineInfo.ReadDeviceInfo / Mono.Android）"
+        if [ -n "$hits" ]; then
+          echo "$hits"
           echo "::error::NativeAOT 发布存在 IL 告警，处理方式见 Doc/AOT兼容性评估.md"
           exit 1
         fi
+        echo "ILC 告警检查通过：0 条"
     - name: 运行原生冒烟（数据库场景）
       if: matrix.db
       shell: bash
@@ -165,7 +174,9 @@ jobs:
             cat publish.log
             exit 1
           fi
-          if grep -nE "warning IL[0-9]{4}" publish.log; then
+          # 与 native-smoke 一致：只白名单 NewLife.Core 的 Android DynamicDependency 造成的 IL2035
+          known="IL2035: NewLife\.MachineInfo\.ReadDeviceInfo\(\): Unresolved assembly .Mono\.Android"
+          if grep -E "warning IL[0-9]{4}" publish.log | grep -vE "$known" | grep .; then
             echo "NativeAOT 发布存在 IL 告警，处理方式见 Doc/AOT兼容性评估.md"
             exit 1
           fi
