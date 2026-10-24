@@ -6,7 +6,7 @@
     <PackageDescription>纯 C# 高性能 MySQL ADO.NET 驱动，零第三方依赖，支持管道化批量执行、EF6/EF Core、NativeAOT 与 OpenTelemetry 链路追踪。Pure C# high-performance MySQL ADO.NET driver with zero third-party dependencies, pipelined batch execution, EF6/EF Core, NativeAOT and OpenTelemetry tracing.</PackageDescription>
     <Company>新生命开发团队</Company>
     <Copyright>©2002-2026 NewLife</Copyright>
-    <VersionPrefix>1.4</VersionPrefix>
+    <VersionPrefix>1.5</VersionPrefix>
     <VersionSuffix>$([System.DateTime]::Now.ToString(`yyyy.MMdd`))</VersionSuffix>
     <Version>$(VersionPrefix).$(VersionSuffix)</Version>
     <FileVersion>$(Version)</FileVersion>
@@ -33,8 +33,8 @@
     <PackageIcon>leaf.png</PackageIcon>
     <RepositoryUrl>https://github.com/NewLifeX/NewLife.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>MySQL;ADO.NET;database;driver;client;batch;bulk;MySqlBulkCopy;high-performance;async;MIT;XCode;国产;信创;高性能;批量;管道化;pipeline;OceanBase;TiDB;Doris;Aurora;CloudSQL;Geometry;compression;zlib;UnixSocket;WebAuthn;ORM;EF Core;DataReader;DataAdapter;DbBatch;NativeAOT;OpenTelemetry;Tracing;$(AssemblyName)</PackageTags>
-    <PackageReleaseNotes>支持 Apache Doris 分析型数据库（MySQL 协议兼容）；修复压缩协议使其真正可用（zlib 对齐 MySQL 协议）；新增 MySqlDatabaseCreator 支持 EF Core EnsureCreated；新增 ExecuteBatchValues 值数组批量绑定，批量导入分配降低约 75%；增强数据包大小上限检测防止恶意包 OOM；连接池参数重构与依赖升级增强健壮性</PackageReleaseNotes>
+    <PackageTags>MySQL;ADO.NET;database;driver;client;batch;bulk;MySqlBulkCopy;high-performance;async;MIT;XCode;国产;信创;高性能;批量;管道化;pipeline;OceanBase;TiDB;Doris;Aurora;CloudSQL;Geometry;compression;zlib;UnixSocket;WebAuthn;ORM;EF Core;DataReader;DataAdapter;DbBatch;NativeAOT;OpenTelemetry;Tracing;多语言;i18n;$(AssemblyName)</PackageTags>
+    <PackageReleaseNotes>新增 OpenTelemetry 兼容链路追踪与 NativeAOT 支持（net8.0+ 裁剪/AOT 零告警）；接入 11 种语言运行时词表，缺失自动回退英文；修复安全传输下 caching_sha2 完整认证失败与连接池槽位泄漏；恢复 SchemaOnly/SingleRow 的 SQL_SELECT_LIMIT 语义；单元测试提速约 10 倍并新增 AOT、移动端与指令集矩阵冒烟</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
@@ -49,7 +49,7 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
-    <PackageReference Include="NewLife.Core" Version="12.0.2026.1021-beta0321" />
+    <PackageReference Include="NewLife.Core" Version="12.0.2026.1024" />
   </ItemGroup>
   <ItemGroup>
     <Using Include="NewLife" />

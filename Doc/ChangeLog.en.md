@@ -4,6 +4,45 @@ Pure C# high-performance MySQL driver. Zero third-party dependencies, pipelined 
 
 ---
 
+## v1.5.2026.1024 (2026-10-24)
+
+### New Features
+- **OpenTelemetry tracing**: Built-in `ActivitySource` (source name `NewLife.MySql`) emitting Open / Execute / Commit / Rollback spans that follow the OpenTelemetry stable semantic conventions, with zero overhead when there are no subscribers
+- **NativeAOT support**: `net8.0+` completes the trimming/AOT work with full metadata annotations and 0 IL warnings; a new `AotSmoke` project (26 scenarios) drives win-x64 / linux-x64 / linux-arm64 / linux-musl / LoongArch64 publish-and-run matrices
+- **Runtime localization**: Adopts the NewLife.Core 12 compile-time word lists — 49 keys in the driver, 6 in EF6 and 4 in EF Core — covering 11 languages (Simplified/Traditional Chinese, Spanish, German, Japanese, French, Portuguese, Russian, Korean, Arabic), with automatic English fallback for missing translations; works under NativeAOT
+- **Mobile smoke**: New Android/iOS smoke project and mobile CI verifying that the driver loads and executes core APIs on mobile platforms
+- **Instruction-set matrix**: CI adds riscv64 / s390x smoke runs and a LoongArch64 observation job covering non-x64 publish-and-run paths
+- **MySqlDataSource**: Public constructor and dependency-injection style usage restored; `CreateCommand` no longer throws `InvalidCastException`
+
+### Bug Fixes
+- **[fix] caching_sha2 full authentication over secure transport**: Fixed the `caching_sha2_password` full-authentication flow inside TLS / Unix Socket channels, with new unit tests
+- **[fix] Pool slot leak**: Failed and close paths now return their slot; fixed false database-consistency detection after `ChangeDatabase` that could reuse a wrong connection
+- **[fix] SchemaOnly / SingleRow**: `SQL_SELECT_LIMIT` session-variable semantics restored so behavior no longer drifts across executions
+- **[fix] Localized runtime messages**: Corrected message argument order and missing keys; improved Arabic and Traditional Chinese translations
+- **[fix] Typed reads and random packets**: Fixed intermittent random-packet failures and added typed-read, `DataAdapter` and CBOR coverage
+- **[fix] EF Core provider**: Annotations completed alongside the trimming/AOT work; `MySqlDatabaseCreator` `Create`/`Delete`/`Exists` remain functional
+
+### Performance
+- Unit test suite is about 10× faster, with parallel-run flakiness eliminated
+- Mobile and AOT smoke scenarios reuse connections, cutting connect overhead and timeout risk in integration tests
+
+### Tests & Quality
+- Test cases 905 → 929 (including AOT, mobile and localization); EF6 137 and EF Core 82 per target framework
+- New assertions for data sources, async disposal, reconnect, array-bound batches and stored-procedure spans
+- Test code no longer reflects over private members and depends on public APIs only
+
+### Documentation
+- README translated into 11 languages with new platform / architecture / mobile badges plus ecosystem map and team introduction
+- New "AOT Compatibility Assessment", "Localization" and "Test Optimization" documents; feature list and competitive analysis kept in sync
+- Migration guides add a NativeAOT comparison; zstd compression is explicitly deferred
+
+### CI & Tooling
+- Release pipeline aligned with NewLife.Core: publishes to both NuGet.org and GitHub Packages and creates a GitHub Release whose notes come from the matching ChangeLog section
+- Localization scripts consolidated under `tools/` with stricter checks (word-list keys, README coverage, NuGet README sync)
+- test / aot workflows narrowed to main branches plus related paths, with new platform matrices and localization gates
+
+---
+
 ## v1.4.2026.0802 (2026-08-02)
 
 ### New Features

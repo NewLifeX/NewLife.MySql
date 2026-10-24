@@ -7,7 +7,7 @@
     <PackageDescription>基于 NewLife.MySql 的 Entity Framework 6 数据库提供程序，纯 .NET 实现，零第三方依赖，支持管道化批量操作。Entity Framework 6 database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations.</PackageDescription>
     <Company>新生命开发团队</Company>
     <Copyright>©2002-2026 NewLife</Copyright>
-    <VersionPrefix>1.4</VersionPrefix>
+    <VersionPrefix>1.5</VersionPrefix>
     <VersionSuffix>$([System.DateTime]::Now.ToString(`yyyy.MMdd`))</VersionSuffix>
     <Version>$(VersionPrefix).$(VersionSuffix)</Version>
     <FileVersion>$(Version)</FileVersion>
@@ -29,8 +29,8 @@
     <PackageIcon>leaf.png</PackageIcon>
     <RepositoryUrl>https://github.com/NewLifeX/NewLife.MySql</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <PackageTags>新生命团队;X组件;NewLife;MySql;MySQL;ADO.NET;国产;EntityFramework;EF6;$(AssemblyName)</PackageTags>
-    <PackageReleaseNotes>同步主驱动 v1.4：支持 Apache Doris、压缩协议修复、ExecuteBatchValues 值数组批量绑定、数据包大小上限检测</PackageReleaseNotes>
+    <PackageTags>新生命团队;X组件;NewLife;MySql;MySQL;ADO.NET;国产;EntityFramework;EF6;多语言;i18n;$(AssemblyName)</PackageTags>
+    <PackageReleaseNotes>同步主驱动 v1.5：接入 11 种语言运行时词表并支持缺失回退英文；随裁剪/AOT 改造补齐注解；修复安全传输下 caching_sha2 完整认证失败与连接池槽位泄漏</PackageReleaseNotes>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>

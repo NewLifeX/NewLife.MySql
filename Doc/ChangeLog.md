@@ -4,6 +4,45 @@
 
 ---
 
+## v1.5.2026.1024（2026-10-24）
+
+### 新功能
+- **OpenTelemetry 链路追踪**：内置 `ActivitySource`（源名 `NewLife.MySql`），发射 Open / Execute / Commit / Rollback 跨度，遵循 OpenTelemetry 稳定语义约定，无订阅者时零开销
+- **NativeAOT 兼容**：`net8.0+` 完成裁剪/AOT 改造，元数据保留注解齐全，构建 0 条 IL 告警；新增 `AotSmoke` 冒烟工程（26 场景）并接入 win-x64 / linux-x64 / linux-arm64 / linux-musl / 龙芯 LoongArch64 发布运行矩阵
+- **运行时多语言**：接入 NewLife.Core 12 编译期词表，主库 49 键、EF6 6 键、EF Core 4 键，覆盖简繁中文、英西德日法葡俄韩阿 11 种语言，缺失译文自动回退英文；NativeAOT 下同样可用
+- **移动端冒烟**：新增 Android/iOS 冒烟工程与移动端 CI，验证主库在移动平台可加载并执行核心 API
+- **指令集矩阵**：CI 增加 riscv64 / s390x 冒烟与龙芯 LoongArch64 观察期作业，覆盖非 x64 架构的发布运行链路
+- **MySqlDataSource 数据源**：补齐公共构造与依赖注入风格用法，`CreateCommand` 不再抛 `InvalidCastException`
+
+### Bug 修复
+- **[fix] 安全传输下 caching_sha2 完整认证失败**：修复 TLS / Unix Socket 加密通道中 `caching_sha2_password` 完整认证流程，补齐对应单元测试
+- **[fix] 连接池槽位泄漏**：失败路径与连接关闭路径归还池槽位，修复 `ChangeDatabase` 后数据库一致性误判导致的错误复用
+- **[fix] SchemaOnly / SingleRow**：恢复 `SQL_SELECT_LIMIT` 会话变量语义，行为不再随执行次数漂移
+- **[fix] 运行时消息本地化补全**：修正消息参数顺序与遗漏键，优化阿拉伯语与繁体中文译文
+- **[fix] 类型化读取与随机包**：修复随机包偶发失败，补充类型化读取、`DataAdapter`、CBOR 测试覆盖
+- **[fix] EF Core 提供程序**：随裁剪/AOT 改造补齐注解，`MySqlDatabaseCreator` 的 `Create`/`Delete`/`Exists` 保持可用
+
+### 性能优化
+- 单元测试整体提速约 10 倍，并消除并行冲突导致的偶发失败
+- 移动端与 AOT 冒烟测试场景化复用连接，减少集成测试的建连开销与超时风险
+
+### 测试与质量
+- 单元测试用例数 905 → 929（含 AOT、移动端、本地化），EF6 137、EF Core 双目标各 82
+- 新增数据源、异步释放、断线重连、数组绑定批量与存储过程跨度断言
+- 移除测试对私有成员的反射调用，测试只依赖公共 API
+
+### 文档与协作
+- README 升级为 11 种语言全量翻译，新增平台/指令集/移动端徽章与生态版图、团队介绍
+- 新增《AOT 兼容性评估》《多语言本地化》《测试优化说明》，功能清单与竞品分析同步更新
+- 迁移指南补充 NativeAOT 能力对比，zstd 压缩明确为暂缓项
+
+### CI 与工具
+- 发布流程对齐 NewLife.Core：NuGet.org + GitHub Packages 双通道发包，并自动创建 GitHub Release（发布说明取自本 ChangeLog 对应版本段落）
+- 本地化脚本收敛到 `tools/` 并加固校验（词表键集合、README 全量覆盖、NuGet README 同步）
+- test / aot 工作流收敛为主干分支 + 相关路径触发，新增多平台矩阵与本地化门禁
+
+---
+
 ## v1.4.2026.0802（2026-08-02）
 
 ### 新功能
