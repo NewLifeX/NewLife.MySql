@@ -630,7 +630,7 @@ Console.WriteLine($"Database type: {conn2.DatabaseType}");  // TiDB
 
 ## NativeAOT デプロイ
 
-`net8.0+` の対象フレームワークでは、ドライバーは実際の NativeAOT 公開検証を通過しています（ローカル実測および win-x64 / linux-x64 の CI。26 のスモークシナリオすべてが ILC 警告 0 で成功）。ネイティブバイナリの公開に**呼び出し側のパッチは不要**です。CI は主要 RID マトリクス（win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl、および観察期間中の LoongArch linux-la64 向け QEMU エミュレーションスモークテスト。後者はブロックしない）で回帰を継続的に防いでいます：
+`net8.0+` の対象フレームワークでは、ドライバーは実際の NativeAOT 公開検証を通過しています（ローカル実測および win-x64 / linux-x64 の CI。27 のスモークシナリオすべてが ILC 警告 0 で成功）。ネイティブバイナリの公開に**呼び出し側のパッチは不要**です。CI は主要 RID マトリクス（win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl、および観察期間中の LoongArch linux-la64 向け QEMU エミュレーションスモークテスト。後者はブロックしない）で回帰を継続的に防いでいます：
 
 ```xml
 <PropertyGroup>

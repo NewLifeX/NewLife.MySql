@@ -46,8 +46,8 @@ jobs:
         echo "裁剪/AOT 告警检查通过：0 条"
 
   # NativeAOT 冒烟矩阵：NativeAOT 官方不支持跨 OS 编译，每个 RID 用原生 runner 发布与运行。
-  # 运行器镜像核实：Ubuntu（含 arm64）自带 MySQL 8 服务端（root/root，默认未启动）→ linux 双平台跑全量 26 场景；
-  # Windows 仅装 MySQL CLI、macOS 无 MySQL → 其余平台用 --no-db 运行纯内存场景（S13 + P1~P4）。
+  # 运行器镜像核实：Ubuntu（含 arm64）自带 MySQL 8 服务端（root/root，默认未启动）→ linux 双平台跑全量 27 场景；
+  # Windows 仅装 MySQL CLI、macOS 无 MySQL → 其余平台用 --no-db 运行纯内存场景（S13 + P1~P5）。
   # 必选平台（阻断）：win-x64 / linux-x64 / linux-arm64；win-arm64 / osx-x64 / osx-arm64 / linux-la64 先观察期（continue-on-error），稳定全绿后逐项转阻断。
   native-smoke:
     name: NativeAOT 冒烟（${{ matrix.rid }}）

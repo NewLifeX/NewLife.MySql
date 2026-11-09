@@ -630,7 +630,7 @@ Console.WriteLine($"Database type: {conn2.DatabaseType}");  // TiDB
 
 ## NativeAOT 部署
 
-驅動在 `net8.0+` 目標框架下已通過 NativeAOT 實際發行驗證（win-x64 與 linux-x64 本機實測及 CI，26 個場景煙霧測試全數通過、ILC 0 警告），發行原生程式**無需任何呼叫端修補**；CI 依主流 RID 矩陣持續防回歸（win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl，以及龍芯 linux-la64 的 QEMU 模擬煙霧測試，觀察期非阻斷）：
+驅動在 `net8.0+` 目標框架下已通過 NativeAOT 實際發行驗證（win-x64 與 linux-x64 本機實測及 CI，27 個場景煙霧測試全數通過、ILC 0 警告），發行原生程式**無需任何呼叫端修補**；CI 依主流 RID 矩陣持續防回歸（win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl，以及龍芯 linux-la64 的 QEMU 模擬煙霧測試，觀察期非阻斷）：
 
 ```xml
 <PropertyGroup>

@@ -628,7 +628,7 @@ Console.WriteLine($"Database type: {conn2.DatabaseType}");  // TiDB
 
 ## NativeAOT 배포
 
-`net8.0+` 대상 프레임워크에서 드라이버는 실제 NativeAOT 게시 검증을 통과했습니다(로컬 측정과 win-x64, linux-x64 CI, 26개 스모크 시나리오 전부 통과, ILC 경고 0건). 네이티브 바이너리를 게시할 때 **호출 측 수정이 필요 없으며**, CI는 주류 RID 매트릭스(win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl, 그리고 관찰 기간 중 차단하지 않는 LoongArch linux-la64 QEMU 에뮬레이션 스모크 테스트)로 회귀를 지속적으로 감시합니다:
+`net8.0+` 대상 프레임워크에서 드라이버는 실제 NativeAOT 게시 검증을 통과했습니다(로컬 측정과 win-x64, linux-x64 CI, 27개 스모크 시나리오 전부 통과, ILC 경고 0건). 네이티브 바이너리를 게시할 때 **호출 측 수정이 필요 없으며**, CI는 주류 RID 매트릭스(win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl, 그리고 관찰 기간 중 차단하지 않는 LoongArch linux-la64 QEMU 에뮬레이션 스모크 테스트)로 회귀를 지속적으로 감시합니다:
 
 ```xml
 <PropertyGroup>

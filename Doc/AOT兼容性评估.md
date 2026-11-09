@@ -3,6 +3,7 @@
 > 评估日期：2026-10-09｜基线：驱动 1.4.2026.1009 + NewLife.Core 12.0.2026.1009-beta0916｜评估方式：**真实 NativeAOT 编译 + 运行实测**（win-x64，.NET 10）+ 编译期分析器取证
 > 复验：2026-10-15（驱动 1.4.2026.1015 + NewLife.Core 12.0.2026.1013-beta0732）场景扩展至 26 项（新增 S20 TLS 加密连接、S21 Unix Socket），win-x64 与 linux-x64 原生发布件均 **26/26 场景全通**、ILC 0 条告警（linux 侧为 WSL Ubuntu 24.04 + 用户态 MySQL 8.0.46），结论不变。
 > 复验：2026-10-16 CI 扩展至主流 RID 矩阵（对照 NewLife.Core 做法）：`aot.yml` 覆盖 win-x64 / linux-x64 / win-arm64 / linux-arm64 / osx-x64 / osx-arm64 / linux-musl-x64 / linux-musl-arm64 / **linux-la64（龙芯，QEMU 仿真）**；`test.yml` 单元测试覆盖 win-x64 / linux-x64 / linux-arm64 / linux-la64。必选平台（阻断）：win-x64 / linux-x64 / linux-arm64；win-arm64 / osx-x64 / osx-arm64 / musl / linux-la64 先观察期（continue-on-error）。
+> 复验：2026-11-09（驱动 1.5.2026.1109 + NewLife.Core 12.0.2026.1109-beta0553 + NewLife.XCode 12.3.2026.1108-beta1704）win-x64 原生发布件 **27/27 场景全通**（含 P5 本地化）、ILC 0 条告警，分析器 net8.0/net10.0 0 条 IL 告警；连接属性改为进程级静态拼接，去掉逐连接反射。
 
 ---
 
@@ -10,7 +11,7 @@
 
 - **主链路在 NativeAOT 下实测可用**：12 个冒烟场景中 11 个在未做任何改造的情况下直接通过（连接、认证、查询、类型化读取、服务器预编译、字典参数集批量、值数组批量 + 管道化、事务、压缩协议、DataAdapter.Fill、MySqlBulkCopy、异步读取）。
 - **唯一功能性缺口是"元数据保留"而非"动态能力"**：`ReadModelsAsync<T>` 依赖运行时反射枚举实体属性与无参构造，AOT 裁剪后失败；补一处泛型入口注解（`DynamicallyAccessedMembers`）后 12/12 全通。驱动不使用 Reflection.Emit / DLR / 脚本等设计性不支持的动态能力；唯一的表达式编译（实体 setter）在 .NET 10 NativeAOT 由官方解释器承载，**实测 `Expression.Compile` 可用**。
-- **静默降级已修复**：AOT 下 `ConnectAttributes` 私有属性被裁剪，握手连接属性块变为空（服务端 `session_connect_attrs` 实测 0 条），无异常、无日志；已改为 `typeof` 静态字面量取属性（P0-3），AOT 复测 7 类属性完整下发（§2.2）。
+- **静默降级已修复**：AOT 下 `ConnectAttributes` 私有属性被裁剪，握手连接属性块变为空（服务端 `session_connect_attrs` 实测 0 条），无异常、无日志；先改为 `typeof` 静态字面量取属性（P0-3），2026-11-09 进一步改为进程级静态拼接，AOT 复测 7 类属性完整下发（§2.2）。
 - **工作项已完成并实测**：P0（功能性三项）与 P1（告警收敛五项）已于 2026-10-09 实施完成——库自身 `IsAotCompatible` 常驻后 net8.0/net10.0 分析器 **0 条告警**、AOT 发布期驱动侧 **0 条**（§2.3），NativeAOT 复测 **24/24 场景全通**（S0~S19 + P1~P4，含连接属性、反射/表达式探针、链路追踪、Schema/DataSource/存储过程/Binlog/DataAdapter）。P2 验证闭环（冒烟工程入库与 CI 防回归）同日落地，见 §3。
 - **EF Core 提供程序已对齐**（2026-10-10）：`NewLife.MySql.EntityFrameworkCore` 打开 `IsAotCompatible` 后修复 `AddMySql<TContext>` 泛型注解（IL2091），net8.0/net10.0 分析器 **0 条告警**（§2.3）；运行时 AOT 能力取决于 EF Core 本体与编译模型，见 §4 边界。
 - **已正式标注 AOT 兼容**：主链路 0 告警 + 真实 AOT 实测全通 + 防回归 CI（分析器守卫与 NativeAOT 冒烟）已建立（§3 P2），README、竞品分析与 NuGet 包描述/标签均已同步。
@@ -19,7 +20,7 @@
 
 ## 2. 实测数据
 
-### 2.1 冒烟场景（26 项：22 数据库场景 + 4 纯内存场景，.NET 10）
+### 2.1 冒烟场景（27 项：22 数据库场景 + 5 纯内存场景，.NET 10）
 
 | # | 场景 | JIT 基线 | NativeAOT（原始） | NativeAOT（修复后） |
 |---|------|---------|------------------|------------------------------|
@@ -49,10 +50,13 @@
 | P2 | 参数替换与转义（注入防护路径） | ✅ | — | ✅ |
 | P3 | `MySqlGeometry` WKB 封装 | ✅ | — | ✅ |
 | P4 | DbDataSource 创建（不连接） | ✅ | — | ✅ |
+| P5 | 本地化词表与程序集标题翻译（11 种语言） | ✅ | — | ✅（裁剪后语言表可用） |
 
 > 复测（2026-10-10）：NativeAOT 真实发布件 **24/24 场景全部 PASS**（S0~S19 + P1~P4，含连接属性、反射/表达式探针、链路追踪、Schema/DataSource/存储过程/Binlog/DataAdapter），且 **无任何调用方补丁**——实体元数据保留完全由库侧泛型入口注解传导。P1~P4 为纯内存场景，可用 `--no-db` 在无 MySQL 环境运行。
 
 > 复测（2026-10-15）：场景扩展至 26 项。win-x64 与 linux-x64 原生发布件均 **26/26 全通**（Windows 上 S21 按平台内部跳过）——S20 断言 `Ssl_cipher` 非空，验证 `SslStream`/X509 在裁剪后可用；S21 在 WSL 用户态 MySQL 上经 Unix 域套接字真实连接成功。
+
+> 复测（2026-11-09）：场景扩展至 27 项（新增 P5 本地化）；win-x64 原生发布件与 JIT `--no-db` **27/27 全通**、ILC 0 条告警。S12 连接属性改由进程级静态拼接生成（`Lazy<String>` 一次性构造），不再反射 `ConnectAttributes`，裁剪后无元数据依赖。
 
 - AOT 判真：原生发布件 `Assembly.Location` 为空、JIT 为磁盘路径（另：冒烟工程固定"严格 AOT 姿态"，两种运行的 `IsDynamicCodeSupported` 均为 False，该值不作判别依据）。
 - S6 原始失败：`Fail to create object type=AotSmoke.Row parameters= No parameterless constructor defined for type 'AotSmoke.Row'`——实体无参构造未被反射元数据保留。
@@ -90,9 +94,9 @@ AOT 发布期 ILC 对驱动报告 5 条唯一：`IL2075`（Authentication）、`
 | RID / 环境 | 执行方式 | 状态 |
 |-----------|---------|------|
 | win-x64 / .NET 10 | 本地 `dotnet publish -r win-x64` 原生运行 | ✅ 26/26 PASS（2026-10-15；S21 平台跳过），ILC 0 告警 |
-| linux-x64 / .NET 10 | 本地 WSL（Ubuntu 24.04）发布 + 用户态 MySQL 8.0.46 原生运行（含 S21 Unix Socket）；CI `aot.yml` → native-smoke（运行器 MySQL 8，全量 26 场景） | ✅ 本地 26/26 PASS（2026-10-15，ILC 0 告警）；CI 作业待首次运行 |
+| linux-x64 / .NET 10 | 本地 WSL（Ubuntu 24.04）发布 + 用户态 MySQL 8.0.46 原生运行（含 S21 Unix Socket）；CI `aot.yml` → native-smoke（运行器 MySQL 8，全量 27 场景） | ✅ 本地 26/26 PASS（2026-10-15，ILC 0 告警）；CI 作业待首次运行 |
 | win-x64 / .NET 10 | CI `aot.yml` → native-smoke（Windows 运行器仅有 MySQL 客户端，固定 `--no-db` 纯内存场景） | 作业已配置，待首次运行 |
-| linux-arm64 / .NET 10 | CI `aot.yml` → native-smoke（ubuntu-24.04-arm + 运行器 MySQL 8，全量 26 场景） | 作业已配置（必选平台），待首次运行 |
+| linux-arm64 / .NET 10 | CI `aot.yml` → native-smoke（ubuntu-24.04-arm + 运行器 MySQL 8，全量 27 场景） | 作业已配置（必选平台），待首次运行 |
 | win-arm64 / osx-x64 / osx-arm64 | CI `aot.yml` → native-smoke（原生 runner，`--no-db` 纯内存场景） | 作业已配置（观察期），待首次运行 |
 | linux-musl-x64 / linux-musl-arm64 | CI `aot.yml` → native-smoke-musl（alpine 容器内原生发布运行，`--no-db`） | 作业已配置（观察期），待首次运行 |
 | linux-la64（龙芯） | CI `aot.yml` → native-smoke-loongarch64：QEMU 仿真 + 龙芯官方 .NET 10（JIT 冒烟、自包含原生可执行文件运行；ReadyToRun 为附加验证） | 作业已配置（观察期：可运行、失败不阻断）。2026-10-16 定位：QEMU 按主线内核 64 信号/8 字节 sigset 建模，龙芯用户态按 16 字节 sigset → 信号系统调用 EINVAL，官方 .NET CLI 启动即 SIGABRT（rc=134）；LD_PRELOAD 信号 ABI 兼容层可修复 CLI 启动，build/test 链路仍挂起待闭环；NativeAOT 工具链暂缺（见 §4） |
@@ -112,7 +116,7 @@ AOT 发布期 ILC 对驱动报告 5 条唯一：`IL2075`（Authentication）、`
 |---|---|------|---------|
 | P0-1 | `ReadModelsAsync<T>` 实体元数据保留 | `MySqlDataReader.ReadModelsAsync<T>` | 泛型参数加 `[DynamicallyAccessedMembers(PublicProperties \| PublicParameterlessConstructor)]`，经泛型入口向调用方传导保留要求 |
 | P0-2 | 属性映射装饰注解 | `MySqlDataReader.GetModelProperties` | `Type` 形参加 `[DynamicallyAccessedMembers(PublicProperties)]`，与 P0-1 同切片 |
-| P0-3 | 握手连接属性保留 | `Authentication.GetConnectAttrs` | 改为 `typeof(ConnectAttributes).GetProperties()` 静态类型化，消除 IL2075 并确保属性保留下发 |
+| P0-3 | 握手连接属性保留 | `Authentication.GetConnectAttrs` | 先改为 `typeof(ConnectAttributes).GetProperties()` 静态类型化消除 IL2075；2026-11-09 改为 `Lazy<String>` 进程级静态拼接，逐连接反射与裁剪元数据依赖一并消除 |
 
 ### P1 告警收敛（对齐 0 告警目标，可与 P0 分批）
 
@@ -128,8 +132,8 @@ AOT 发布期 ILC 对驱动报告 5 条唯一：`IL2075`（Authentication）、`
 
 | # | 项 | 说明 |
 |---|---|------|
-| P2-1 | 冒烟工程 `AotSmoke` 入库 | ✅ 已入库 `AotSmoke/`（net10.0 + PublishAot），26 场景（22 数据库场景 S0~S21 + 4 纯内存场景 P1~P4，含 TLS、Unix Socket、连接属性、反射/表达式探针、链路追踪、Schema/DataSource/存储过程/Binlog/DataAdapter）；连接串支持参数/环境变量 `MYSQL_CONN`，支持 `--drop` 清理与 `--no-db` 无数据库运行；已加入解决方案 |
-| P2-2 | CI 防回归 | ✅ 已建立 `.github/workflows/aot.yml`（RID 矩阵，对照 NewLife.Core）：① 分析器守卫（驱动与 EF Core 提供程序 net8.0/net10.0 构建，`warning IL####` 命中即失败）；② `native-smoke` 矩阵——win-x64（`--no-db`）、linux-x64 / linux-arm64（运行器 MySQL 8，全量 26 场景）、win-arm64 / osx-x64 / osx-arm64（`--no-db`），每行 JIT 基线 + 原生发布 + ILC 告警硬约束；③ `native-smoke-musl`（alpine 容器，linux-musl-x64/arm64）；④ `native-smoke-loongarch64`（QEMU 仿真 + 龙芯 .NET 10，观察期：可运行、失败不阻断）。单元测试侧 `.github/workflows/test.yml` 同步扩展 win-x64 / linux-x64 / linux-arm64 / linux-la64 矩阵 |
+| P2-1 | 冒烟工程 `AotSmoke` 入库 | ✅ 已入库 `AotSmoke/`（net10.0 + PublishAot），27 场景（22 数据库场景 S0~S21 + 5 纯内存场景 P1~P5，含 TLS、Unix Socket、连接属性、反射/表达式探针、链路追踪、Schema/DataSource/存储过程/Binlog/DataAdapter、本地化）；连接串支持参数/环境变量 `MYSQL_CONN`，支持 `--drop` 清理与 `--no-db` 无数据库运行；已加入解决方案 |
+| P2-2 | CI 防回归 | ✅ 已建立 `.github/workflows/aot.yml`（RID 矩阵，对照 NewLife.Core）：① 分析器守卫（驱动与 EF Core 提供程序 net8.0/net10.0 构建，`warning IL####` 命中即失败）；② `native-smoke` 矩阵——win-x64（`--no-db`）、linux-x64 / linux-arm64（运行器 MySQL 8，全量 27 场景）、win-arm64 / osx-x64 / osx-arm64（`--no-db`），每行 JIT 基线 + 原生发布 + ILC 告警硬约束；③ `native-smoke-musl`（alpine 容器，linux-musl-x64/arm64）；④ `native-smoke-loongarch64`（QEMU 仿真 + 龙芯 .NET 10，观察期：可运行、失败不阻断）。单元测试侧 `.github/workflows/test.yml` 同步扩展 win-x64 / linux-x64 / linux-arm64 / linux-la64 矩阵 |
 
 ### 依赖与参考
 
@@ -180,7 +184,7 @@ cd ~/nlmsql-build && ~/.dotnet/dotnet publish AotSmoke/AotSmoke.csproj -c Releas
 MYSQL_SOCKET=/tmp/mysqldata/mysql.sock /tmp/aotsmoke-linux/AotSmoke "Server=127.0.0.1;Port=3306;User Id=root;Password=root;Database=mysql"
 ```
 
-冒烟自建 `aotsmoke` 库，运行后可 `--drop` 清理。CI（[`.github/workflows/aot.yml`](../.github/workflows/aot.yml)）：RID 矩阵（win-x64 / linux-x64 / win-arm64 / linux-arm64 / osx-x64 / osx-arm64，每 RID 用原生 runner 真实发布与运行；linux 双平台连运行器 MySQL 8 执行全量 26 场景，其余 `--no-db`）、musl 容器（linux-musl-x64 / arm64）与龙芯 QEMU 作业（linux-la64，观察期：可运行、失败不阻断）分别执行冒烟；对分析器与 ILC 的 `warning IL####` 实施硬约束（命中即失败）。单元测试（[`.github/workflows/test.yml`](../.github/workflows/test.yml)）同样按 win-x64 / linux-x64 / linux-arm64 / linux-la64 矩阵执行。
+冒烟自建 `aotsmoke` 库，运行后可 `--drop` 清理。CI（[`.github/workflows/aot.yml`](../.github/workflows/aot.yml)）：RID 矩阵（win-x64 / linux-x64 / win-arm64 / linux-arm64 / osx-x64 / osx-arm64，每 RID 用原生 runner 真实发布与运行；linux 双平台连运行器 MySQL 8 执行全量 27 场景，其余 `--no-db`）、musl 容器（linux-musl-x64 / arm64）与龙芯 QEMU 作业（linux-la64，观察期：可运行、失败不阻断）分别执行冒烟；对分析器与 ILC 的 `warning IL####` 实施硬约束（命中即失败）。单元测试（[`.github/workflows/test.yml`](../.github/workflows/test.yml)）同样按 win-x64 / linux-x64 / linux-arm64 / linux-la64 矩阵执行。
 
 ---
 

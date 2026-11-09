@@ -628,7 +628,7 @@ Einfaches SQL, Transaktionen, parametrisierte Abfragen und Batch-Operationen sin
 
 ## NativeAOT-Bereitstellung
 
-Mit den Zielframeworks `net8.0+` hat der Treiber die echte NativeAOT-Publish-Validierung bestanden (lokale Messungen und CI unter win-x64 und linux-x64; alle 26 Rauchtest-Szenarien mit 0 ILC-Warnungen). Das Veröffentlichen nativer Binärdateien erfordert **keine Anpassungen auf der Aufruferseite**; die CI schützt kontinuierlich vor Regressionen über eine Matrix gängiger RIDs (win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl, plus einen QEMU-emulierten Rauchtest für LoongArch linux-la64 während der Beobachtungsphase, der nicht blockierend ist):
+Mit den Zielframeworks `net8.0+` hat der Treiber die echte NativeAOT-Publish-Validierung bestanden (lokale Messungen und CI unter win-x64 und linux-x64; alle 27 Rauchtest-Szenarien mit 0 ILC-Warnungen). Das Veröffentlichen nativer Binärdateien erfordert **keine Anpassungen auf der Aufruferseite**; die CI schützt kontinuierlich vor Regressionen über eine Matrix gängiger RIDs (win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl, plus einen QEMU-emulierten Rauchtest für LoongArch linux-la64 während der Beobachtungsphase, der nicht blockierend ist):
 
 ```xml
 <PropertyGroup>

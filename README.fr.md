@@ -628,7 +628,7 @@ Le SQL de base, les transactions, les requêtes paramétrées et les opérations
 
 ## Déploiement NativeAOT
 
-Avec les frameworks cibles `net8.0+`, le pilote a passé une validation de publication NativeAOT réelle (mesures locales et CI sous win-x64 et linux-x64 ; les 26 scénarios de test de fumée sont passés avec 0 avertissement ILC). La publication de binaires natifs ne nécessite **aucun correctif côté appelant** ; la CI protège en continu contre les régressions sur une matrice de RID courants (win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl, plus un test de fumée émulé par QEMU pour LoongArch linux-la64 pendant la période d'observation, non bloquant) :
+Avec les frameworks cibles `net8.0+`, le pilote a passé une validation de publication NativeAOT réelle (mesures locales et CI sous win-x64 et linux-x64 ; les 27 scénarios de test de fumée sont passés avec 0 avertissement ILC). La publication de binaires natifs ne nécessite **aucun correctif côté appelant** ; la CI protège en continu contre les régressions sur une matrice de RID courants (win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl, plus un test de fumée émulé par QEMU pour LoongArch linux-la64 pendant la période d'observation, non bloquant) :
 
 ```xml
 <PropertyGroup>

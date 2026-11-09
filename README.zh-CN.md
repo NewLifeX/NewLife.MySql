@@ -630,7 +630,7 @@ Console.WriteLine($"Database type: {conn2.DatabaseType}");  // TiDB
 
 ## NativeAOT 部署
 
-驱动在 `net8.0+` 目标框架下已通过 NativeAOT 真实发布验证（win-x64 与 linux-x64 本地实测及 CI，26 场景冒烟全通、ILC 0 告警），发布原生程序**无需任何调用方补丁**；CI 按主流 RID 矩阵持续防回归（win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl，及龙芯 linux-la64 的 QEMU 仿真冒烟，观察期非阻断）：
+驱动在 `net8.0+` 目标框架下已通过 NativeAOT 真实发布验证（win-x64 与 linux-x64 本地实测及 CI，27 场景冒烟全通、ILC 0 告警），发布原生程序**无需任何调用方补丁**；CI 按主流 RID 矩阵持续防回归（win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl，及龙芯 linux-la64 的 QEMU 仿真冒烟，观察期非阻断）：
 
 ```xml
 <PropertyGroup>

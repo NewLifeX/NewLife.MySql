@@ -628,7 +628,7 @@ El SQL básico, las transacciones, las consultas parametrizadas y las operacione
 
 ## Despliegue con NativeAOT
 
-Con los frameworks de destino `net8.0+`, el driver ha superado la validación real de publicación NativeAOT (mediciones locales y CI en win-x64 y linux-x64; los 26 escenarios de humo pasaron con 0 advertencias de ILC). Publicar binarios nativos **no requiere parches en el lado del llamador**; la CI protege contra regresiones de forma continua en una matriz de RID principales (win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl, además de una prueba de humo emulada con QEMU para LoongArch linux-la64 durante el periodo de observación, que no bloquea):
+Con los frameworks de destino `net8.0+`, el driver ha superado la validación real de publicación NativeAOT (mediciones locales y CI en win-x64 y linux-x64; los 27 escenarios de humo pasaron con 0 advertencias de ILC). Publicar binarios nativos **no requiere parches en el lado del llamador**; la CI protege contra regresiones de forma continua en una matriz de RID principales (win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl, además de una prueba de humo emulada con QEMU para LoongArch linux-la64 durante el periodo de observación, que no bloquea):
 
 ```xml
 <PropertyGroup>

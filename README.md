@@ -628,7 +628,7 @@ Basic SQL, transactions, parameterized queries, and batch operations are all com
 
 ## NativeAOT Deployment
 
-With the `net8.0+` target frameworks, the driver has passed real NativeAOT publish validation (local measurements and CI on win-x64 and linux-x64; all 26 smoke scenarios passed with 0 ILC warnings). Publishing native binaries requires **no caller-side patches**; CI continuously guards against regressions across a mainstream-RID matrix (win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl, plus a QEMU-emulated smoke test for LoongArch linux-la64 during the observation period, which is non-blocking):
+With the `net8.0+` target frameworks, the driver has passed real NativeAOT publish validation (local measurements and CI on win-x64 and linux-x64; all 27 smoke scenarios passed with 0 ILC warnings). Publishing native binaries requires **no caller-side patches**; CI continuously guards against regressions across a mainstream-RID matrix (win-x64 / linux-x64 / linux-arm64 / win-arm64 / osx-x64 / osx-arm64 / musl, plus a QEMU-emulated smoke test for LoongArch linux-la64 during the observation period, which is non-blocking):
 
 ```xml
 <PropertyGroup>
