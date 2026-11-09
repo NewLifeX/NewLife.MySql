@@ -50,6 +50,8 @@ public sealed partial class MySqlConnection : DbConnection
     private MySqlPool? _pool;
     private SchemaProvider? _schemaProvider;
     private readonly SemaphoreSlim _operationLock = new(1, 1);
+    private readonly SemaphoreSlim _openLock = new(1, 1);
+    private volatile CancellationTokenSource? _openCts;
     #endregion
 
     #region 构造
@@ -87,6 +89,22 @@ public sealed partial class MySqlConnection : DbConnection
     /// <summary>关闭</summary>
     public override void Close()
     {
+        // 取消正在进行的打开操作，避免 OpenAsync 与 Close 并发时把已借出的池客户端永久留在池外
+        CancelOpen();
+
+        _openLock.Wait();
+        try
+        {
+            CloseCore();
+        }
+        finally
+        {
+            _openLock.Release();
+        }
+    }
+
+    private void CloseCore()
+    {
         var client = Client;
         var pool = _pool;
 
@@ -121,6 +139,21 @@ public sealed partial class MySqlConnection : DbConnection
             SetState(ConnectionState.Closed);
     }
 
+    private void CancelOpen()
+    {
+        var cts = _openCts;
+        if (cts == null) return;
+
+        try
+        {
+            cts.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // 打开操作已结束并释放令牌，忽略
+        }
+    }
+
     /// <summary>判断连接当前数据库是否与连接字符串原始数据库一致。空值等价，名称忽略大小写</summary>
     /// <param name="originalDb">连接字符串中的原始数据库名</param>
     /// <param name="currentDb">连接当前使用的数据库名</param>
@@ -153,28 +186,45 @@ public sealed partial class MySqlConnection : DbConnection
     /// <returns></returns>
     internal async Task ReconnectAsync(CancellationToken cancellationToken)
     {
-        // 失效连接销毁后必须归还池槽位：池槽位只有 Return 才释放，裸 TryDispose 会永久泄漏槽位。
-        // 先销毁再 Return：已销毁（inactive）连接经 OnReturn 判定 Discard 后自动释放槽位，
-        // 避免"半开"连接被廉价 socket 探测误判可用而回池复用
-        var oldClient = Client;
-        var pool = _pool;
-        Client = null;
-        _pool = null;
-
-        if (pool != null && oldClient != null)
+        // 与 OpenAsync/Close 串行，避免断线重连期间 Close 并发执行导致借出的新客户端无人归还
+        await _openLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            oldClient.TryDispose();
-            pool.Return(oldClient);
+            // 失效连接销毁后必须归还池槽位：池槽位只有 Return 才释放，裸 TryDispose 会永久泄漏槽位。
+            // 先销毁再 Return：已销毁（inactive）连接经 OnReturn 判定 Discard 后自动释放槽位，
+            // 避免"半开"连接被廉价 socket 探测误判可用而回池复用
+            var oldClient = Client;
+            var pool = _pool;
+            Client = null;
+            _pool = null;
+
+            if (pool != null && oldClient != null)
+            {
+                oldClient.TryDispose();
+                pool.Return(oldClient);
+            }
+            else
+            {
+                oldClient?.TryDispose();
+            }
+
+            SetState(ConnectionState.Closed);
+
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _openCts = cts;
+            try
+            {
+                await OpenCoreAsync(cts.Token).ConfigureAwait(false);
+            }
+            finally
+            {
+                _openCts = null;
+            }
         }
-        else
+        finally
         {
-            oldClient?.TryDispose();
+            _openLock.Release();
         }
-
-        SetState(ConnectionState.Closed);
-
-        // 复用 OpenAsync，重新从连接池获取并打开连接
-        await OpenAsync(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>异步打开连接</summary>
@@ -184,8 +234,33 @@ public sealed partial class MySqlConnection : DbConnection
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (State == ConnectionState.Open) return;
+        // 同一连接对象同一时刻只允许一个打开操作：
+        // 并发 Open 会各自从池借出客户端，后完成者覆盖 Client 字段，先借出的槽位再也无人归还；
+        // Close 并发时也会丢失正在借出的客户端。这里用打开锁串行化，并由 Close 取消进行中的打开操作
+        await _openLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (State == ConnectionState.Open) return;
 
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _openCts = cts;
+            try
+            {
+                await OpenCoreAsync(cts.Token).ConfigureAwait(false);
+            }
+            finally
+            {
+                _openCts = null;
+            }
+        }
+        finally
+        {
+            _openLock.Release();
+        }
+    }
+
+    private async Task OpenCoreAsync(CancellationToken cancellationToken)
+    {
         using var span = MySqlDiagnostics.StartOpen(Setting);
 
         SetState(ConnectionState.Connecting);
@@ -210,6 +285,10 @@ public sealed partial class MySqlConnection : DbConnection
                 borrowedClient ??= client;
 
                 cancellationToken.ThrowIfCancellationRequested();
+
+                // 握手/认证阶段同样使用连接超时作为读超时，避免慢网络下开放过程无限等待
+                var readTimeout = Setting.ConnectionTimeout;
+                if (readTimeout > 0) client.Timeout = readTimeout;
 
                 if (client.Welcome == null)
                     await client.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -268,10 +347,6 @@ public sealed partial class MySqlConnection : DbConnection
                 clientAttached = true;
                 borrowedClient = null;
 
-                // 默认网络读写超时跟随连接超时，命令执行阶段再临时切换到 CommandTimeout。
-                var readTimeout = Setting.ConnectionTimeout;
-                if (readTimeout > 0) client.Timeout = readTimeout;
-
                 // 配置参数，优先从连接池获取缓存的变量
                 var vs = _pool?.Variables;
                 if (vs != null) client.Variables = vs;
@@ -285,7 +360,7 @@ public sealed partial class MySqlConnection : DbConnection
             span.SetError(ex);
 
             if (clientAttached || Client != null)
-                Close();
+                CloseCore();
             else if (_pool != null && borrowedClient != null)
                 // 归还借出的客户端而非裸销毁：池槽位只有 Return 才释放，裸 TryDispose 会永久泄漏槽位。
                 // 建连失败时客户端未打开（socket 异常），Return 经 OnReturn 判定不可复用后自动销毁并释放槽位
@@ -306,10 +381,19 @@ public sealed partial class MySqlConnection : DbConnection
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
     /// <summary>异步关闭连接</summary>
     /// <returns></returns>
-    public override Task CloseAsync()
+    public override async Task CloseAsync()
     {
-        Close();
-        return Task.CompletedTask;
+        CancelOpen();
+
+        await _openLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            CloseCore();
+        }
+        finally
+        {
+            _openLock.Release();
+        }
     }
 #endif
     #endregion

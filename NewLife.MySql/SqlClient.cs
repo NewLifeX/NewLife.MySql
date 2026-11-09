@@ -225,8 +225,8 @@ public class SqlClient : DisposeBase
 
         try
         {
-            // 异步读取欢迎信息
-            var welcome = await GetWelcomeAsync(cancellationToken).ConfigureAwait(false);
+            // 异步读取欢迎信息。使用连接超时令牌，保证整个打开过程（含握手/认证）受 ConnectionTimeout 约束
+            var welcome = await GetWelcomeAsync(cts.Token).ConfigureAwait(false);
             Welcome = welcome;
             Capability = welcome.Capability;
 
@@ -243,7 +243,7 @@ public class SqlClient : DisposeBase
                 {
                     try
                     {
-                        await StartSslAsync(server!, cancellationToken).ConfigureAwait(false);
+                        await StartSslAsync(server!, cts.Token).ConfigureAwait(false);
                         ClearSslFallback(sslFallbackKey);
                     }
                     catch (Exception ex) when (sslMode.EqualIgnoreCase("Preferred"))
@@ -264,7 +264,7 @@ public class SqlClient : DisposeBase
                         Active = false;
                         _seq = 1;
 
-                        await OpenAsync(false, cancellationToken).ConfigureAwait(false);
+                        await OpenAsync(false, cts.Token).ConfigureAwait(false);
                         return;
                     }
                 }
@@ -279,7 +279,7 @@ public class SqlClient : DisposeBase
 
             // 异步验证
             var auth = new Authentication(this);
-            await auth.AuthenticateAsync(welcome, false, cancellationToken).ConfigureAwait(false);
+            await auth.AuthenticateAsync(welcome, false, cts.Token).ConfigureAwait(false);
 
             // 认证成功后，将 Capability 更新为实际协商的客户端标志
             Capability = auth.GetFlags(welcome.Capability);
@@ -305,6 +305,14 @@ public class SqlClient : DisposeBase
             _stream = null;
             Welcome = null;
             Active = false;
+#if !NET5_0_OR_GREATER
+            // TLS 握手等阶段不响应取消令牌，超时/取消通过关闭 socket 解除挂起，这里还原为超时/取消语义
+            if (cts.IsCancellationRequested)
+            {
+                if (cancellationToken.IsCancellationRequested) throw new OperationCanceledException(cancellationToken);
+                throw new TimeoutException(L.T("Connection to {0}:{1} timed out ({2}ms).", server, port, msTimeout));
+            }
+#endif
             throw;
         }
 
@@ -354,6 +362,10 @@ public class SqlClient : DisposeBase
             EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
         }, cancellationToken).ConfigureAwait(false);
 #else
+#if !NET5_0_OR_GREATER
+        // 旧框架的 TLS 握手同样不响应取消令牌，超时/取消时关闭 socket 解除挂起
+        using var abort = cancellationToken.Register(static s => ((SqlClient)s!).Abort(), this);
+#endif
         await sslStream.AuthenticateAsClientAsync(server, null, SslProtocols.Tls12, false).ConfigureAwait(false);
 #endif
         _reader.Reset();
@@ -462,6 +474,17 @@ public class SqlClient : DisposeBase
         return true;
     }
 
+    /// <summary>中止底层网络。旧框架（net45~netstandard2.1）的 NetworkStream 异步读写不响应取消令牌，
+    /// 只能关闭 socket 解除挂起，否则黑洞网络会让读操作永久占用连接池槽位</summary>
+    private void Abort()
+    {
+        Active = false;
+        _client.TryDispose();
+        _client = null;
+        _stream = null;
+        _reader.Reset();
+    }
+
     /// <summary>探测底层 socket 健康状态。非阻塞、微秒级，取代旧 Reset 的排残留逻辑</summary>
     /// <returns>socket 健康状态</returns>
     /// <remarks>
@@ -506,10 +529,6 @@ public class SqlClient : DisposeBase
     {
         var ms = _stream ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
-        // 压缩协议
-        if (_useCompression)
-            return await ReadCompressedPacketAsync(ms, cancellationToken).ConfigureAwait(false);
-
         // 根据 Timeout 属性创建超时令牌，确保不会无限等待
         var timeout = Timeout;
         using var cts = timeout > 0
@@ -518,8 +537,17 @@ public class SqlClient : DisposeBase
         cts?.CancelAfter(timeout * 1000);
         var token = cts?.Token ?? cancellationToken;
 
+#if !NET5_0_OR_GREATER
+        // 旧框架的 NetworkStream 异步读取忽略取消令牌，超时/取消时关闭 socket 以解除阻塞
+        using var abort = token.Register(static s => ((SqlClient)s!).Abort(), this);
+#endif
+
         try
         {
+            // 压缩协议
+            if (_useCompression)
+                return await ReadCompressedPacketAsync(ms, token).ConfigureAwait(false);
+
             // 3字节长度 + 1字节序列号，复用实例字段避免池租借开销（同一连接串行读包，无并发风险）
             var buf = _headerBuf;
             await _reader.ReadAsync(ms, buf, 0, 4, token).ConfigureAwait(false);
@@ -582,6 +610,14 @@ public class SqlClient : DisposeBase
             // 连接断开/EOF/IO 错误（EndOfStreamException 派生自 IOException）：标记失效，
             // 避免脏连接归还连接池后被后续查询复用导致协议错位、读取超时
             Active = false;
+#if !NET5_0_OR_GREATER
+            // 超时/取消通过关闭 socket 解除挂起，读操作以 ODE/IOException 结束，这里还原为调用方期望的超时/取消语义
+            if (token.IsCancellationRequested)
+            {
+                if (cancellationToken.IsCancellationRequested) throw new OperationCanceledException(cancellationToken);
+                throw new TimeoutException(L.T("Timed out reading a packet ({0}s).", timeout));
+            }
+#endif
             throw;
         }
     }
@@ -1305,6 +1341,11 @@ public class SqlClient : DisposeBase
         cts?.CancelAfter(timeout * 1000);
         var token = cts?.Token ?? cancellationToken;
 
+#if !NET5_0_OR_GREATER
+        // 旧框架的 NetworkStream 异步读取忽略取消令牌，超时/取消时关闭 socket 以解除阻塞
+        using var abort = token.Register(static s => ((SqlClient)s!).Abort(), this);
+#endif
+
         try
         {
             // 压缩协议：行数据包同样在压缩包内（含 4 字节普通帧头），必须走统一压缩读取路径
@@ -1368,6 +1409,26 @@ public class SqlClient : DisposeBase
         {
             Active = false;
             throw new TimeoutException(L.T("Timed out reading a packet ({0}s).", timeout));
+        }
+        catch (OperationCanceledException)
+        {
+            // 调用方主动取消：半截响应残留在 socket 上，连接已不可复用
+            Active = false;
+            throw;
+        }
+        catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
+        {
+            // 连接断开/EOF/IO 错误，标记失效，避免脏连接归还连接池后协议错位
+            Active = false;
+#if !NET5_0_OR_GREATER
+            // 超时/取消通过关闭 socket 解除挂起，读操作以 ODE/IOException 结束，这里还原为调用方期望的超时/取消语义
+            if (token.IsCancellationRequested)
+            {
+                if (cancellationToken.IsCancellationRequested) throw new OperationCanceledException(cancellationToken);
+                throw new TimeoutException(L.T("Timed out reading a packet ({0}s).", timeout));
+            }
+#endif
+            throw;
         }
     }
 
