@@ -1,4 +1,3 @@
-﻿using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -39,24 +38,17 @@ class ConnectAttributes
         }
     }
 
-    [DisplayName("_client_name")]
     public String ClientName => _client;
 
-    [DisplayName("_client_version")]
     public String ClientVersion => _version;
 
-    [DisplayName("_client_licence")]
     public String ClientLicence => "MIT";
 
-    [DisplayName("_pid")]
     public String PID => Process.GetCurrentProcess().Id.ToString();
 
-    [DisplayName("_os")]
     public String OS => _os;
 
-    [DisplayName("_platform")]
     public String Platform => _platform;
 
-    [DisplayName("_framework")]
     public String Framework => _framework;
 }

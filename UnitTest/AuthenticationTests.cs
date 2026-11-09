@@ -204,6 +204,35 @@ public class AuthenticationTests
     }
 
     [Fact]
+    [DisplayName("GetConnectAttrs包含全部协议属性且长度编码正确")]
+    public void WhenGetConnectAttrsThenContainsAllProtocolAttributes()
+    {
+        var auth = CreateAuth();
+
+        var bytes = Encoding.UTF8.GetBytes(auth.GetConnectAttrs());
+        var attrs = new Dictionary<String, String>();
+        var idx = 0;
+        while (idx < bytes.Length)
+        {
+            var nameLen = bytes[idx++];
+            var name = Encoding.UTF8.GetString(bytes, idx, nameLen);
+            idx += nameLen;
+
+            var valueLen = bytes[idx++];
+            var value = Encoding.UTF8.GetString(bytes, idx, valueLen);
+            idx += valueLen;
+
+            attrs[name] = value;
+        }
+
+        String[] expected = ["_client_name", "_client_version", "_client_licence", "_pid", "_os", "_platform", "_framework"];
+        Assert.Equal(expected.Length, attrs.Count);
+        Assert.All(expected, name => Assert.Contains(name, attrs.Keys));
+        Assert.Equal("MIT", attrs["_client_licence"]);
+        Assert.Equal(Environment.ProcessId.ToString(), attrs["_pid"]);
+    }
+
+    [Fact]
     [DisplayName("GetFlags总是包含基础标志")]
     public void WhenGetFlagsThenIncludesBaseFlags()
     {

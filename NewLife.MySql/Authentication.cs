@@ -1,4 +1,3 @@
-﻿using System.ComponentModel;
 using System.Net.Security;
 using System.Security.Cryptography;
 using System.Text;
@@ -312,27 +311,30 @@ class Authentication(SqlClient client)
         return flags;
     }
 
-    private String? _atts;
-    public String GetConnectAttrs()
+    // 连接属性在进程内固定，只构造一次；直接按协议名拼接，不依赖反射与裁剪元数据保留
+    private static readonly Lazy<String> _connectAttrs = new(BuildConnectAttrs);
+
+    public String GetConnectAttrs() => _connectAttrs.Value;
+
+    private static String BuildConnectAttrs()
     {
-        if (_atts != null) return _atts;
-
-        var sb = new StringBuilder();
         var att = new ConnectAttributes();
-        // 经 typeof 静态字面量取属性：裁剪分析器据此保留属性元数据，避免 AOT 下连接属性静默丢失
-        foreach (var pi in typeof(ConnectAttributes).GetProperties())
-        {
-            var name = pi.Name;
-            var dis = pi.GetCustomAttributes(typeof(DisplayNameAttribute), false);
-            if (dis.Length > 0)
-                name = (dis[0] as DisplayNameAttribute)!.DisplayName;
+        var sb = new StringBuilder();
+        Append(sb, "_client_name", att.ClientName);
+        Append(sb, "_client_version", att.ClientVersion);
+        Append(sb, "_client_licence", att.ClientLicence);
+        Append(sb, "_pid", att.PID);
+        Append(sb, "_os", att.OS);
+        Append(sb, "_platform", att.Platform);
+        Append(sb, "_framework", att.Framework);
 
-            var value = (String?)pi.GetValue(att, null) ?? String.Empty;
+        return sb.ToString();
+
+        static void Append(StringBuilder sb, String name, String value)
+        {
             sb.AppendFormat("{0}{1}", (Char)name.Length, name);
             sb.AppendFormat("{0}{1}", (Char)Encoding.UTF8.GetByteCount(value), value);
         }
-
-        return _atts = sb.ToString();
     }
     #endregion
 }
