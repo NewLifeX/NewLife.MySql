@@ -52,6 +52,9 @@ public sealed partial class MySqlConnection : DbConnection
     private readonly SemaphoreSlim _operationLock = new(1, 1);
     private readonly SemaphoreSlim _openLock = new(1, 1);
     private volatile CancellationTokenSource? _openCts;
+
+    /// <summary>当前持有操作租约的个数（主要是未关闭的读取器）。大于 0 时连接不得归还连接池</summary>
+    private Int32 _operations;
     #endregion
 
     #region 构造
@@ -116,7 +119,8 @@ public sealed partial class MySqlConnection : DbConnection
             // 检查当前数据库是否与原始数据库一致
             // 如果不一致，说明调用过 SetDatabaseAsync 且未切回，连接状态被污染，直接销毁
             // 如果一致，说明要么未切换过数据库，要么切换后又切回来了，可以安全归还连接池
-            if (!client.Active || !IsSameDatabase(Setting.Database, client.Database))
+            // 仍有未关闭的读取器（操作租约未释放）时，协议流中残留结果集，一并按脏连接销毁
+            if (!client.Active || Volatile.Read(ref _operations) > 0 || !IsSameDatabase(Setting.Database, client.Database))
             {
                 // 连接已失效（如批量写入中途失败标记 Active=false）或数据库状态被污染，销毁连接不归还连接池，
                 // 避免脏连接被后续查询复用导致协议错位、读取超时。
@@ -178,6 +182,7 @@ public sealed partial class MySqlConnection : DbConnection
     internal async Task<ConnectionOperationLease> EnterOperationAsync(CancellationToken cancellationToken)
     {
         await _operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        Interlocked.Increment(ref _operations);
         return new ConnectionOperationLease(this);
     }
 
@@ -412,7 +417,10 @@ public sealed partial class MySqlConnection : DbConnection
         public void Dispose()
         {
             var connection = Interlocked.Exchange(ref _connection, null);
-            connection?._operationLock.Release();
+            if (connection == null) return;
+
+            Interlocked.Decrement(ref connection._operations);
+            connection._operationLock.Release();
         }
     }
     #endregion
