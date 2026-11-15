@@ -29,6 +29,22 @@ public class MySqlCommandTests : IDisposable
     }
 
     [Fact]
+    [DisplayName("预编译后修改CommandText不沿用旧语句")]
+    public void WhenPreparedCommandTextChangesThenUsesNewSql()
+    {
+        using var conn = new MySqlConnection(_ConnStr);
+        conn.Open();
+
+        using var cmd = new MySqlCommand(conn, "SELECT @v");
+        cmd.Parameters.AddWithValue("@v", 7);
+        cmd.Prepare();
+
+        cmd.CommandText = "SELECT @v + 1";
+
+        Assert.Equal(8, cmd.ExecuteScalar().ToInt());
+    }
+
+    [Fact]
     [DisplayName("预编译命令在连接关闭重开后不沿用失效语句")]
     public void WhenPreparedCommandReusedAfterReopenThenWorks()
     {

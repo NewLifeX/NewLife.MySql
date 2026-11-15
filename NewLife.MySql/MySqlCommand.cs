@@ -63,6 +63,12 @@ public class MySqlCommand : DbCommand
     /// <summary>预编译时的会话版本。连接池会话重置会释放语句，即使物理客户端对象相同也要重新预编译</summary>
     private Int32 _preparedVersion = -1;
 
+    /// <summary>预编译时的命令文本。CommandText 变更后旧语句不可再使用</summary>
+    private String? _preparedCommandText;
+
+    /// <summary>预编译时的命令类型</summary>
+    private CommandType _preparedCommandType;
+
     private MySqlColumn[]? _paramColumns;
 
     /// <summary>预编译参数顺序映射。索引为 SQL 中 ? 出现的位置，值为 _parameters 中的参数索引</summary>
@@ -190,14 +196,8 @@ public class MySqlCommand : DbCommand
         var client = _DbConnection?.Client ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
         // 预编译语句只存在于某个物理连接上。连接关闭后重新打开、或断线重连后，旧 statement id 已失效
-        if (IsPrepared && (!ReferenceEquals(_preparedClient, client) || _preparedVersion != client.SessionVersion))
-        {
-            _statementId = -1;
-            _paramColumns = null;
-            _paramOrder = null;
-            _preparedClient = null;
-            _preparedVersion = -1;
-        }
+        if (IsPrepared && !IsPreparedFor(client))
+            await ResetPreparedAsync(client, cancellationToken).ConfigureAwait(false);
         if (IsPrepared) return;
 
         var sql = CommandText;
@@ -213,6 +213,8 @@ public class MySqlCommand : DbCommand
         _paramOrder = paramOrder.Count > 0 ? paramOrder.ToArray() : null;
         _preparedClient = client;
         _preparedVersion = client.SessionVersion;
+        _preparedCommandText = CommandText;
+        _preparedCommandType = CommandType;
     }
 
     /// <summary>释放预编译语句的服务端资源</summary>
@@ -223,7 +225,7 @@ public class MySqlCommand : DbCommand
         if (!IsPrepared) return;
 
         var client = _DbConnection?.Client;
-        if (client != null && client.Active && ReferenceEquals(_preparedClient, client) && _preparedVersion == client.SessionVersion)
+        if (client != null && client.Active && IsPreparedOn(client))
         {
             try
             {
@@ -232,11 +234,51 @@ public class MySqlCommand : DbCommand
             catch { /* 忽略关闭过程中的异常 */ }
         }
 
+        ResetPreparedState();
+    }
+
+    /// <summary>当前预编译语句是否仍属于指定客户端和会话版本</summary>
+    /// <param name="client">当前物理客户端</param>
+    /// <returns>属于同一物理会话时返回 true</returns>
+    private Boolean IsPreparedOn(SqlClient client)
+        => IsPrepared && ReferenceEquals(_preparedClient, client) && _preparedVersion == client.SessionVersion;
+
+    /// <summary>当前预编译语句是否仍属于指定客户端、会话版本和命令文本</summary>
+    /// <param name="client">当前物理客户端</param>
+    /// <returns>可复用时返回 true</returns>
+    private Boolean IsPreparedFor(SqlClient client)
+        => IsPreparedOn(client) &&
+           _preparedCommandType == CommandType &&
+           String.Equals(_preparedCommandText, CommandText, StringComparison.Ordinal);
+
+    /// <summary>清理预编译状态。客户端仍匹配时先关闭服务端语句</summary>
+    /// <param name="client">当前物理客户端</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    private async Task ResetPreparedAsync(SqlClient client, CancellationToken cancellationToken)
+    {
+        if (client.Active && IsPreparedOn(client))
+        {
+            try
+            {
+                await client.CloseStatementAsync(_statementId, cancellationToken).ConfigureAwait(false);
+            }
+            catch { /* 忽略关闭过程中的异常 */ }
+        }
+
+        ResetPreparedState();
+    }
+
+    /// <summary>仅清理本地预编译状态（服务端语句已随连接失效或由连接重置清理）</summary>
+    private void ResetPreparedState()
+    {
         _statementId = -1;
         _paramColumns = null;
         _paramOrder = null;
         _preparedClient = null;
         _preparedVersion = -1;
+        _preparedCommandText = null;
+        _preparedCommandType = default;
     }
 
     /// <summary>取消命令执行。当前驱动未实现，调用即抛出异常，避免静默无操作误导调用方</summary>
@@ -285,11 +327,7 @@ public class MySqlCommand : DbCommand
                 XTrace.WriteLine("MySQL network connection lost, reconnecting after {0}ms ({1}: {2})", waitMs, ex.GetType().Name, ex.Message);
 
                 // 清除预编译状态：重连后服务端上的 StatementId 已失效
-                _statementId = -1;
-                _paramColumns = null;
-                _paramOrder = null;
-                _preparedClient = null;
-                _preparedVersion = -1;
+                ResetPreparedState();
 
                 // 重建连接
                 await conn.ReconnectAsync(cancellationToken).ConfigureAwait(false);
@@ -842,15 +880,9 @@ public class MySqlCommand : DbCommand
     {
         var client = _DbConnection.Client ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
-        // 连接关闭后重新打开、或断线重连后，旧的预编译语句已随物理连接失效
-        if (IsPrepared && (!ReferenceEquals(_preparedClient, client) || _preparedVersion != client.SessionVersion))
-        {
-            _statementId = -1;
-            _paramColumns = null;
-            _paramOrder = null;
-            _preparedClient = null;
-            _preparedVersion = -1;
-        }
+        // 连接关闭后重新打开、断线重连、或 CommandText/CommandType 变更后，旧预编译语句不可复用
+        if (IsPrepared && !IsPreparedFor(client))
+            await ResetPreparedAsync(client, cancellationToken).ConfigureAwait(false);
 
         // 重置网络流，清理残留数据。如果连接已断开则抛出异常
         if (!client.Reset())
