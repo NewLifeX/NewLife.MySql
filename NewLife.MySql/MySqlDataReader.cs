@@ -66,6 +66,14 @@ public class MySqlDataReader : DbDataReader
     /// <summary>当前行数据。尚未 Read 或已读完时给出明确异常，而不是空引用</summary>
     private Object[] CurrentValues => _Values ?? throw new InvalidOperationException(L.T("No data exists for the row or column."));
 
+    /// <summary>列集合。尚未进入任何结果集时给出明确异常</summary>
+    private MySqlColumn[] CurrentColumns => _Columns ?? throw new InvalidOperationException(L.T("No data exists for the row or column."));
+
+    /// <summary>底层客户端。连接已断开时给出明确异常，避免调用方拿空引用</summary>
+    private SqlClient Client => Command.Connection is MySqlConnection conn && conn.Client != null
+        ? conn.Client
+        : throw new InvalidOperationException(L.T("The database connection has been closed."));
+
     /// <summary>设置当前行数值集合与字段数。供内部与单元测试构造读取器状态</summary>
     /// <param name="values">当前行数值数组</param>
     internal void SetValues(Object[]? values)
@@ -103,6 +111,9 @@ public class MySqlDataReader : DbDataReader
     /// <summary>关闭读取器时是否恢复会话变量 SQL_SELECT_LIMIT。SchemaOnly/SingleRow 会改写该变量，不恢复将污染连接池中的会话</summary>
     internal Boolean ResetSelectLimit { get; set; }
 
+    /// <summary>关闭读取器时是否同时关闭连接（CommandBehavior.CloseConnection）</summary>
+    internal Boolean CloseConnectionOnClose { get; set; }
+
     /// <summary>命令执行阶段超时。用于等待首包和结果集切换</summary>
     internal Int32 CommandPhaseTimeout { get; set; }
 
@@ -130,7 +141,7 @@ public class MySqlDataReader : DbDataReader
     /// <summary>获取指定列的名称</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的名称</returns>
-    public override String GetName(Int32 ordinal) => _Columns![ordinal].Name;
+    public override String GetName(Int32 ordinal) => CurrentColumns[ordinal].Name;
 
     /// <summary>获取指定列名对应的列序号</summary>
     /// <param name="name">列名，不区分大小写</param>
@@ -160,7 +171,7 @@ public class MySqlDataReader : DbDataReader
     /// <summary>获取指定列的数据类型名称</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>数据类型名称</returns>
-    public override String GetDataTypeName(Int32 ordinal) => _Columns![ordinal].Type.ToString();
+    public override String GetDataTypeName(Int32 ordinal) => CurrentColumns[ordinal].Type.ToString();
 
     /// <summary>获取指定列的数据类型</summary>
     /// <param name="ordinal">从零开始的列序号</param>
@@ -168,7 +179,7 @@ public class MySqlDataReader : DbDataReader
     [return: DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
     public override Type GetFieldType(Int32 ordinal)
     {
-        var col = _Columns![ordinal];
+        var col = CurrentColumns[ordinal];
 
         return col.Type switch
         {
@@ -370,7 +381,7 @@ public class MySqlDataReader : DbDataReader
     {
         if (_FieldCount <= 0) return false;
 
-        var client = (Command.Connection as MySqlConnection)!.Client!;
+        var client = Client;
         SetClientTimeout(client, ReadPhaseTimeout);
 
         // 复用上一行的数组，避免每行分配一个新 Object[]，减少 GC 压力
@@ -378,9 +389,10 @@ public class MySqlDataReader : DbDataReader
         if (values == null || values.Length != _FieldCount)
             values = new Object[_FieldCount];
 
+        var columns = CurrentColumns;
         var result = IsBinaryProtocol
-            ? await client.NextBinaryRowAsync(values, _Columns!, cancellationToken).ConfigureAwait(false)
-            : await client.NextRowAsync(values, _Columns!, cancellationToken).ConfigureAwait(false);
+            ? await client.NextBinaryRowAsync(values, columns, cancellationToken).ConfigureAwait(false)
+            : await client.NextRowAsync(values, columns, cancellationToken).ConfigureAwait(false);
 
         if (!result.HasRow)
         {
@@ -400,7 +412,7 @@ public class MySqlDataReader : DbDataReader
     /// <returns></returns>
     public override async Task<Boolean> NextResultAsync(CancellationToken cancellationToken)
     {
-        var client = (Command.Connection as MySqlConnection)!.Client!;
+        var client = Client;
 
         // 如果当前结果集的行未消费完，先跳过剩余行（不解析内容）
         if (_FieldCount > 0 && !_allRowsConsumed)
@@ -503,6 +515,13 @@ public class MySqlDataReader : DbDataReader
             Activity.Dispose();
             OperationLease?.Dispose();
             OperationLease = null;
+
+            // ADO.NET 契约：CommandBehavior.CloseConnection 要求在读取器关闭时一并关闭连接
+            if (CloseConnectionOnClose)
+            {
+                CloseConnectionOnClose = false;
+                Command.Connection?.Close();
+            }
         }
     }
 

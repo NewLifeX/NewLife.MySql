@@ -214,7 +214,7 @@ public class MySqlCommand : DbCommand
     /// <returns></returns>
     protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken)
     {
-        var conn = _DbConnection;
+        var conn = _DbConnection ?? throw new InvalidOperationException(L.T("The connection has not been set."));
         // 仅读语句支持断线重连重试：DML 在"服务端已执行、响应丢失"时重连重试会重复执行（非幂等），故不重试。
         // 事务内也不重试（避免 DML 重复执行）；用户主动关闭重试则直接执行
         if (DbTransaction != null || !conn.Setting.RetryOnNetworkFailure || !IsReadOnlySql(CommandText, CommandType))
@@ -267,7 +267,7 @@ public class MySqlCommand : DbCommand
         var sql = CommandText;
         if (sql.IsNullOrEmpty()) throw new ArgumentNullException(nameof(CommandText), L.T("CommandText cannot be empty."));
 
-        var conn = _DbConnection;
+        var conn = _DbConnection ?? throw new InvalidOperationException(L.T("The connection has not been set."));
         var client = conn.Client ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
         if (CommandType == CommandType.TableDirect) sql = "Select * From " + sql;
@@ -309,7 +309,9 @@ public class MySqlCommand : DbCommand
                 // 跨度覆盖命令发送到读取器关闭的完整周期
                 Activity = span,
                 // 会话变量 SQL_SELECT_LIMIT 已改写，关闭时需恢复，避免污染连接池中的会话
-                ResetSelectLimit = selectLimit >= 0
+                ResetSelectLimit = selectLimit >= 0,
+                // CloseConnection 由读取器在关闭时执行，避免调用方忘记关闭
+                CloseConnectionOnClose = behavior.HasFlag(CommandBehavior.CloseConnection)
             };
             var isBinary = await ExecuteAsync(cancellationToken).ConfigureAwait(false);
             reader.IsBinaryProtocol = isBinary;
@@ -394,14 +396,27 @@ public class MySqlCommand : DbCommand
     /// <summary>判断异常是否为可重试的网络临时故障</summary>
     /// <param name="ex">待判断异常</param>
     /// <returns>true 表示可重试</returns>
-    private static Boolean IsNetworkException(Exception ex) => ex switch
+    private static Boolean IsNetworkException(Exception ex)
     {
-        OperationCanceledException => false,
-        TimeoutException => false,
-        IOException => true,
-        MySqlException { ErrorCode: 2006 or 2013 } => true,
-        _ => false
-    };
+        // 逐层向内看：驱动会把读包异常包成 MySqlException/InvalidOperationException，只看最外层会漏判。
+        // 任意一层出现取消/超时都算“不该重试”（旧框架靠关闭 socket 解除挂起，会以 IOException 形式冒出）
+        var retryable = false;
+        for (var e = ex; e != null; e = e.InnerException)
+        {
+            switch (e)
+            {
+                case OperationCanceledException:
+                case TimeoutException:
+                    return false;
+                case IOException:
+                case MySqlException { ErrorCode: 2006 or 2013 }:
+                    retryable = true;
+                    break;
+            }
+        }
+
+        return retryable;
+    }
 
     /// <summary>判断命令是否为只读语句。仅读语句支持断线重连重试，DML 重试可能重复执行</summary>
     /// <param name="sql">命令文本</param>
