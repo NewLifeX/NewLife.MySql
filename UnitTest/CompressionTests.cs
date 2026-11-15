@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using NewLife;
 using NewLife.MySql;
 using NewLife.Security;
 
@@ -66,5 +67,20 @@ public class CompressionTests : IDisposable
         using var cmd = new MySqlCommand(_conn, $"SELECT payload FROM `{_table}` WHERE name='big'");
         var rs = cmd.ExecuteScalar();
         Assert.Equal(big, rs);
+    }
+
+    [Fact]
+    [DisplayName("压缩协议下超过16MB的报文给出明确提示")]
+    public void Compressed_HugePayload()
+    {
+        // 传输层压缩包与普通包的长度字段都只有 3 字节，>16MB 需要压缩层分帧；
+        // 驱动选择明确拒绝，而不是发出错长度的包把协议流搞乱
+        var data = new Byte[17 * 1024 * 1024];
+
+        using var cmd = new MySqlCommand(_conn, $"REPLACE INTO `{_table}` (id, name, payload) VALUES (99, 'huge', @d)");
+        cmd.Parameters.AddWithValue("@d", Convert.ToBase64String(data));
+
+        var ex = Assert.ThrowsAny<Exception>(() => cmd.ExecuteNonQuery());
+        Assert.Contains("UseCompression", ex.ToString());
     }
 }

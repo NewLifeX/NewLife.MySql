@@ -38,6 +38,7 @@
 "Resource {0} not found in {1}.": "资源 {0} 未在 {1} 中找到。"
 "Transaction has already been committed or is not pending.": "事务已提交或不在挂起状态。"
 "No data exists for the row or column.": "当前行或列没有数据。"
+"Packets larger than 16MB require UseCompression=false in the connection string.": "超过 16MB 的报文请在连接串设置 UseCompression=false（关闭压缩）。"
 "Binlog read error; reconnecting in {0}ms: {1}": "Binlog 读取异常，{0}ms 后重连：{1}"
 "Started subscribing to binlog: {0} ServerId={1}": "开始订阅 Binlog：{0} ServerId={1}"
 "Event handler error: {0}": "事件处理异常：{0}"

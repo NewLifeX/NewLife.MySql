@@ -53,3 +53,4 @@
 "Server certificate validation failed ({0}). Set SslMode=Required to skip certificate validation.": "Server certificate validation failed ({0}). Set SslMode=Required to skip certificate validation."
 "Stored procedure with OUT/INOUT parameters requires AllowMultiStatements=true in the connection string.": "Stored procedure with OUT/INOUT parameters requires AllowMultiStatements=true in the connection string."
 "Reading multiple result sets requires AllowMultiStatements=true in the connection string.": "Reading multiple result sets requires AllowMultiStatements=true in the connection string."
+"Packets larger than 16MB require UseCompression=false in the connection string.": "16MB を超えるパケットには接続文字列で UseCompression=false の指定が必要です。"

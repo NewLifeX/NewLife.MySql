@@ -929,109 +929,40 @@ public class SqlClient : DisposeBase
 
         try
         {
+            var (data, seq) = await ReadPlainPacketAsync(ms, token).ConfigureAwait(false);
+
+            // 普通包满长时，后续普通包是同一条报文的续帧（超过 16MB 的结果行），必须拼接后再返回
+            if (data.Length < MaxPayload) return BuildServerPacket(ms, data, seq);
+
+            var parts = new List<Byte[]> { data };
+            var total = data.Length;
+            var lastSeq = seq;
+            var maxPacketSize = MaxPacketSize > 0 ? MaxPacketSize : 64 * 1024 * 1024;
             while (true)
             {
-                // 缓存不足一个完整普通包头或存在跨包待拼接数据时，读取并解压下一个压缩包（前置拼接保留的不完整包数据）
-                if (_compressCache == null || _compressCacheOffset + 4 > _compressCacheLength || _compressPending)
+                var (next, nextSeq) = await ReadPlainPacketAsync(ms, token).ConfigureAwait(false);
+                parts.Add(next);
+                total += next.Length;
+                lastSeq = nextSeq;
+
+                if (total > maxPacketSize)
                 {
-                    // 7字节压缩包头: 3字节压缩长度 + 1字节序列号 + 3字节未压缩长度
-                    _compressHeaderBuf ??= new Byte[CompressedHeaderSize];
-                    var hdr = _compressHeaderBuf;
-                    await _reader.ReadAsync(ms, hdr, 0, CompressedHeaderSize, token).ConfigureAwait(false);
-
-                    var compressedLen = hdr[0] + (hdr[1] << 8) + (hdr[2] << 16);
-                    var seq = hdr[3];
-                    var uncompressedLen = hdr[4] + (hdr[5] << 8) + (hdr[6] << 16);
-                    _seq = (Byte)(seq + 1);
-
-                    // 压缩/解压后数据包大小上限检测
-                    var maxPacketSize = MaxPacketSize > 0 ? MaxPacketSize : 64 * 1024 * 1024;
-                    if (uncompressedLen > maxPacketSize)
-                    {
-                        Active = false;
-                        throw new InvalidOperationException(L.T("Decompressed packet size ({0}) exceeds the maximum allowed ({1}).", uncompressedLen, maxPacketSize));
-                    }
-                    if (compressedLen > maxPacketSize)
-                    {
-                        Active = false;
-                        throw new InvalidOperationException(L.T("Compressed packet size ({0}) exceeds the maximum allowed ({1}).", compressedLen, maxPacketSize));
-                    }
-
-                    // 保留尚未消费的跨包数据（不完整普通包尾部）
-                    var remain = _compressCacheLength - _compressCacheOffset;
-                    if (remain < 0) remain = 0;
-
-                    Byte[] payload;
-                    Int32 payloadLen;
-                    if (uncompressedLen == 0)
-                    {
-                        // 未压缩小包：payload 直接是带普通帧头的标准包
-                        payload = new Byte[remain + compressedLen];
-                        if (remain > 0) Buffer.BlockCopy(_compressCache!, _compressCacheOffset, payload, 0, remain);
-                        await _reader.ReadAsync(ms, payload, remain, compressedLen, token).ConfigureAwait(false);
-                        payloadLen = remain + compressedLen;
-                    }
-                    else
-                    {
-                        // 压缩包：读取压缩数据后 zlib 解压，前置拼接保留数据
-                        var compressed = new Byte[compressedLen];
-                        await _reader.ReadAsync(ms, compressed, 0, compressedLen, token).ConfigureAwait(false);
-
-                        payload = new Byte[remain + uncompressedLen];
-                        if (remain > 0) Buffer.BlockCopy(_compressCache!, _compressCacheOffset, payload, 0, remain);
-                        var n = ZlibDecompress(compressed, 0, compressedLen, payload, remain, uncompressedLen);
-                        payloadLen = remain + n;
-                    }
-                    _compressCache = payload;
-                    _compressCacheOffset = 0;
-                    _compressCacheLength = payloadLen;
-                    _compressPending = false;
+                    Active = false;
+                    throw new InvalidOperationException(L.T("Packet size ({0}) exceeds the maximum allowed ({1}).", total, maxPacketSize));
                 }
 
-                // 从缓存解析一个普通包（跳过 4 字节普通帧头）
-                var cache = _compressCache!;
-                var offset = _compressCacheOffset;
-                if (offset + 4 > _compressCacheLength)
-                    continue; // 数据不足，循环读取下一个压缩包
-
-                var len = cache[offset] + (cache[offset + 1] << 8) + (cache[offset + 2] << 16);
-                var seq2 = cache[offset + 3];
-
-                // 普通包不完整（跨压缩包分片）：保留未消费部分并标记，循环强制读取下一个压缩包拼接
-                if (offset + 4 + len > _compressCacheLength)
-                {
-                    var remain = _compressCacheLength - offset;
-                    if (remain > 0 && offset > 0)
-                        Buffer.BlockCopy(cache, offset, cache, 0, remain);
-                    _compressCacheOffset = 0;
-                    _compressCacheLength = remain;
-                    _compressPending = true;
-                    continue;
-                }
-
-                _compressCacheOffset = offset + 4 + len;
-
-                var pk = new OwnerPacket(len);
-                Buffer.BlockCopy(cache, offset + 4, pk.Buffer, pk.Offset, len);
-                var rs = new ServerPacket(ms) { Length = len, Sequence = seq2 };
-                rs.Set(pk);
-                WritePacketLog("<=", seq2, pk.GetSpan(), len);
-
-                // 错误包检测
-                if (rs.IsError)
-                {
-                    var data = rs.Data;
-                    var reader = new SpanReader(data.Slice(1));
-                    var code = reader.ReadUInt16();
-                    var msg = reader.ReadZeroString();
-                    if (!msg.IsNullOrEmpty() && msg[0] == '#')
-                        throw new MySqlException(code, msg[..6], msg[6..]);
-                    else
-                        throw new MySqlException(code, msg);
-                }
-
-                return rs;
+                if (next.Length < MaxPayload) break;
             }
+
+            var buf = new Byte[total];
+            var pos = 0;
+            foreach (var part in parts)
+            {
+                Buffer.BlockCopy(part, 0, buf, pos, part.Length);
+                pos += part.Length;
+            }
+
+            return BuildServerPacket(ms, buf, lastSeq);
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
@@ -1050,75 +981,181 @@ public class SqlClient : DisposeBase
         }
     }
 
+    /// <summary>从压缩流中读出一个普通包的数据体（不含 4 字节帧头）。普通包跨压缩包分片时自动拼接</summary>
+    /// <param name="ms">网络流</param>
+    /// <param name="token">取消令牌</param>
+    /// <returns>数据体与序列号</returns>
+    private async Task<(Byte[] Data, Byte Sequence)> ReadPlainPacketAsync(Stream ms, CancellationToken token)
+    {
+        while (true)
+        {
+            // 缓存不足一个完整普通包头或存在跨包待拼接数据时，读取并解压下一个压缩包（前置拼接保留的不完整包数据）
+            if (_compressCache == null || _compressCacheOffset + 4 > _compressCacheLength || _compressPending)
+            {
+                await FillCompressedCacheAsync(ms, token).ConfigureAwait(false);
+            }
+
+            var cache = _compressCache!;
+            var offset = _compressCacheOffset;
+            if (offset + 4 > _compressCacheLength) continue; // 数据不足，循环读取下一个压缩包
+
+            var len = cache[offset] + (cache[offset + 1] << 8) + (cache[offset + 2] << 16);
+            var seq = cache[offset + 3];
+            _seq = (Byte)(seq + 1);
+
+            // 普通包不完整（跨压缩包分片）：保留未消费部分并标记，循环强制读取下一个压缩包拼接
+            if (offset + 4 + len > _compressCacheLength)
+            {
+                var remain = _compressCacheLength - offset;
+                if (remain > 0 && offset > 0)
+                    Buffer.BlockCopy(cache, offset, cache, 0, remain);
+                _compressCacheOffset = 0;
+                _compressCacheLength = remain;
+                _compressPending = true;
+                continue;
+            }
+
+            _compressCacheOffset = offset + 4 + len;
+
+            var data = new Byte[len];
+            if (len > 0) Buffer.BlockCopy(cache, offset + 4, data, 0, len);
+
+            return (data, seq);
+        }
+    }
+
+    /// <summary>读取并解压一个压缩包，前置拼接上次未消费的不完整普通包数据</summary>
+    /// <param name="ms">网络流</param>
+    /// <param name="token">取消令牌</param>
+    private async Task FillCompressedCacheAsync(Stream ms, CancellationToken token)
+    {
+        // 7字节压缩包头: 3字节压缩长度 + 1字节序列号 + 3字节未压缩长度
+        _compressHeaderBuf ??= new Byte[CompressedHeaderSize];
+        var hdr = _compressHeaderBuf;
+        await _reader.ReadAsync(ms, hdr, 0, CompressedHeaderSize, token).ConfigureAwait(false);
+
+        var compressedLen = hdr[0] + (hdr[1] << 8) + (hdr[2] << 16);
+        var seq = hdr[3];
+        var uncompressedLen = hdr[4] + (hdr[5] << 8) + (hdr[6] << 16);
+        _seq = (Byte)(seq + 1);
+
+        // 压缩/解压后数据包大小上限检测
+        var maxPacketSize = MaxPacketSize > 0 ? MaxPacketSize : 64 * 1024 * 1024;
+        if (uncompressedLen > maxPacketSize)
+        {
+            Active = false;
+            throw new InvalidOperationException(L.T("Decompressed packet size ({0}) exceeds the maximum allowed ({1}).", uncompressedLen, maxPacketSize));
+        }
+        if (compressedLen > maxPacketSize)
+        {
+            Active = false;
+            throw new InvalidOperationException(L.T("Compressed packet size ({0}) exceeds the maximum allowed ({1}).", compressedLen, maxPacketSize));
+        }
+
+        // 保留尚未消费的跨包数据（不完整普通包尾部）
+        var remain = _compressCacheLength - _compressCacheOffset;
+        if (remain < 0) remain = 0;
+
+        Byte[] payload;
+        Int32 payloadLen;
+        if (uncompressedLen == 0)
+        {
+            // 未压缩小包：payload 直接是带普通帧头的标准包
+            payload = new Byte[remain + compressedLen];
+            if (remain > 0) Buffer.BlockCopy(_compressCache!, _compressCacheOffset, payload, 0, remain);
+            await _reader.ReadAsync(ms, payload, remain, compressedLen, token).ConfigureAwait(false);
+            payloadLen = remain + compressedLen;
+        }
+        else
+        {
+            // 压缩包：读取压缩数据后 zlib 解压，前置拼接保留数据
+            var compressed = new Byte[compressedLen];
+            await _reader.ReadAsync(ms, compressed, 0, compressedLen, token).ConfigureAwait(false);
+
+            payload = new Byte[remain + uncompressedLen];
+            if (remain > 0) Buffer.BlockCopy(_compressCache!, _compressCacheOffset, payload, 0, remain);
+            var n = ZlibDecompress(compressed, 0, compressedLen, payload, remain, uncompressedLen);
+            payloadLen = remain + n;
+        }
+        _compressCache = payload;
+        _compressCacheOffset = 0;
+        _compressCacheLength = payloadLen;
+        _compressPending = false;
+    }
+
+    /// <summary>用普通包数据体构建服务端数据包，并记录日志、检测错误包</summary>
+    /// <param name="ms">网络流</param>
+    /// <param name="data">普通包数据体</param>
+    /// <param name="sequence">序列号</param>
+    /// <returns>服务端数据包</returns>
+    private ServerPacket BuildServerPacket(Stream ms, Byte[] data, Byte sequence)
+    {
+        var len = data.Length;
+        var pk = new OwnerPacket(len);
+        if (len > 0) Buffer.BlockCopy(data, 0, pk.Buffer, pk.Offset, len);
+
+        var rs = new ServerPacket(ms) { Length = len, Sequence = sequence };
+        rs.Set(pk);
+        WritePacketLog("<=", sequence, pk.GetSpan(), len);
+
+        // 错误包检测
+        if (rs.IsError)
+        {
+            var reader = new SpanReader(rs.Data.Slice(1));
+            var code = reader.ReadUInt16();
+            var msg = reader.ReadZeroString();
+            if (!msg.IsNullOrEmpty() && msg[0] == '#')
+                throw new MySqlException(code, msg[..6], msg[6..]);
+            else
+                throw new MySqlException(code, msg);
+        }
+
+        return rs;
+    }
+
     /// <summary>发送压缩协议数据包</summary>
     private async Task SendCompressedPacketAsync(IPacket pk, Stream ms, Boolean flush, CancellationToken cancellationToken)
     {
-        // 压缩协议：压缩包 payload 必须是带 4 字节普通帧头的标准包，先补帧头（帧头 seq 从 0 开始，与查询重置语义一致）
         var len = pk.Total;
         var pk2 = PrepareFrameHeader(pk, 4);
-        pk2[0] = (Byte)(len & 0xFF);
-        pk2[1] = (Byte)((len >> 8) & 0xFF);
-        pk2[2] = (Byte)((len >> 16) & 0xFF);
-        pk2[3] = 0;
-
-        var uncompressedLen = pk2.Total;
-        var seq = _seq++;
 
         try
         {
-            // 链式数据（PrepareFrameHeader 可能生成 { 帧头, Next=原包 } 链，GetSpan 仅返回单段）合并到连续缓冲后再压缩
-            var plain = new Byte[uncompressedLen];
+            // 普通包长度与压缩包长度字段都只有 3 字节，超过 16MB 需要压缩层分帧（各服务端实现差异大），
+            // 这里明确拒绝，避免发出长度回绕的包把协议流搞乱
+            if (len >= MaxPayload)
+                throw new NotSupportedException(L.T("Packets larger than 16MB require UseCompression=false in the connection string."));
+
+            // 链式数据（PrepareFrameHeader 可能生成 { 帧头, Next=原包 } 链，GetSpan 仅返回单段）合并到连续缓冲，
+            // 跳过预留的 4 字节帧头，帧头由普通包自行补齐
+            var body = new Byte[len];
             var pos = 0;
+            var skip = 4;
             for (var node = (IPacket?)pk2; node != null; node = node.Next)
             {
                 var span = node.GetSpan();
-                span.CopyTo(new Span<Byte>(plain, pos, span.Length));
+                if (skip > 0)
+                {
+                    if (span.Length <= skip)
+                    {
+                        skip -= span.Length;
+                        continue;
+                    }
+
+                    span = span[skip..];
+                    skip = 0;
+                }
+                if (pos + span.Length > len) span = span[..(len - pos)];
+                span.CopyTo(new Span<Byte>(body, pos, span.Length));
                 pos += span.Length;
             }
 
-            // zlib 压缩：MySQL 压缩协议使用 zlib 格式（带 2 字节头 + adler32），与 .NET DeflateStream 的 DEFLATE 格式不兼容
-            var compressedBuf = ZlibCompress(plain);
-            var compressedLen = compressedBuf.Length;
+            var raw = BuildPlainFrames(body);
+            await WriteCompressedChunkAsync(ms, raw, 0, raw.Length, cancellationToken).ConfigureAwait(false);
 
-            // 小包不压缩（压缩后更大则发送未压缩）
-            var sendUncompressed = compressedLen >= uncompressedLen;
-            var totalLen = CompressedHeaderSize + (sendUncompressed ? uncompressedLen : compressedLen);
-            using var sendPk = new OwnerPacket(totalLen);
-            var dst = sendPk.GetSpan();
+            WritePacketLog("=>", _seq, pk.GetSpan(), len);
 
-            // 填充压缩包头
-            var clen = sendUncompressed ? uncompressedLen : compressedLen;
-            dst[0] = (Byte)(clen & 0xFF);
-            dst[1] = (Byte)((clen >> 8) & 0xFF);
-            dst[2] = (Byte)((clen >> 16) & 0xFF);
-            dst[3] = seq;
-            // 未压缩长度：发送未压缩数据时填0（标识为不压缩），发送压缩数据时填原始长度
-            dst[4] = (Byte)(sendUncompressed ? 0 : (uncompressedLen & 0xFF));
-            dst[5] = (Byte)(sendUncompressed ? 0 : ((uncompressedLen >> 8) & 0xFF));
-            dst[6] = (Byte)(sendUncompressed ? 0 : ((uncompressedLen >> 16) & 0xFF));
-
-            // 填充数据体
-            if (sendUncompressed)
-            {
-                new ReadOnlySpan<Byte>(plain, 0, uncompressedLen).CopyTo(dst[CompressedHeaderSize..]);
-            }
-            else
-            {
-                compressedBuf.AsSpan(0, compressedLen).CopyTo(dst[CompressedHeaderSize..]);
-            }
-
-            WritePacketLog("=>", seq, pk.GetSpan(), len);
-
-            try
-            {
-                await sendPk.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
-                if (flush) await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
-            }
-            catch
-            {
-                Active = false;
-                throw;
-            }
+            if (flush) await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
 
             LastActive = DateTime.Now;
         }
@@ -1127,6 +1164,66 @@ public class SqlClient : DisposeBase
             // 发送即消费：归还链头与原包缓冲（v12 不再级联转移原包所有权）
             if (pk2 is IOwnerPacket owner) owner.Dispose();
             if (pk is IOwnerPacket pkOwner) pkOwner.Dispose();
+        }
+    }
+
+    /// <summary>把数据体切成普通包序列（4 字节帧头 + 数据）</summary>
+    /// <param name="body">数据体</param>
+    /// <returns>普通包序列字节</returns>
+    /// <remarks>数据体不超过 16MB 时只产生一个普通包；数据体为空时产生一个 0 长度普通包</remarks>
+    private static Byte[] BuildPlainFrames(Byte[] body)
+    {
+        var len = body.Length;
+        var frames = new Byte[4 + len];
+        frames[0] = (Byte)(len & 0xFF);
+        frames[1] = (Byte)((len >> 8) & 0xFF);
+        frames[2] = (Byte)((len >> 16) & 0xFF);
+        frames[3] = 0;
+        if (len > 0) Buffer.BlockCopy(body, 0, frames, 4, len);
+
+        return frames;
+    }
+
+    /// <summary>发送一个压缩包。数据体可能落在普通帧中间，读取端会跨包拼接</summary>
+    /// <param name="ms">网络流</param>
+    /// <param name="buffer">普通包序列缓冲</param>
+    /// <param name="offset">本压缩包起始位置</param>
+    /// <param name="count">本压缩包长度</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    private async Task WriteCompressedChunkAsync(Stream ms, Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken)
+    {
+        var seq = _seq++;
+
+        // zlib 压缩：MySQL 压缩协议使用 zlib 格式（带 2 字节头 + adler32），与 .NET DeflateStream 的 DEFLATE 格式不兼容
+        var compressed = ZlibCompress(new ReadOnlySpan<Byte>(buffer, offset, count));
+
+        // 压缩后更大则直接发原文（未压缩长度字段填 0），两者都保证长度字段不溢出
+        var sendUncompressed = compressed.Length >= count;
+        var clen = sendUncompressed ? count : compressed.Length;
+
+        using var pk = new OwnerPacket(CompressedHeaderSize + clen);
+        var dst = pk.GetSpan();
+        dst[0] = (Byte)(clen & 0xFF);
+        dst[1] = (Byte)((clen >> 8) & 0xFF);
+        dst[2] = (Byte)((clen >> 16) & 0xFF);
+        dst[3] = seq;
+        dst[4] = (Byte)(sendUncompressed ? 0 : (count & 0xFF));
+        dst[5] = (Byte)(sendUncompressed ? 0 : ((count >> 8) & 0xFF));
+        dst[6] = (Byte)(sendUncompressed ? 0 : ((count >> 16) & 0xFF));
+
+        if (sendUncompressed)
+            new ReadOnlySpan<Byte>(buffer, offset, count).CopyTo(dst[CompressedHeaderSize..]);
+        else
+            compressed.AsSpan(0, clen).CopyTo(dst[CompressedHeaderSize..]);
+
+        try
+        {
+            await pk.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            Active = false;
+            throw;
         }
     }
     #endregion
@@ -1339,9 +1436,7 @@ public class SqlClient : DisposeBase
          - 使用 Tracer 记录埋点，尊重传入的 CancellationToken 和 Timeout 属性
         */
 
-#if DEBUG
         using var span = Tracer?.NewSpan($"db:{Database}:Ping");
-#endif
         try
         {
             // 发送 PING 命令
@@ -1353,9 +1448,7 @@ public class SqlClient : DisposeBase
         }
         catch (Exception ex)
         {
-#if DEBUG
             span?.SetError(ex);
-#endif
 
             // 心跳失败，标记为不可用，停止定时器
             Active = false;
