@@ -1,5 +1,4 @@
-﻿using System.Collections.Concurrent;
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
@@ -20,8 +19,7 @@ public class SqlClient : DisposeBase
 {
     private const Int32 PacketTraceBytes = 512;
     private const Int32 CompressedHeaderSize = 7;
-    private static readonly TimeSpan SslFallbackPeriod = TimeSpan.FromMinutes(10);
-    private static readonly ConcurrentDictionary<String, DateTime> _sslFallbacks = new();
+    private Boolean _resetUnsupported;
 
     // 压缩协议相关
     private Boolean _useCompression;
@@ -153,11 +151,21 @@ public class SqlClient : DisposeBase
         if (server.IsNullOrEmpty() && socketPath.IsNullOrEmpty())
             throw new InvalidOperationException(L.T("Server address is not specified (Server or Socket)."));
 
+        // SslMode 拼错时旧实现会静默按“加密但不校验证书”处理，服务端不支持 SSL 时甚至静默降级明文。
+        // 在建立网络连接前拒绝未知取值，避免安全配置失效。
+        var sslMode = set.SslMode;
+        if (!sslMode.IsNullOrEmpty() && !IsSupportedSslMode(sslMode))
+            throw new ArgumentException(L.T("Unsupported SslMode: {0}.", sslMode), nameof(set.SslMode));
+
+        // 握手 charset 只声明编号，驱动收发始终按 UTF-8 编码。GBK/GB2312/Latin1 等会造成双向乱码，
+        // 且可能让转义后的字节被服务器按另一字符集解释，直接拒绝而不是静默使用错误编码。
+        if (set.CharSet is not (MySqlCharSet.Utf8 or MySqlCharSet.Utf8Mb4 or MySqlCharSet.Utf8Mb4Unicode))
+            throw new NotSupportedException(L.T("Character set {0} is not supported; use utf8, utf8mb4, or utf8mb4_unicode_ci.", set.CharSet));
+
         var port = set.Port;
         if (port == 0) port = 3306;
         var isUnixSocket = !socketPath.IsNullOrEmpty();
         if (isUnixSocket) server = socketPath!;
-        var sslFallbackKey = GetSslFallbackKey(set, server, port);
 
         var msTimeout = set.ConnectionTimeout * 1000;
         if (msTimeout <= 0) msTimeout = 15000;
@@ -245,24 +253,16 @@ public class SqlClient : DisposeBase
             Capability = welcome.Capability;
 
             // SSL/TLS 握手
-            var sslMode = set.SslMode;
             if (allowSsl && !sslMode.IsNullOrEmpty() && !sslMode.EqualIgnoreCase("None", "Disabled"))
             {
-                if (sslMode.EqualIgnoreCase("Preferred") && CanSkipSsl(sslFallbackKey))
-                {
-                    XTrace.WriteLine("[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred skip TLS and use cached plain-text fallback",
-                        set.Database, server, port);
-                }
-                else if (Capability.Has(ClientFlags.SSL))
+                if (Capability.Has(ClientFlags.SSL))
                 {
                     try
                     {
                         await StartSslAsync(server!, cts.Token).ConfigureAwait(false);
-                        ClearSslFallback(sslFallbackKey);
                     }
                     catch (Exception ex) when (sslMode.EqualIgnoreCase("Preferred"))
                     {
-                        MarkSslFallback(sslFallbackKey);
                         XTrace.WriteLine("[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred fallback to plain text: {3}: {4}",
                             set.Database, server, port, ex.GetType().Name, ex.Message);
 
@@ -333,21 +333,6 @@ public class SqlClient : DisposeBase
         //_timer = new TimerX(s => { _ = PingAsync(); }, null, 10_000, 30_000) { Async = true };
     }
 
-    private static String GetSslFallbackKey(MySqlConnectionStringBuilder setting, String server, Int32 port) => $"{server}:{port}|{setting.UserID}";
-
-    private static Boolean CanSkipSsl(String key)
-    {
-        if (!_sslFallbacks.TryGetValue(key, out var expireAt)) return false;
-        if (expireAt > DateTime.UtcNow) return true;
-
-        _sslFallbacks.TryRemove(key, out _);
-        return false;
-    }
-
-    private static void MarkSslFallback(String key) => _sslFallbacks[key] = DateTime.UtcNow.Add(SslFallbackPeriod);
-
-    private static void ClearSslFallback(String key) => _sslFallbacks.TryRemove(key, out _);
-
     /// <summary>异步发送SSL请求并升级为TLS连接</summary>
     /// <param name="server">服务器地址</param>
     /// <param name="cancellationToken">取消令牌</param>
@@ -406,6 +391,12 @@ public class SqlClient : DisposeBase
 
     /// <summary>当前 SslMode 是否要求校验证书链与主机名</summary>
     private Boolean VerifyCertificate => Setting.SslMode.EqualIgnoreCase("VerifyFull", "VerifyCA", "VerifyIdentity");
+
+    /// <summary>判断 SslMode 是否为受支持取值</summary>
+    /// <param name="sslMode">连接字符串中的 SslMode</param>
+    /// <returns>是否受支持</returns>
+    internal static Boolean IsSupportedSslMode(String? sslMode)
+        => sslMode.IsNullOrEmpty() || sslMode.EqualIgnoreCase("None", "Disabled", "Preferred", "Required", "VerifyCA", "VerifyFull", "VerifyIdentity");
 
     /// <summary>判断是否接受服务端证书</summary>
     /// <param name="verifyCertificate">是否要求校验证书</param>
@@ -499,8 +490,6 @@ public class SqlClient : DisposeBase
     #region 网络操作
     /// <summary>重置连接状态。探测底层 socket 是否仍可复用</summary>
     /// <returns>连接是否仍然可用</returns>
-    /// <remarks>探测职责完全由 <see cref="IsSocketAlive"/> 接管，对 NetworkStream 与 SslStream 同样有效（探测底层 socket），
-    /// 不再像旧实现那样仅排空 NetworkStream 残留而漏过 SSL 连接与半开 socket。</remarks>
     public Boolean Reset()
     {
         if (!Active) return false;
@@ -513,6 +502,84 @@ public class SqlClient : DisposeBase
         }
 
         return true;
+    }
+
+    /// <summary>重置连接会话状态。探测底层 socket 健康状态，并通过 COM_RESET_CONNECTION 清理会话变量、临时表与用户变量</summary>
+    /// <returns>连接是否仍然可用</returns>
+    /// <remarks>探测职责完全由 <see cref="IsSocketAlive"/> 接管，对 NetworkStream 与 SslStream 同样有效（探测底层 socket），
+    /// 不再像旧实现那样仅排空 NetworkStream 残留而漏过 SSL 连接与半开 socket。
+    /// COM_RESET_CONNECTION 需要 MySQL 5.7.3+ / MariaDB 10.2.4+；更早版本跳过会话重置。</remarks>
+    public Boolean ResetSession()
+    {
+        if (!Reset()) return false;
+
+        // 未加载服务器变量说明这不是一个完成配置的会话（如测试桩），没有会话状态需要清理
+        if (Variables == null) return true;
+
+        if (!SupportsResetConnection) return true;
+
+        var timeout = Timeout;
+        try
+        {
+            // 归还是同步路径，必须给重置命令设置上限，避免网络黑洞把连接池槽位永久占住
+            if (Setting.ConnectionTimeout > 0) Timeout = Setting.ConnectionTimeout;
+
+            _seq = 0;
+            SendCommandAsync(DbCmd.RESET_CONNECTION).ConfigureAwait(false).GetAwaiter().GetResult();
+            using var rs = ReadPacketAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+            if (!rs.IsOK)
+            {
+                Active = false;
+                return false;
+            }
+
+            // 重置后当前数据库回到连接字符串指定的初始库
+            Database = Setting.Database!;
+            // 会话变量已恢复默认值，丢弃当前会话缓存；下次借出时由连接池缓存或 SHOW VARIABLES 重新填充
+            Variables = null;
+            return true;
+        }
+        catch (MySqlException ex) when (ex.ErrorCode == 1047)
+        {
+            // 服务器不认识 COM_RESET_CONNECTION（如部分兼容产品）：ERR 包已完整读走，连接仍可复用，
+            // 记录后跳过后续重置，避免每次归还都白白丢弃连接
+            _resetUnsupported = true;
+            return true;
+        }
+        catch
+        {
+            // 重置失败说明协议/会话状态不可信，丢弃连接而不是带着未知状态回池
+            Active = false;
+            return false;
+        }
+        finally
+        {
+            Timeout = timeout;
+        }
+    }
+
+    /// <summary>服务器是否支持 COM_RESET_CONNECTION</summary>
+    private Boolean SupportsResetConnection
+    {
+        get
+        {
+            if (_resetUnsupported) return false;
+
+            var version = Welcome?.ServerVersion;
+            if (version.IsNullOrEmpty()) return false;
+
+            var parts = version.Split('.', '-');
+            if (parts.Length < 2) return false;
+
+            var major = parts[0].ToInt();
+            var minor = parts[1].ToInt();
+            var patch = parts.Length > 2 ? parts[2].ToInt() : 0;
+
+            if (version.Contains("MariaDB", StringComparison.OrdinalIgnoreCase))
+                return major > 10 || (major == 10 && (minor > 2 || (minor == 2 && patch >= 4)));
+
+            return major > 5 || (major == 5 && (minor > 7 || (minor == 7 && patch >= 3)));
+        }
     }
 
     /// <summary>中止底层网络。旧框架（net45~netstandard2.1）的 NetworkStream 异步读写不响应取消令牌，
@@ -668,9 +735,9 @@ public class SqlClient : DisposeBase
                 var code = reader.ReadUInt16();
                 var msg = reader.ReadZeroString();
 
-                // 前面有6字符错误码
-                if (!msg.IsNullOrEmpty() && msg[0] == '#')
-                    throw new MySqlException(code, msg[..6], msg[6..]);
+                // 前面有 '#' + 5 字符 SQLSTATE；State 按 ADO.NET 惯例不包含 '#'
+                if (msg.Length >= 6 && msg[0] == '#')
+                    throw new MySqlException(code, msg[1..6], msg[6..]);
                 else
                     throw new MySqlException(code, msg);
             }
@@ -721,10 +788,19 @@ public class SqlClient : DisposeBase
         try
         {
             var available = Math.Min(Math.Max(length, 0), payload.Length);
+            var kind = available > 0 ? GetPacketKind(direction, payload[0]) : "Empty";
+
+            // 默认只记录包类型和长度。SQL、参数值等业务数据可能含口令/个人信息，必须显式开启载荷日志
+            if (!Setting.TracePacketPayload)
+            {
+                XTrace.WriteLine("[MySqlPacket] {0} db={1} seq={2} len={3} kind={4} data=skipped",
+                    direction, Database, sequence, length, kind);
+                return;
+            }
+
             var size = Math.Min(available, PacketTraceBytes);
             var data = size > 0 ? payload[..size].ToArray().ToHex() : String.Empty;
             var suffix = size < available ? "..." : String.Empty;
-            var kind = size > 0 ? GetPacketKind(direction, payload[0]) : "Empty";
 
             XTrace.WriteLine("[MySqlPacket] {0} db={1} seq={2} len={3} kind={4} data={5}{6}",
                 direction, Database, sequence, length, kind, data, suffix);
@@ -1104,8 +1180,8 @@ public class SqlClient : DisposeBase
             var reader = new SpanReader(rs.Data.Slice(1));
             var code = reader.ReadUInt16();
             var msg = reader.ReadZeroString();
-            if (!msg.IsNullOrEmpty() && msg[0] == '#')
-                throw new MySqlException(code, msg[..6], msg[6..]);
+            if (msg.Length >= 6 && msg[0] == '#')
+                throw new MySqlException(code, msg[1..6], msg[6..]);
             else
                 throw new MySqlException(code, msg);
         }
@@ -1702,8 +1778,8 @@ public class SqlClient : DisposeBase
                 var errReader = new SpanReader(new ReadOnlySpan<Byte>(_rowBuffer, 1, len - 1));
                 var code = errReader.ReadUInt16();
                 var msg = errReader.ReadZeroString();
-                if (!msg.IsNullOrEmpty() && msg[0] == '#')
-                    throw new MySqlException(code, msg[..6], msg[6..]);
+                if (msg.Length >= 6 && msg[0] == '#')
+                    throw new MySqlException(code, msg[1..6], msg[6..]);
                 else
                     throw new MySqlException(code, msg);
             }
@@ -2208,8 +2284,9 @@ public class SqlClient : DisposeBase
     {
         if (parameterSets == null || parameterSets.Count == 0) return 0;
 
-        // 真管道化：批量发送所有请求包，最后一次性 Flush，再批量读取响应
-        if (Setting.Pipeline)
+        // 真管道化：批量发送所有请求包，最后一次性 Flush，再批量读取响应。
+        // 压缩协议下请求帧需要经过压缩层封装，当前管道化发送路径直接写普通帧，必须回退到串行模式避免协议流损坏。
+        if (Setting.Pipeline && !_useCompression)
             return await ExecutePipelineValuesCoreAsync(statementId, parameterSets, cancellationToken).ConfigureAwait(false);
 
         // 串行模式：逐条发送 EXECUTE + 读取响应的快速循环
@@ -2471,6 +2548,7 @@ public class SqlClient : DisposeBase
     /// <param name="port">从属服务器端口</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>异步任务</returns>
+    /// <exception cref="InvalidOperationException">连接未使用 TLS 且提供了非空口令</exception>
     /// <remarks>
     /// COM_REGISTER_SLAVE 协议格式：
     /// 请求：command(1) + server_id(4) + hostname_length(1) + hostname + user_length(1) + user
@@ -2483,6 +2561,9 @@ public class SqlClient : DisposeBase
         var hostStr = host ?? "";
         var userStr = user ?? "";
         var pwdStr = password ?? "";
+        if (!pwdStr.IsNullOrEmpty() && _stream is not SslStream)
+            throw new InvalidOperationException(L.T("RegisterSlave requires a TLS connection when a password is supplied."));
+
         var hostByteCount = Encoding.GetByteCount(hostStr);
         var userByteCount = Encoding.GetByteCount(userStr);
         var pwdByteCount = Encoding.GetByteCount(pwdStr);

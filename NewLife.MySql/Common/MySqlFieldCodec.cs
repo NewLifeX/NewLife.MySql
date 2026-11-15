@@ -1,3 +1,4 @@
+using System.Globalization;
 ﻿using System.Text;
 using NewLife.Buffers;
 
@@ -349,13 +350,13 @@ public static class MySqlFieldCodec
                 writer.Write(v);
                 break;
             case Single v:
-                writer.Write(BitConverter.GetBytes(v));
+                WriteLittleEndian(ref writer, BitConverter.GetBytes(v));
                 break;
             case Double v:
-                writer.Write(BitConverter.GetBytes(v));
+                WriteLittleEndian(ref writer, BitConverter.GetBytes(v));
                 break;
             case Decimal v:
-                WriteLengthEncodedString(ref writer, v.ToString(), encoding);
+                WriteLengthEncodedString(ref writer, v.ToString(CultureInfo.InvariantCulture), encoding);
                 break;
             case DateTime v:
                 WriteBinaryDateTime(ref writer, v);
@@ -363,6 +364,14 @@ public static class MySqlFieldCodec
             case DateTimeOffset v:
                 WriteBinaryDateTime(ref writer, v.DateTime);
                 break;
+#if NET6_0_OR_GREATER
+            case DateOnly v:
+                WriteLengthEncodedString(ref writer, v.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), encoding);
+                break;
+            case TimeOnly v:
+                WriteLengthEncodedString(ref writer, v.ToString("HH:mm:ss.ffffff", CultureInfo.InvariantCulture).TrimEnd('0').TrimEnd('.'), encoding);
+                break;
+#endif
             case TimeSpan v:
                 WriteBinaryTime(ref writer, v);
                 break;
@@ -382,7 +391,7 @@ public static class MySqlFieldCodec
                 writer.Write(Convert.ToInt64(v));
                 break;
             default:
-                WriteLengthEncodedString(ref writer, value.ToString()!, encoding);
+                WriteLengthEncodedString(ref writer, Convert.ToString(value, CultureInfo.InvariantCulture) ?? String.Empty, encoding);
                 break;
         }
     }
@@ -551,7 +560,7 @@ public static class MySqlFieldCodec
         var hour = 0;
         var minute = 0;
         var second = 0;
-        var millisecond = 0;
+        var microsecond = 0;
 
         if (span.Length >= 19)
         {
@@ -562,7 +571,7 @@ public static class MySqlFieldCodec
 
         if (span.Length > 20)
         {
-            // 微秒部分，补齐到6位后取前3位作为毫秒
+            // 微秒部分，补齐到6位；DATETIME(6) 的亚毫秒精度必须保留，不能只取毫秒
             var fracStart = 20;
             var fracLen = span.Length - fracStart;
             if (fracLen > 6) fracLen = 6;
@@ -572,10 +581,10 @@ public static class MySqlFieldCodec
                 frac = frac * 10 + (span[fracStart + i] - '0');
             }
             for (var i = fracLen; i < 6; i++) frac *= 10;
-            millisecond = frac / 1000;
+            microsecond = frac;
         }
 
-        return new DateTime(year, month, day, hour, minute, second, millisecond);
+        return new DateTime(year, month, day, hour, minute, second).AddTicks(microsecond * 10L);
     }
 
     /// <summary>从 UTF-8 字节直接解析 MySQL TIME 值，零分配</summary>
@@ -612,7 +621,7 @@ public static class MySqlFieldCodec
         var seconds = (span[pos] - '0') * 10 + (span[pos + 1] - '0');
         pos += 2;
 
-        var milliseconds = 0;
+        var microseconds = 0;
         if (pos < span.Length && span[pos] == (Byte)'.')
         {
             pos++; // 跳过 '.'
@@ -624,10 +633,10 @@ public static class MySqlFieldCodec
                 frac = frac * 10 + (span[pos + i] - '0');
             }
             for (var i = fracLen; i < 6; i++) frac *= 10;
-            milliseconds = frac / 1000;
+            microseconds = frac;
         }
 
-        var ts = new TimeSpan(0, hours, minutes, seconds, milliseconds);
+        var ts = new TimeSpan(0, hours, minutes, seconds).Add(TimeSpan.FromTicks(microseconds * 10L));
         return neg ? ts.Negate() : ts;
     }
 
@@ -640,7 +649,7 @@ public static class MySqlFieldCodec
         if (System.Buffers.Text.Utf8Parser.TryParse(span, out Single value, out _))
             return value;
 #endif
-        return Single.Parse(span.ToStr());
+        return Single.Parse(span.ToStr(), CultureInfo.InvariantCulture);
     }
 
     /// <summary>从 UTF-8 字节解析双精度浮点数</summary>
@@ -652,7 +661,7 @@ public static class MySqlFieldCodec
         if (System.Buffers.Text.Utf8Parser.TryParse(span, out Double value, out _))
             return value;
 #endif
-        return Double.Parse(span.ToStr());
+        return Double.Parse(span.ToStr(), CultureInfo.InvariantCulture);
     }
 
     /// <summary>从 UTF-8 字节解析高精度小数</summary>
@@ -664,7 +673,7 @@ public static class MySqlFieldCodec
         if (System.Buffers.Text.Utf8Parser.TryParse(span, out Decimal value, out _))
             return value;
 #endif
-        return Decimal.Parse(span.ToStr());
+        return Decimal.Parse(span.ToStr(), CultureInfo.InvariantCulture);
     }
 
     /// <summary>读取二进制协议的单精度浮点数，避免 .ToArray() 分配</summary>
@@ -674,9 +683,11 @@ public static class MySqlFieldCodec
     {
         var bytes = reader.ReadBytes(4);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
-        return BitConverter.ToSingle(bytes);
+        return BitConverter.IsLittleEndian ? BitConverter.ToSingle(bytes) : BitConverter.ToSingle(Reverse(bytes.ToArray()), 0);
 #else
-        return BitConverter.ToSingle(bytes.ToArray(), 0);
+        var arr = bytes.ToArray();
+        if (!BitConverter.IsLittleEndian) Array.Reverse(arr);
+        return BitConverter.ToSingle(arr, 0);
 #endif
     }
 
@@ -687,10 +698,30 @@ public static class MySqlFieldCodec
     {
         var bytes = reader.ReadBytes(8);
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
-        return BitConverter.ToDouble(bytes);
+        return BitConverter.IsLittleEndian ? BitConverter.ToDouble(bytes) : BitConverter.ToDouble(Reverse(bytes.ToArray()), 0);
 #else
-        return BitConverter.ToDouble(bytes.ToArray(), 0);
+        var arr = bytes.ToArray();
+        if (!BitConverter.IsLittleEndian) Array.Reverse(arr);
+        return BitConverter.ToDouble(arr, 0);
 #endif
+    }
+
+    /// <summary>写入小端浮点字节。MySQL 协议固定小端，大端平台需要反转</summary>
+    /// <param name="writer">数据写入器</param>
+    /// <param name="bytes">BitConverter 生成的字节</param>
+    private static void WriteLittleEndian(ref SpanWriter writer, Byte[] bytes)
+    {
+        if (!BitConverter.IsLittleEndian) Array.Reverse(bytes);
+        writer.Write(bytes);
+    }
+
+    /// <summary>原地反转字节数组（大端平台读取协议小端数据）</summary>
+    /// <param name="bytes">字节数组</param>
+    /// <returns>同一数组</returns>
+    private static Byte[] Reverse(Byte[] bytes)
+    {
+        Array.Reverse(bytes);
+        return bytes;
     }
 
     #endregion

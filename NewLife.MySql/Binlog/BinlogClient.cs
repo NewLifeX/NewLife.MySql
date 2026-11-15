@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using NewLife.Buffers;
 using NewLife.Log;
 using NewLife.MySql.Common;
@@ -147,7 +147,7 @@ public class BinlogClient : DisposeBase
         _client.TryDispose();
         _client = null;
 
-        _tableMap.Clear();
+        lock (_tableMap) _tableMap.Clear();
     }
 
     /// <summary>异步停止 Binlog 订阅。优先使用此方法避免阻塞</summary>
@@ -173,7 +173,7 @@ public class BinlogClient : DisposeBase
         _client.TryDispose();
         _client = null;
 
-        _tableMap.Clear();
+        lock (_tableMap) _tableMap.Clear();
     }
 
     /// <summary>异步枚举 Binlog 事件。替代 OnEvent 回调的消费模式</summary>
@@ -253,15 +253,30 @@ public class BinlogClient : DisposeBase
     private async Task<BinlogPosition> GetCurrentPositionAsync(CancellationToken cancellationToken)
     {
         var conn = new MySqlConnection { Client = _client };
-        using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SHOW MASTER STATUS";
 
-        using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
-        if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        // MySQL 8.4 移除了 SHOW MASTER STATUS，改用 SHOW BINARY LOG STATUS；
+        // 8.0 及更早版本只认旧语句，因此先试新语句，仅当服务端报“语句不存在/语法错误”时回退。
+        foreach (var sql in new[] { "SHOW BINARY LOG STATUS", "SHOW MASTER STATUS" })
         {
-            var file = reader.GetString(0);
-            var pos = reader.GetValue(1).ToLong();
-            return new BinlogPosition(file, (UInt32)pos);
+            try
+            {
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = sql;
+
+                using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+                if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    var file = reader.GetString(0);
+                    var pos = reader.GetValue(1).ToLong();
+                    return new BinlogPosition(file, (UInt32)pos);
+                }
+
+                break;
+            }
+            catch (MySqlException ex) when (ex.ErrorCode is 1064 or 1146)
+            {
+                // 旧版本不识别 SHOW BINARY LOG STATUS，继续尝试 SHOW MASTER STATUS
+            }
         }
 
         throw new InvalidOperationException(L.T("Unable to obtain the current binlog position; make sure binlog is enabled."));
@@ -355,7 +370,7 @@ public class BinlogClient : DisposeBase
         }
         _client.TryDispose();
         _client = null;
-        _tableMap.Clear();
+        lock (_tableMap) _tableMap.Clear();
 
         await ConnectAndDumpAsync(cancellationToken).ConfigureAwait(false);
 
@@ -453,6 +468,9 @@ public class BinlogClient : DisposeBase
         // 更新位置
         if (!ev.NextBinlogFile.IsNullOrEmpty())
             Position = new BinlogPosition(ev.NextBinlogFile, (UInt32)ev.NextBinlogPosition);
+
+        // 新 binlog 文件的 table_id 映射从头开始，旧映射必须清空
+        lock (_tableMap) _tableMap.Clear();
     }
 
     /// <summary>解析查询事件</summary>
@@ -520,7 +538,7 @@ public class BinlogClient : DisposeBase
             ev.ColumnTypes = reader.ReadBytes(colCount).ToArray();
 
         // 缓存表映射
-        _tableMap[ev.TableId] = ev;
+        lock (_tableMap) _tableMap[ev.TableId] = ev;
     }
 
     /// <summary>解析行事件。从数据体中提取 tableId 并关联表映射</summary>
@@ -535,7 +553,9 @@ public class BinlogClient : DisposeBase
         ev.TableId = ReadTableId(ref reader);
 
         // 从表映射中获取数据库名和表名
-        if (_tableMap.TryGetValue(ev.TableId, out var tableMap))
+        BinlogEvent? tableMap;
+        lock (_tableMap) _tableMap.TryGetValue(ev.TableId, out tableMap);
+        if (tableMap != null)
         {
             ev.DatabaseName = tableMap.DatabaseName;
             ev.TableName = tableMap.TableName;

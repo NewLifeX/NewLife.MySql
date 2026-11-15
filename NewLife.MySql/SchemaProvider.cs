@@ -388,7 +388,7 @@ internal class SchemaProvider(MySqlConnection connection)
         return collection;
     }
 
-    public virtual SchemaCollection GetTables(String[]? restrictions)
+    public virtual SchemaCollection GetTables(String?[]? restrictions)
     {
         var collection = new SchemaCollection("Tables");
         collection.AddColumn("TABLE_CATALOG", typeof(String));
@@ -413,7 +413,7 @@ internal class SchemaProvider(MySqlConnection connection)
         collection.AddColumn("CREATE_OPTIONS", typeof(String));
         collection.AddColumn("TABLE_COMMENT", typeof(String));
 
-        var dbRestriction = new String[4];
+        var dbRestriction = new String?[4];
         if (restrictions != null && restrictions.Length >= 2)
         {
             dbRestriction[0] = restrictions[1];
@@ -434,7 +434,7 @@ internal class SchemaProvider(MySqlConnection connection)
         return collection;
     }
 
-    public virtual SchemaCollection GetColumns(String[]? restrictions)
+    public virtual SchemaCollection GetColumns(String?[]? restrictions)
     {
         var collection = new SchemaCollection("Columns");
         collection.AddColumn("TABLE_CATALOG", typeof(String));
@@ -588,7 +588,7 @@ internal class SchemaProvider(MySqlConnection connection)
         }
     }
 
-    public virtual SchemaCollection GetIndexes(String[]? restrictions)
+    public virtual SchemaCollection GetIndexes(String?[]? restrictions)
     {
         var collection = new SchemaCollection("Indexes");
         collection.AddColumn("INDEX_CATALOG", typeof(String));
@@ -638,7 +638,7 @@ internal class SchemaProvider(MySqlConnection connection)
         return collection;
     }
 
-    public virtual SchemaCollection GetIndexColumns(String[]? restrictions)
+    public virtual SchemaCollection GetIndexColumns(String?[]? restrictions)
     {
         var dt = new SchemaCollection("IndexColumns");
         dt.AddColumn("INDEX_CATALOG", typeof(String));
@@ -739,21 +739,16 @@ internal class SchemaProvider(MySqlConnection connection)
         {
             try
             {
-                // 查询存储过程
-                if (typeRestriction.IsNullOrEmpty() || typeRestriction.EqualIgnoreCase("PROCEDURE"))
-                {
-                    var sql = $"SHOW PROCEDURE STATUS WHERE Db = '{EscapeString(dbName)}'";
-                    if (!nameRestriction.IsNullOrEmpty()) sql += $" AND Name LIKE '{EscapeString(nameRestriction)}'";
-                    FillProceduresFromQuery(collection, dbName, sql, "PROCEDURE");
-                }
+                // 直接查 information_schema.ROUTINES 并按列名映射。
+                // MySQL 8.4 起 SHOW PROCEDURE STATUS 增加了 Language 列，按位置下标解析会把 Definer 当成 LAST_ALTERED，
+                // 且 SHOW 结果不含定义体/SQL_MODE，无法稳定跨版本使用。
+                var sql = "SELECT SPECIFIC_NAME, ROUTINE_CATALOG, ROUTINE_SCHEMA, ROUTINE_NAME, ROUTINE_TYPE, ROUTINE_DEFINITION, CREATED, LAST_ALTERED, SQL_MODE, ROUTINE_COMMENT, DEFINER, CHARACTER_SET_CLIENT, COLLATION_CONNECTION, DATABASE_COLLATION" +
+                          " FROM information_schema.ROUTINES" +
+                          $" WHERE ROUTINE_SCHEMA = '{EscapeString(dbName)}'";
+                if (!nameRestriction.IsNullOrEmpty()) sql += $" AND ROUTINE_NAME LIKE '{EscapeString(nameRestriction)}'";
+                if (!typeRestriction.IsNullOrEmpty()) sql += $" AND ROUTINE_TYPE = '{EscapeString(typeRestriction.ToUpperInvariant())}'";
 
-                // 查询函数
-                if (typeRestriction.IsNullOrEmpty() || typeRestriction.EqualIgnoreCase("FUNCTION"))
-                {
-                    var sql = $"SHOW FUNCTION STATUS WHERE Db = '{EscapeString(dbName)}'";
-                    if (!nameRestriction.IsNullOrEmpty()) sql += $" AND Name LIKE '{EscapeString(nameRestriction)}'";
-                    FillProceduresFromQuery(collection, dbName, sql, "FUNCTION");
-                }
+                FillProceduresFromQuery(collection, sql);
             }
             catch (MySqlException)
             {
@@ -764,30 +759,30 @@ internal class SchemaProvider(MySqlConnection connection)
         return collection;
     }
 
-    private void FillProceduresFromQuery(SchemaCollection collection, String dbName, String sql, String routineType)
+    private void FillProceduresFromQuery(SchemaCollection collection, String sql)
     {
-        // SHOW PROCEDURE/FUNCTION STATUS 返回列: Db,Name,Type,Definer,Modified,Created,Security_type,Comment,character_set_client,collation_connection,Database Collation
         using var cmd = new MySqlCommand(connection, sql);
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
             var row = collection.AddRow();
+            // information_schema.ROUTINES 没有 SPECIFIC_CATALOG / SPECIFIC_SCHEMA 两列，按 ODBC 约定补齐
             row["SPECIFIC_CATALOG"] = DBNull.Value;
-            row["SPECIFIC_SCHEMA"] = dbName;
-            row["SPECIFIC_NAME"] = reader.GetValue(1);
-            row["ROUTINE_CATALOG"] = DBNull.Value;
-            row["ROUTINE_SCHEMA"] = dbName;
-            row["ROUTINE_NAME"] = reader.GetValue(1);
-            row["ROUTINE_TYPE"] = routineType;
-            row["ROUTINE_DEFINITION"] = DBNull.Value; // SHOW PROCEDURE STATUS 不含定义体
-            row["CREATED"] = reader.GetValue(5);
-            row["LAST_ALTERED"] = reader.GetValue(4);
-            row["SQL_MODE"] = DBNull.Value;
-            row["ROUTINE_COMMENT"] = reader.GetValue(7);
-            row["DEFINER"] = reader.GetValue(3);
-            row["CHARACTER_SET_CLIENT"] = reader.GetValue(8);
-            row["COLLATION_CONNECTION"] = reader.GetValue(9);
-            row["DATABASE_COLLATION"] = reader.GetValue(10);
+            row["SPECIFIC_SCHEMA"] = reader.GetValue(2);
+            row["SPECIFIC_NAME"] = reader.GetValue(0);
+            row["ROUTINE_CATALOG"] = reader.GetValue(1);
+            row["ROUTINE_SCHEMA"] = reader.GetValue(2);
+            row["ROUTINE_NAME"] = reader.GetValue(3);
+            row["ROUTINE_TYPE"] = reader.GetValue(4);
+            row["ROUTINE_DEFINITION"] = reader.GetValue(5);
+            row["CREATED"] = reader.GetValue(6);
+            row["LAST_ALTERED"] = reader.GetValue(7);
+            row["SQL_MODE"] = reader.GetValue(8);
+            row["ROUTINE_COMMENT"] = reader.GetValue(9);
+            row["DEFINER"] = reader.GetValue(10);
+            row["CHARACTER_SET_CLIENT"] = reader.GetValue(11);
+            row["COLLATION_CONNECTION"] = reader.GetValue(12);
+            row["DATABASE_COLLATION"] = reader.GetValue(13);
         }
     }
 
@@ -1077,20 +1072,20 @@ internal class SchemaProvider(MySqlConnection connection)
     /// <returns>转义后的标识符</returns>
     private static String EscapeIdentifier(String value) => value.Replace("`", "``");
 
-    private void FindTables(SchemaCollection schema, String[] restrictions)
+    private void FindTables(SchemaCollection schema, String?[] restrictions)
     {
         if (restrictions == null || restrictions.Length < 2 || restrictions[1].IsNullOrEmpty()) return;
 
         var schemaName = restrictions[1];
         var stringBuilder = new StringBuilder();
         var stringBuilder2 = new StringBuilder();
-        stringBuilder.AppendFormat(CultureInfo.InvariantCulture, "SHOW TABLE STATUS FROM `{0}`", EscapeIdentifier(schemaName));
+        stringBuilder.AppendFormat(CultureInfo.InvariantCulture, "SHOW TABLE STATUS FROM `{0}`", EscapeIdentifier(schemaName!));
         if (restrictions.Length >= 3 && restrictions[2] != null)
         {
             stringBuilder2.AppendFormat(CultureInfo.InvariantCulture, " LIKE '{0}'", EscapeString(restrictions[2]!));
         }
         stringBuilder.Append(stringBuilder2.ToString());
-        var table_type = schemaName.ToLower(CultureInfo.InvariantCulture) == "information_schema" ? "SYSTEM VIEW" : "BASE TABLE";
+        var table_type = schemaName!.ToLower(CultureInfo.InvariantCulture) == "information_schema" ? "SYSTEM VIEW" : "BASE TABLE";
         using var cmd = new MySqlCommand(connection, stringBuilder.ToString());
         using var reader = cmd.ExecuteReader();
         while (reader.Read())

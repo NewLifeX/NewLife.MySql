@@ -1,7 +1,6 @@
 ﻿using System.Data.Common;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
 using NewLife.MySql.Common;
 
 namespace NewLife.MySql;
@@ -31,7 +30,9 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// <summary>命令超时</summary>
     public Int32 CommandTimeout { get => this[nameof(CommandTimeout)].ToInt(); set => this[nameof(CommandTimeout)] = value; }
 
-    /// <summary>SSL模式。None/Preferred/Required，默认None</summary>
+    /// <summary>SSL模式。None/Disabled/Preferred/Required/VerifyCA/VerifyFull/VerifyIdentity，默认Preferred。
+    /// Preferred 在服务器支持时加密，服务器不支持时回退明文；仅 Verify* 系列校验证书链与主机名。
+    /// 拼写错误会在打开连接时直接报错，避免静默降级</summary>
     public String? SslMode { get => this[nameof(SslMode)] as String; set => this[nameof(SslMode)] = value; }
 
     /// <summary>Unix域套接字路径。设置后将通过 Unix domain socket 而非 TCP 连接，仅 .NET Core 5.0+ 且 Linux/macOS 生效</summary>
@@ -48,6 +49,9 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
 
     /// <summary>是否输出协议收发包日志。默认false，仅用于排查协议层问题</summary>
     public Boolean TracePackets { get => this[nameof(TracePackets)].ToBoolean(); set => this[nameof(TracePackets)] = value; }
+
+    /// <summary>协议日志是否输出载荷内容。默认false，仅记录包类型和长度；开启后可能把 SQL、参数值等业务数据写入日志</summary>
+    public Boolean TracePacketPayload { get => this[nameof(TracePacketPayload)].ToBoolean(); set => this[nameof(TracePacketPayload)] = value; }
 
     /// <summary>是否允许一次请求执行多条语句（分号分隔）。默认true，与 MySql.Data 的 AllowBatch 保持一致。
     /// MySqlBatch 合并执行、存储过程 OUT/INOUT 参数，以及上层拼接的 INSERT;SELECT LAST_INSERT_ID() 都依赖该能力。
@@ -76,7 +80,8 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// 借出前 PING 验活阈值取此值的80%，即 IdlePoolTime×0.8 秒闲置后借出前自动补一次 PING。</summary>
     public Int32 IdlePoolTime { get => this[nameof(IdlePoolTime)].ToInt(); set => this[nameof(IdlePoolTime)] = value; }
 
-    /// <summary>字符集。默认Utf8Mb4，支持4字节Unicode（含emoji）。握手时写入协议编号，等效于SET NAMES</summary>
+    /// <summary>字符集。默认Utf8Mb4，支持4字节Unicode（含emoji）。握手时写入协议编号，等效于SET NAMES。
+    /// 当前驱动只支持 UTF-8 系列，GBK/GB2312/Latin1 等会在建连时拒绝</summary>
     public MySqlCharSet CharSet
     {
         get
@@ -111,6 +116,7 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
             [nameof(UseServerPrepare)] = ["useserverprepare", "use server prepare", "use_server_prepare"],
             [nameof(Pipeline)] = ["pipeline", "pipelining"],
             [nameof(TracePackets)] = ["tracepackets", "trace packets", "packettrace", "packet trace"],
+            [nameof(TracePacketPayload)] = ["tracepacketpayload", "trace packet payload", "packetpayload", "packet payload"],
             [nameof(AllowMultiStatements)] = ["allowmultistatements", "allow multi statements", "allow multiple statements", "multistatements", "multi statements"],
             [nameof(RetryOnNetworkFailure)] = ["retryonnetworkfailure", "retry on network failure", "retry_on_network_failure"],
             [nameof(MinPoolSize)] = ["minpoolsize", "min pool size", "minimum pool size", "minimumPoolSize"],
@@ -130,6 +136,7 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
         Port = 3306;
         ConnectionTimeout = 15;
         CommandTimeout = 30;
+        SslMode = "Preferred";
         CharSet = MySqlCharSet.Utf8Mb4;
         AllowMultiStatements = true;
         RetryOnNetworkFailure = true;
@@ -152,10 +159,10 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
         set
         {
             // 替换为标准Key
-            var kw = keyword.ToLower();
+            var kw = keyword.ToLowerInvariant();
             foreach (var kv in _options)
             {
-                if (kv.Value.Contains(kw))
+                if (kv.Value.Contains(kw, StringComparer.OrdinalIgnoreCase))
                 {
                     keyword = kv.Key;
                     break;
@@ -172,8 +179,9 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
 
     /// <summary>将字符串解析为 MySqlCharSet 枚举。连接字符串中指定字符集名称时使用</summary>
     /// <param name="name">字符集名称，不区分大小写</param>
-    /// <returns>对应的枚举值，未识别时返回 Utf8Mb4</returns>
-    public static MySqlCharSet ParseCharSet(String name) => name.ToLower() switch
+    /// <returns>对应的枚举值</returns>
+    /// <exception cref="ArgumentException">字符集名称不受支持</exception>
+    public static MySqlCharSet ParseCharSet(String name) => name.ToLowerInvariant() switch
     {
         "utf8mb4" or "utf8mb4_general_ci" => MySqlCharSet.Utf8Mb4,
         "utf8mb4_unicode_ci" => MySqlCharSet.Utf8Mb4Unicode,
@@ -183,26 +191,31 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
         "gbk" or "gbk_chinese_ci" => MySqlCharSet.Gbk,
         "gb2312" or "gb2312_chinese_ci" => MySqlCharSet.Gb2312,
         "ascii" or "ascii_general_ci" => MySqlCharSet.Ascii,
-        _ => MySqlCharSet.Utf8Mb4,
+        _ => throw new ArgumentException(L.T("Unsupported character set: {0}.", name), nameof(name)),
     };
 
     /// <summary>深拷贝连接字符串构造器。连接池持有克隆快照，避免调用方修改共享实例（如 ChangeDatabase 修改 Database）污染池配置</summary>
     /// <returns>独立的新实例，与当前实例互不影响</returns>
     public MySqlConnectionStringBuilder Clone() => new(ConnectionString);
 
-    /// <summary>口令字面量匹配。用于把连接串里的口令值抹掉后再做池标识</summary>
-    private static readonly Regex _passwordPattern = new(@"(?i)\b(password|pwd|pass)\s*=\s*[^;]*", RegexOptions.Compiled);
-
     /// <summary>获取连接池标识。把口令替换为摘要，避免明文口令长期驻留为字典键</summary>
     /// <returns>连接池标识。连接串相同且口令相同才落到同一个池</returns>
     internal String GetPoolKey()
     {
-        var key = ConnectionString;
         var pwd = Password;
-        if (pwd.IsNullOrEmpty()) return key;
+        if (pwd.IsNullOrEmpty()) return ConnectionString;
 
+        // 逐键重建，避免正则截断引号内含分号的口令后仍把口令片段留在池键里。
         // 口令仍然参与区分（不同口令绝不能共用连接池，否则等于认证越权），但只以摘要形式保存
-        key = _passwordPattern.Replace(key, "Password=#");
+        var sb = new StringBuilder();
+        foreach (String key in Keys)
+        {
+            if (sb.Length > 0) sb.Append(';');
+            var name = key ?? "";
+            var value = this[name]?.ToString() ?? "";
+            if (name.EqualIgnoreCase("Password", "Pwd", "Pass")) value = "#";
+            sb.Append(name).Append('=').Append(value);
+        }
 
         var bytes = Encoding.UTF8.GetBytes(pwd);
 #if NET5_0_OR_GREATER
@@ -211,7 +224,7 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
         using var sha = SHA256.Create();
         var hash = sha.ComputeHash(bytes);
 #endif
-        return key + "|pwd=" + hash.ToHex();
+        return sb.Append("|pwd=").Append(hash.ToHex()).ToString();
     }
     #endregion
 }

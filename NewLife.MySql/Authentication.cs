@@ -52,7 +52,7 @@ class Authentication(SqlClient client)
         writer.WriteZeroString(method);
 
         // 连接属性
-        var attrs = GetConnectAttrs().GetBytes();
+        var attrs = GetConnectAttrs();
         writer.WriteLength(attrs.Length);
         writer.Write(attrs);
 
@@ -186,7 +186,8 @@ class Authentication(SqlClient client)
         // 读取响应
         using var rs = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
         var reader = new SpanReader(rs.Data);
-        if (reader.ReadByte() != 0x01) return;
+        if (reader.Available < 1 || reader.ReadByte() != 0x01)
+            throw new InvalidOperationException(L.T("Authentication failed."));
 
         var key = reader.ReadZeroString();
 
@@ -319,29 +320,53 @@ class Authentication(SqlClient client)
         return flags;
     }
 
-    // 连接属性在进程内固定，只构造一次；直接按协议名拼接，不依赖反射与裁剪元数据保留
-    private static readonly Lazy<String> _connectAttrs = new(BuildConnectAttrs);
+    // 连接属性在进程内固定，只构造一次；按 MySQL length-encoded 规则写入字节长度，
+    // 不能先把属性拼成 String 再用字符数当字节数（非 ASCII 的 OS 名称会让认证包长度错位）
+    private static readonly Lazy<Byte[]> _connectAttrs = new(BuildConnectAttrs);
 
-    public String GetConnectAttrs() => _connectAttrs.Value;
+    public Byte[] GetConnectAttrs() => _connectAttrs.Value;
 
-    private static String BuildConnectAttrs()
+    private static Byte[] BuildConnectAttrs()
     {
         var att = new ConnectAttributes();
-        var sb = new StringBuilder();
-        Append(sb, "_client_name", att.ClientName);
-        Append(sb, "_client_version", att.ClientVersion);
-        Append(sb, "_client_licence", att.ClientLicence);
-        Append(sb, "_pid", att.PID);
-        Append(sb, "_os", att.OS);
-        Append(sb, "_platform", att.Platform);
-        Append(sb, "_framework", att.Framework);
+        using var ms = new MemoryStream();
+        Append(ms, "_client_name", att.ClientName);
+        Append(ms, "_client_version", att.ClientVersion);
+        Append(ms, "_client_licence", att.ClientLicence);
+        Append(ms, "_pid", att.PID);
+        Append(ms, "_os", att.OS);
+        Append(ms, "_platform", att.Platform);
+        Append(ms, "_framework", att.Framework);
 
-        return sb.ToString();
+        return ms.ToArray();
 
-        static void Append(StringBuilder sb, String name, String value)
+        static void Append(Stream ms, String name, String value)
         {
-            sb.AppendFormat("{0}{1}", (Char)name.Length, name);
-            sb.AppendFormat("{0}{1}", (Char)Encoding.UTF8.GetByteCount(value), value);
+            var nameBytes = Encoding.UTF8.GetBytes(name);
+            var valueBytes = Encoding.UTF8.GetBytes(value ?? String.Empty);
+            WriteLength(ms, nameBytes.Length);
+            ms.Write(nameBytes, 0, nameBytes.Length);
+            WriteLength(ms, valueBytes.Length);
+            ms.Write(valueBytes, 0, valueBytes.Length);
+        }
+
+        static void WriteLength(Stream ms, Int32 length)
+        {
+            if (length < 0xFB)
+                ms.WriteByte((Byte)length);
+            else if (length <= 0xFFFF)
+            {
+                ms.WriteByte(0xFC);
+                ms.WriteByte((Byte)length);
+                ms.WriteByte((Byte)(length >> 8));
+            }
+            else
+            {
+                ms.WriteByte(0xFD);
+                ms.WriteByte((Byte)length);
+                ms.WriteByte((Byte)(length >> 8));
+                ms.WriteByte((Byte)(length >> 16));
+            }
         }
     }
     #endregion
