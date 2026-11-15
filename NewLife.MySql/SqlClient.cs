@@ -64,6 +64,9 @@ public class SqlClient : DisposeBase
         }
     }
 
+    /// <summary>会话版本。会话被重置（COM_RESET_CONNECTION）时递增，用于识别预编译语句是否已失效</summary>
+    internal Int32 SessionVersion { get; private set; }
+
     private Stream? _stream;
     /// <summary>底层网络数据流</summary>
     public Stream? BaseStream { get => _stream; set => _stream = value; }
@@ -435,6 +438,7 @@ public class SqlClient : DisposeBase
         _reader.Reset();
 
         Active = false;
+        SessionVersion++;
     }
 
     /// <summary>异步加载并配置服务器变量和参数</summary>
@@ -537,6 +541,8 @@ public class SqlClient : DisposeBase
             Database = Setting.Database!;
             // 会话变量已恢复默认值，丢弃当前会话缓存；下次借出时由连接池缓存或 SHOW VARIABLES 重新填充
             Variables = null;
+            // COM_RESET_CONNECTION 会释放服务端预编译语句，递增版本让持有旧 statement id 的命令重新预编译
+            SessionVersion++;
             return true;
         }
         catch (MySqlException ex) when (ex.ErrorCode == 1047)

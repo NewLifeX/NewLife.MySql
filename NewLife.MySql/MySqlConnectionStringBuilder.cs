@@ -12,8 +12,8 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// <summary>服务器</summary>
     public String? Server { get => this[nameof(Server)] as String; set => this[nameof(Server)] = value; }
 
-    /// <summary>端口</summary>
-    public Int32 Port { get => this[nameof(Port)].ToInt(); set => this[nameof(Port)] = value; }
+    /// <summary>端口。默认3306</summary>
+    public Int32 Port { get => GetInt32(nameof(Port), 3306); set => this[nameof(Port)] = value; }
 
     /// <summary>数据库</summary>
     public String? Database { get => this[nameof(Database)] as String; set => this[nameof(Database)] = value; }
@@ -24,16 +24,24 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// <summary>密码</summary>
     public String? Password { get => this[nameof(Password)] as String; set => this[nameof(Password)] = value; }
 
-    /// <summary>连接超时</summary>
-    public Int32 ConnectionTimeout { get => this[nameof(ConnectionTimeout)].ToInt(); set => this[nameof(ConnectionTimeout)] = value; }
+    /// <summary>连接超时。默认15秒</summary>
+    public Int32 ConnectionTimeout { get => GetInt32(nameof(ConnectionTimeout), 15); set => this[nameof(ConnectionTimeout)] = value; }
 
-    /// <summary>命令超时</summary>
-    public Int32 CommandTimeout { get => this[nameof(CommandTimeout)].ToInt(); set => this[nameof(CommandTimeout)] = value; }
+    /// <summary>命令超时。默认30秒，0 表示不超时</summary>
+    public Int32 CommandTimeout { get => GetInt32(nameof(CommandTimeout), 30); set => this[nameof(CommandTimeout)] = value; }
 
     /// <summary>SSL模式。None/Disabled/Preferred/Required/VerifyCA/VerifyFull/VerifyIdentity，默认Preferred。
     /// Preferred 在服务器支持时加密，服务器不支持时回退明文；仅 Verify* 系列校验证书链与主机名。
     /// 拼写错误会在打开连接时直接报错，避免静默降级</summary>
-    public String? SslMode { get => this[nameof(SslMode)] as String; set => this[nameof(SslMode)] = value; }
+    public String? SslMode
+    {
+        get
+        {
+            var v = this[nameof(SslMode)] as String;
+            return v.IsNullOrEmpty() ? "Preferred" : v;
+        }
+        set => this[nameof(SslMode)] = value;
+    }
 
     /// <summary>Unix域套接字路径。设置后将通过 Unix domain socket 而非 TCP 连接，仅 .NET Core 5.0+ 且 Linux/macOS 生效</summary>
     public String? Socket { get => this[nameof(Socket)] as String; set => this[nameof(Socket)] = value; }
@@ -66,19 +74,18 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// <summary>连接池最小连接数。默认0，不预创建连接</summary>
     public Int32 MinPoolSize { get => this[nameof(MinPoolSize)].ToInt(); set => this[nameof(MinPoolSize)] = value; }
 
-    /// <summary>连接池最大连接数。默认100，超出时新请求等待</summary>
+    /// <summary>连接池最大连接数。默认0，由连接池按100处理，超出时新请求等待</summary>
     public Int32 MaxPoolSize { get => this[nameof(MaxPoolSize)].ToInt(); set => this[nameof(MaxPoolSize)] = value; }
 
     /// <summary>连接负载均衡超时（秒）。旧版连接存活回收参数，现已由 <see cref="ConnectionLifeTime"/> 接管，保留仅为兼容旧连接字符串。默认0</summary>
     public Int32 LoadBalanceTimeout { get => this[nameof(LoadBalanceTimeout)].ToInt(); set => this[nameof(LoadBalanceTimeout)] = value; }
 
-    /// <summary>连接最大存活期（秒）。连接存活超过此时长后，在借出/归还时被主动销毁重建，
-    /// 避免长寿连接累积半开、或被服务端 wait_timeout 静默杀掉。默认600，0表示禁用</summary>
-    public Int32 ConnectionLifeTime { get => this[nameof(ConnectionLifeTime)].ToInt(); set => this[nameof(ConnectionLifeTime)] = value; }
+    /// <summary>连接最大存活期（秒）。默认600，0表示禁用</summary>
+    public Int32 ConnectionLifeTime { get => GetInt32(nameof(ConnectionLifeTime), 600); set => this[nameof(ConnectionLifeTime)] = value; }
 
-    /// <summary>连接池空闲连接清理时间（秒）。空闲超过此时长的连接被定时器清理回收，释放底层 socket 资源。默认60。
+    /// <summary>连接池空闲连接清理时间（秒）。默认60。空闲超过此时长的连接被定时器清理回收，释放底层 socket 资源。
     /// 借出前 PING 验活阈值取此值的80%，即 IdlePoolTime×0.8 秒闲置后借出前自动补一次 PING。</summary>
-    public Int32 IdlePoolTime { get => this[nameof(IdlePoolTime)].ToInt(); set => this[nameof(IdlePoolTime)] = value; }
+    public Int32 IdlePoolTime { get => GetInt32(nameof(IdlePoolTime), 60); set => this[nameof(IdlePoolTime)] = value; }
 
     /// <summary>字符集。默认Utf8Mb4，支持4字节Unicode（含emoji）。握手时写入协议编号，等效于SET NAMES。
     /// 当前驱动只支持 UTF-8 系列，GBK/GB2312/Latin1 等会在建连时拒绝</summary>
@@ -173,6 +180,19 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
         }
     }
 
+    /// <summary>获取整数配置项，未设置或空串时返回默认值</summary>
+    /// <param name="name">配置项名称</param>
+    /// <param name="defaultValue">默认值</param>
+    /// <returns>配置值</returns>
+    private Int32 GetInt32(String name, Int32 defaultValue)
+    {
+        var value = this[name];
+        if (value == null) return defaultValue;
+        if (value is String str && str.Length == 0) return defaultValue;
+
+        return value.ToInt();
+    }
+
     /// <summary>获取字符集对应的 MySQL 协议编号。用于握手包中的 charset 字段</summary>
     /// <returns>MySQL 字符集编号</returns>
     public Byte GetCharSetNumber() => (Byte)CharSet;
@@ -183,9 +203,9 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// <exception cref="ArgumentException">字符集名称不受支持</exception>
     public static MySqlCharSet ParseCharSet(String name) => name.ToLowerInvariant() switch
     {
-        "utf8mb4" or "utf8mb4_general_ci" => MySqlCharSet.Utf8Mb4,
+        "utf8mb4" or "utf8mb4_general_ci" or "utf8mb4_bin" or "utf8mb4_unicode_520_ci" or "utf8mb4_0900_ai_ci" or "utf8mb4_0900_bin" => MySqlCharSet.Utf8Mb4,
         "utf8mb4_unicode_ci" => MySqlCharSet.Utf8Mb4Unicode,
-        "utf8" or "utf8_general_ci" => MySqlCharSet.Utf8,
+        "utf8" or "utf8_general_ci" or "utf8_bin" or "utf8_unicode_ci" or "utf8mb3" or "utf8mb3_general_ci" => MySqlCharSet.Utf8,
         "binary" => MySqlCharSet.Binary,
         "latin1" or "latin1_swedish_ci" => MySqlCharSet.Latin1,
         "gbk" or "gbk_chinese_ci" => MySqlCharSet.Gbk,
@@ -206,15 +226,15 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
         if (pwd.IsNullOrEmpty()) return ConnectionString;
 
         // 逐键重建，避免正则截断引号内含分号的口令后仍把口令片段留在池键里。
+        // 键值按“长度:内容”编码，防止值内包含 ; 或 = 时与相邻键拼接出相同字符串（池键碰撞会串库/串用户）。
         // 口令仍然参与区分（不同口令绝不能共用连接池，否则等于认证越权），但只以摘要形式保存
         var sb = new StringBuilder();
         foreach (String key in Keys)
         {
-            if (sb.Length > 0) sb.Append(';');
             var name = key ?? "";
             var value = this[name]?.ToString() ?? "";
             if (name.EqualIgnoreCase("Password", "Pwd", "Pass")) value = "#";
-            sb.Append(name).Append('=').Append(value);
+            sb.Append(name.Length).Append(':').Append(name).Append('=').Append(value.Length).Append(':').Append(value).Append(';');
         }
 
         var bytes = Encoding.UTF8.GetBytes(pwd);

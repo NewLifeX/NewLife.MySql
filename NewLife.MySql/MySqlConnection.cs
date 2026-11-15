@@ -499,6 +499,9 @@ public sealed partial class MySqlConnection : DbConnection
         return transaction;
     }
 
+    /// <summary>当前是否有活动事务。命令重试必须跳过事务，避免 DML 重复执行</summary>
+    internal Boolean HasTransaction => _transaction != null;
+
     /// <summary>登记当前事务。仅允许一个活动事务，MySQL 的 START TRANSACTION 会隐式提交前一个事务</summary>
     /// <param name="transaction">事务</param>
     internal void SetTransaction(MySqlTransaction transaction)
