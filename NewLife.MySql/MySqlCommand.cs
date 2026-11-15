@@ -564,9 +564,11 @@ public class MySqlCommand : DbCommand
 
         if (head.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase))
         {
-            // SELECT ... INTO OUTFILE/DUMPFILE 有文件副作用，断线重试可能覆盖目标文件
-            if (head.Contains("INTO OUTFILE", StringComparison.OrdinalIgnoreCase) ||
-                head.Contains("INTO DUMPFILE", StringComparison.OrdinalIgnoreCase))
+            // SELECT ... INTO OUTFILE/DUMPFILE 有文件副作用，断线重试可能覆盖目标文件。
+            // 统一空白后再匹配，避免用换行/制表符绕过检测
+            var normalized = head.Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
+            if (normalized.Contains("INTO OUTFILE", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("INTO DUMPFILE", StringComparison.OrdinalIgnoreCase))
                 return false;
 
             return true;

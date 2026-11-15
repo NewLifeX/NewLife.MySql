@@ -34,6 +34,7 @@ public class MySqlCommandRetryTests
     [InlineData("EXPLAIN ANALYZE SELECT * FROM t", CommandType.Text)]
     [InlineData("SELECT * FROM t INTO OUTFILE '/tmp/out.txt'", CommandType.Text)]
     [InlineData("SELECT * FROM t INTO DUMPFILE '/tmp/out.bin'", CommandType.Text)]
+    [InlineData("SELECT *\nINTO OUTFILE '/tmp/out.txt'", CommandType.Text)]
     [InlineData("", CommandType.Text)]
     [InlineData(null, CommandType.Text)]
     public void DmlSql_NotRetryable(String? sql, CommandType commandType)

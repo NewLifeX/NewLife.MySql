@@ -1,4 +1,5 @@
 ﻿using System.Data.Common;
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using NewLife.MySql.Common;
@@ -232,7 +233,7 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
         foreach (String key in Keys)
         {
             var name = key ?? "";
-            var value = this[name]?.ToString() ?? "";
+            var value = this[name] is String s ? s : Convert.ToString(this[name], CultureInfo.InvariantCulture) ?? "";
             if (name.EqualIgnoreCase("Password", "Pwd", "Pass")) value = "#";
             sb.Append(name.Length).Append(':').Append(name).Append('=').Append(value.Length).Append(':').Append(value).Append(';');
         }
