@@ -37,6 +37,7 @@
 "Unsupported isolation level: {0}.": "Niveau d'isolation non pris en charge : {0}."
 "Resource {0} not found in {1}.": "Ressource {0} introuvable dans {1}."
 "Transaction has already been committed or is not pending.": "La transaction a déjà été validée ou n'est pas en attente."
+"No data exists for the row or column.": "Aucune donnée n'existe pour la ligne ou la colonne."
 "Binlog read error; reconnecting in {0}ms: {1}": "Erreur de lecture du binlog ; reconnexion dans {0}ms : {1}"
 "Started subscribing to binlog: {0} ServerId={1}": "Abonnement au binlog démarré : {0} ServerId={1}"
 "Event handler error: {0}": "Erreur du gestionnaire d'événements : {0}"

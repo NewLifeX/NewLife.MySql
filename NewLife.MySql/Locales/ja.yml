@@ -37,6 +37,7 @@
 "Unsupported isolation level: {0}.": "サポートされていない分離レベルです: {0}。"
 "Resource {0} not found in {1}.": "リソース {0} が {1} に見つかりません。"
 "Transaction has already been committed or is not pending.": "トランザクションは既にコミットされているか、保留中ではありません。"
+"No data exists for the row or column.": "行または列にデータがありません。"
 "Binlog read error; reconnecting in {0}ms: {1}": "Binlog 読み取りエラー。{0}ms 後に再接続します: {1}"
 "Started subscribing to binlog: {0} ServerId={1}": "Binlog の購読を開始しました: {0} ServerId={1}"
 "Event handler error: {0}": "イベントハンドラーエラー: {0}"

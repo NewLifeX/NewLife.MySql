@@ -37,6 +37,7 @@
 "Unsupported isolation level: {0}.": "Неподдерживаемый уровень изоляции: {0}."
 "Resource {0} not found in {1}.": "Ресурс {0} не найден в {1}."
 "Transaction has already been committed or is not pending.": "Транзакция уже зафиксирована или не находится в состоянии ожидания."
+"No data exists for the row or column.": "Для строки или столбца нет данных."
 "Binlog read error; reconnecting in {0}ms: {1}": "Ошибка чтения binlog; повторное подключение через {0}ms: {1}"
 "Started subscribing to binlog: {0} ServerId={1}": "Подписка на binlog запущена: {0} ServerId={1}"
 "Event handler error: {0}": "Ошибка обработчика событий: {0}"

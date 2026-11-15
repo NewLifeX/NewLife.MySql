@@ -1,4 +1,4 @@
-﻿using System.Collections;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Data;
 using System.Data.Common;
@@ -62,6 +62,9 @@ public class MySqlDataReader : DbDataReader
     private Object[]? _Values;
     /// <summary>当前行数值集合</summary>
     public Object[]? Values => _Values;
+
+    /// <summary>当前行数据。尚未 Read 或已读完时给出明确异常，而不是空引用</summary>
+    private Object[] CurrentValues => _Values ?? throw new InvalidOperationException(L.T("No data exists for the row or column."));
 
     /// <summary>设置当前行数值集合与字段数。供内部与单元测试构造读取器状态</summary>
     /// <param name="values">当前行数值数组</param>
@@ -212,7 +215,7 @@ public class MySqlDataReader : DbDataReader
     /// <summary>获取指定列的值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Object GetValue(Int32 ordinal) => _Values![ordinal];
+    public override Object GetValue(Int32 ordinal) => CurrentValues[ordinal];
 
     /// <summary>将当前行的值复制到指定数组</summary>
     /// <param name="values">目标数组</param>
@@ -222,7 +225,7 @@ public class MySqlDataReader : DbDataReader
         var count = values.Length < _FieldCount ? values.Length : _FieldCount;
         for (var i = 0; i < count; i++)
         {
-            values[i] = _Values![i];
+            values[i] = CurrentValues[i];
         }
         return count;
     }
@@ -235,12 +238,12 @@ public class MySqlDataReader : DbDataReader
     /// <summary>获取指定列的布尔值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Boolean GetBoolean(Int32 ordinal) => Convert.ToBoolean(_Values![ordinal]);
+    public override Boolean GetBoolean(Int32 ordinal) => Convert.ToBoolean(CurrentValues[ordinal]);
 
     /// <summary>获取指定列的字节值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Byte GetByte(Int32 ordinal) => Convert.ToByte(_Values![ordinal]);
+    public override Byte GetByte(Int32 ordinal) => Convert.ToByte(CurrentValues[ordinal]);
 
     /// <summary>从指定列读取字节流到缓冲区</summary>
     /// <param name="ordinal">从零开始的列序号</param>
@@ -251,25 +254,27 @@ public class MySqlDataReader : DbDataReader
     /// <returns>实际读取的字节数</returns>
     public override Int64 GetBytes(Int32 ordinal, Int64 dataOffset, Byte[] buffer, Int32 bufferOffset, Int32 length)
     {
-        var buf = _Values![ordinal] as Byte[];
+        var buf = CurrentValues[ordinal] as Byte[];
         if (buf == null || buf.Length == 0) return 0L;
 
-        //return buffer.Write(bufferOffset, buf, dataOffset, length);
+        // ADO.NET 契约：从 dataOffset 起最多取 length 字节，length<=0 表示取到末尾
+        if (dataOffset < 0) throw new ArgumentOutOfRangeException(nameof(dataOffset));
+        var offset = (Int32)dataOffset;
+        if (offset >= buf.Length) return 0L;
 
-        var count = length;
-        if (count <= 0) count = buf.Length - (Int32)dataOffset;
+        var count = buf.Length - offset;
+        if (length > 0 && length < count) count = length;
         if (count > buffer.Length - bufferOffset) count = buffer.Length - bufferOffset;
+        if (count <= 0) return 0L;
 
-        if (count > 0) Buffer.BlockCopy(buf, (Int32)dataOffset, buffer, bufferOffset, count);
-
+        Buffer.BlockCopy(buf, offset, buffer, bufferOffset, count);
         return count;
-
     }
 
     /// <summary>获取指定列的字符值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Char GetChar(Int32 ordinal) => Convert.ToChar(_Values![ordinal]);
+    public override Char GetChar(Int32 ordinal) => Convert.ToChar(CurrentValues[ordinal]);
 
     /// <summary>从指定列读取字符流到缓冲区</summary>
     /// <param name="ordinal">从零开始的列序号</param>
@@ -301,29 +306,29 @@ public class MySqlDataReader : DbDataReader
     /// <summary>获取指定列的日期时间值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override DateTime GetDateTime(Int32 ordinal) => Convert.ToDateTime(_Values![ordinal]);
+    public override DateTime GetDateTime(Int32 ordinal) => Convert.ToDateTime(CurrentValues[ordinal]);
 
     /// <summary>获取指定列的Decimal值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Decimal GetDecimal(Int32 ordinal) => Convert.ToDecimal(_Values![ordinal]);
+    public override Decimal GetDecimal(Int32 ordinal) => Convert.ToDecimal(CurrentValues[ordinal]);
 
     /// <summary>获取指定列的双精度浮点值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Double GetDouble(Int32 ordinal) => Convert.ToDouble(_Values![ordinal]);
+    public override Double GetDouble(Int32 ordinal) => Convert.ToDouble(CurrentValues[ordinal]);
 
     /// <summary>获取指定列的单精度浮点值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Single GetFloat(Int32 ordinal) => Convert.ToSingle(_Values![ordinal]);
+    public override Single GetFloat(Int32 ordinal) => Convert.ToSingle(CurrentValues[ordinal]);
 
     /// <summary>获取指定列的GUID值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
     public override Guid GetGuid(Int32 ordinal)
     {
-        var val = _Values![ordinal];
+        var val = CurrentValues[ordinal];
         if (val is Guid g) return g;
         if (val is String s) return Guid.Parse(s);
         if (val is Byte[] buf) return new Guid(buf);
@@ -333,24 +338,24 @@ public class MySqlDataReader : DbDataReader
     /// <summary>获取指定列的16位有符号整数值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Int16 GetInt16(Int32 ordinal) => Convert.ToInt16(_Values![ordinal]);
+    public override Int16 GetInt16(Int32 ordinal) => Convert.ToInt16(CurrentValues[ordinal]);
 
     /// <summary>获取指定列的32位有符号整数值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Int32 GetInt32(Int32 ordinal) => Convert.ToInt32(_Values![ordinal]);
+    public override Int32 GetInt32(Int32 ordinal) => Convert.ToInt32(CurrentValues[ordinal]);
 
     /// <summary>获取指定列的64位有符号整数值</summary>
     /// <param name="ordinal">从零开始的列序号</param>
     /// <returns>指定列的值</returns>
-    public override Int64 GetInt64(Int32 ordinal) => Convert.ToInt64(_Values![ordinal]);
+    public override Int64 GetInt64(Int32 ordinal) => Convert.ToInt64(CurrentValues[ordinal]);
 
     /// <summary>以 System.String 实例的形式获取指定列的值</summary>
     /// <param name="ordinal">从零开始的列序号。</param>
     /// <returns>指定列的值。</returns>
     public override String GetString(Int32 ordinal)
     {
-        var val = _Values![ordinal];
+        var val = CurrentValues[ordinal];
         if (val is String s) return s;
         if (val is Byte[] buf) return Encoding.UTF8.GetString(buf);
         return val?.ToString() ?? String.Empty;
@@ -615,7 +620,7 @@ public class MySqlDataReader : DbDataReader
             var model = typeof(T).CreateInstance();
             if (model == null) continue;
 
-            var values = _Values!;
+            var values = CurrentValues;
             if (isModel)
             {
                 // IModel 索引器快速赋值
