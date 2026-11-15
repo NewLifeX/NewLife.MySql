@@ -27,7 +27,7 @@ public class MySqlDatabaseCreator : RelationalDatabaseCreator
         // 连接服务器（information_schema）执行 CREATE DATABASE，避免连接不存在的库失败
         using var conn = CreateServerConnection();
         using var command = conn.CreateCommand();
-        command.CommandText = $"CREATE DATABASE `{dbName}` CHARACTER SET utf8mb4";
+        command.CommandText = $"CREATE DATABASE {EscapeIdentifier(dbName)} CHARACTER SET utf8mb4";
         command.ExecuteNonQuery();
     }
 
@@ -87,7 +87,7 @@ public class MySqlDatabaseCreator : RelationalDatabaseCreator
 
         using var conn = CreateServerConnection();
         using var command = conn.CreateCommand();
-        command.CommandText = $"DROP DATABASE IF EXISTS `{dbName}`";
+        command.CommandText = $"DROP DATABASE IF EXISTS {EscapeIdentifier(dbName)}";
         command.ExecuteNonQuery();
     }
 
@@ -108,4 +108,9 @@ public class MySqlDatabaseCreator : RelationalDatabaseCreator
         var builder = new MySqlConnectionStringBuilder(_connection.ConnectionString ?? "");
         return builder.Database ?? "";
     }
+
+    /// <summary>按 MySQL 标识符规则转义数据库名。反引号双写，避免连接串中的库名截断语句</summary>
+    /// <param name="value">数据库名</param>
+    /// <returns>带反引号的标识符</returns>
+    private static String EscapeIdentifier(String value) => "`" + value.Replace("`", "``") + "`";
 }

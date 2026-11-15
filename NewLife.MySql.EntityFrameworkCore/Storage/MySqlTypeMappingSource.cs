@@ -22,6 +22,7 @@ public class MySqlTypeMappingSource : RelationalTypeMappingSource
 
     /// <summary>实例化</summary>
     /// <param name="dependencies">类型映射源依赖</param>
+    /// <param name="relationalDependencies">关系型类型映射源依赖</param>
     public MySqlTypeMappingSource(TypeMappingSourceDependencies dependencies, RelationalTypeMappingSourceDependencies relationalDependencies)
         : base(dependencies, relationalDependencies) { }
 
@@ -42,7 +43,15 @@ public class MySqlTypeMappingSource : RelationalTypeMappingSource
             if (clrType == typeof(Boolean)) return _bool;
             if (clrType == typeof(Double)) return _double;
             if (clrType == typeof(Single)) return _float;
-            if (clrType == typeof(Decimal)) return _decimal;
+            if (clrType == typeof(Decimal))
+            {
+                // 模型显式配置 Precision/Scale 时按配置生成，避免所有 decimal 都落到 DECIMAL(65,30)
+                var precision = mappingInfo.Precision;
+                if (precision.HasValue)
+                    return new DecimalTypeMapping($"DECIMAL({precision.Value},{mappingInfo.Scale ?? 0})", System.Data.DbType.Decimal);
+
+                return _decimal;
+            }
             if (clrType == typeof(DateTime)) return _datetime;
             if (clrType == typeof(DateTimeOffset)) return _datetimeoffset;
             if (clrType == typeof(TimeSpan)) return _timespan;
@@ -64,24 +73,45 @@ public class MySqlTypeMappingSource : RelationalTypeMappingSource
         if (storeTypeName != null)
         {
             var upperName = storeTypeName.ToUpperInvariant();
-            if (upperName.Contains("INT") && !upperName.Contains("TINY") && !upperName.Contains("SMALL") && !upperName.Contains("BIG"))
-                return _int;
-            if (upperName.Contains("BIGINT")) return _bigint;
-            if (upperName.Contains("SMALLINT")) return _smallint;
-            if (upperName.Contains("TINYINT")) return upperName.Contains("(1)") ? _bool : _tinyint;
-            if (upperName.Contains("DOUBLE") || upperName.Contains("REAL")) return _double;
-            if (upperName.Contains("FLOAT")) return _float;
-            if (upperName.Contains("DECIMAL") || upperName.Contains("NUMERIC")) return _decimal;
-            if (upperName.Contains("DATETIME") || upperName.Contains("TIMESTAMP")) return _datetime;
-            if (upperName.Contains("DATE")) return _datetime;
-            if (upperName.Contains("TIME")) return _timespan;
+            var baseName = GetBaseStoreType(upperName);
+            if (baseName is "INT" or "INTEGER" or "MEDIUMINT") return _int;
+            if (baseName == "BIGINT") return _bigint;
+            if (baseName == "SMALLINT") return _smallint;
+            if (baseName == "TINYINT") return upperName.Contains("(1)") ? _bool : _tinyint;
+            if (baseName is "DOUBLE" or "REAL") return _double;
+            if (baseName == "FLOAT") return _float;
+            if (baseName is "DECIMAL" or "NUMERIC")
+            {
+                var precision = mappingInfo.Precision;
+                if (precision.HasValue)
+                    return new DecimalTypeMapping($"DECIMAL({precision.Value},{mappingInfo.Scale ?? 0})", System.Data.DbType.Decimal);
+
+                return _decimal;
+            }
+            if (baseName is "DATETIME" or "TIMESTAMP") return _datetime;
+            if (baseName == "DATE") return _datetime;
+            if (baseName == "TIME") return _timespan;
             if (upperName.Contains("CHAR(36)")) return _guid;
-            if (upperName.Contains("BLOB") || upperName.Contains("BINARY")) return _blob;
-            if (upperName.Contains("BOOL")) return _bool;
-            if (upperName.Contains("VARCHAR") || upperName.Contains("TEXT") || upperName.Contains("CHAR"))
+            if (baseName is "BLOB" or "BINARY") return _blob;
+            if (baseName == "BOOL" || baseName == "BOOLEAN") return _bool;
+            if (baseName is "VARCHAR" or "TEXT" or "CHAR" or "LONGTEXT" or "MEDIUMTEXT" or "TINYTEXT")
                 return new StringTypeMapping(storeTypeName, System.Data.DbType.String);
         }
 
         return base.FindMapping(mappingInfo);
+    }
+
+    /// <summary>提取存储类型的基础名称，去掉长度/精度括号和 UNSIGNED 等修饰</summary>
+    /// <param name="storeType">已转大写的存储类型名</param>
+    /// <returns>基础类型名，如 POINT、INT、DECIMAL</returns>
+    private static String GetBaseStoreType(String storeType)
+    {
+        var idx = storeType.IndexOf('(');
+        if (idx >= 0) storeType = storeType[..idx];
+
+        idx = storeType.IndexOf(' ');
+        if (idx >= 0) storeType = storeType[..idx];
+
+        return storeType.Trim();
     }
 }
