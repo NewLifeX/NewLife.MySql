@@ -15,8 +15,8 @@
 
   <ItemGroup>
     <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
-    <PackageReference Include="MySql.Data" Version="9.7.0" />
-    <PackageReference Include="MySqlConnector" Version="2.6.2" />
+    <PackageReference Include="MySql.Data" Version="26.10.0" />
+    <PackageReference Include="MySqlConnector" Version="3.0.0" />
   </ItemGroup>
 
   <ItemGroup>
