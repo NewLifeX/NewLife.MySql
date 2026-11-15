@@ -104,14 +104,25 @@ public class BinlogClient : DisposeBase
     {
         if (Running) return;
 
-        _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _cts = cts;
 
-        await ConnectAndDumpAsync(_cts.Token).ConfigureAwait(false);
+        try
+        {
+            await ConnectAndDumpAsync(cts.Token).ConfigureAwait(false);
+        }
+        catch
+        {
+            // 启动失败时释放令牌，否则再次 Start 会丢掉旧引用
+            if (ReferenceEquals(_cts, cts)) _cts = null;
+            cts.TryDispose();
+            throw;
+        }
 
         Running = true;
 
         // 启动后台事件读取循环
-        _ = Task.Run(() => EventLoopAsync(_cts.Token), _cts.Token);
+        _ = Task.Run(() => EventLoopAsync(cts.Token), cts.Token);
     }
 
     /// <summary>停止 Binlog 订阅</summary>

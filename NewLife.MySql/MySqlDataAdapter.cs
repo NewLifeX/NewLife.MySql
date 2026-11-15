@@ -112,11 +112,18 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
 
     /// <summary>触发行更新前事件</summary>
     /// <param name="value">事件参数</param>
-    protected override void OnRowUpdating(RowUpdatingEventArgs value) => RowUpdating?.Invoke(this, value as MySqlRowUpdatingEventArgs);
+    protected override void OnRowUpdating(RowUpdatingEventArgs value)
+    {
+        // 基类可能传入其它实现的事件参数，强转失败时不应把 null 交给事件处理方
+        if (value is MySqlRowUpdatingEventArgs args) RowUpdating?.Invoke(this, args);
+    }
 
     /// <summary>触发行更新后事件</summary>
     /// <param name="value">事件参数</param>
-    protected override void OnRowUpdated(RowUpdatedEventArgs value) => RowUpdated?.Invoke(this, value as MySqlRowUpdatedEventArgs);
+    protected override void OnRowUpdated(RowUpdatedEventArgs value)
+    {
+        if (value is MySqlRowUpdatedEventArgs args) RowUpdated?.Invoke(this, args);
+    }
 
     /// <summary>异步填充 DataSet</summary>
     /// <param name="dataSet">要填充的 DataSet</param>
