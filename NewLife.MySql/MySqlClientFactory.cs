@@ -7,7 +7,7 @@ namespace NewLife.MySql;
 public sealed partial class MySqlClientFactory : DbProviderFactory, ITracerFeature
 {
     /// <summary>默认实例</summary>
-    public static MySqlClientFactory Instance = new();
+    public static readonly MySqlClientFactory Instance = new();
 
     static MySqlClientFactory()
     {
