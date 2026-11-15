@@ -40,6 +40,9 @@ public class SqlClient : DisposeBase
     /// <summary>是否启用压缩协议。认证流程在发送认证包后、读取认证响应前启用（服务器收到 COMPRESS flag 后即开始压缩）</summary>
     internal Boolean UseCompression { get => _useCompression; set => _useCompression = value; }
 
+    /// <summary>单帧载荷上限（协议帧头 3 字节长度字段）</summary>
+    private const Int32 MaxPayload = 0xFF_FFFF;
+
     /// <summary>连接是否活动</summary>
     public Boolean Active { get; internal set; }
 
@@ -608,12 +611,55 @@ public class SqlClient : DisposeBase
                 throw new InvalidOperationException(L.T("Packet size ({0}) exceeds the maximum allowed ({1}).", len, maxPacketSize));
             }
 
-            var pk = new OwnerPacket(len);
-            await _reader.ReadAsync(ms, pk.Buffer, pk.Offset, len, token).ConfigureAwait(false);
+            OwnerPacket pk;
+            if (len < MaxPayload)
+            {
+                pk = new OwnerPacket(len);
+                await _reader.ReadAsync(ms, pk.Buffer, pk.Offset, len, token).ConfigureAwait(false);
+                pk.Resize(len);
+            }
+            else
+            {
+                // 大报文：服务端按 0xFFFFFF 分帧连续发送，单帧满长时必须续读后续帧拼接，
+                // 收尾帧长度不足 0xFFFFFF（恰好整倍数时为 0）
+                var parts = new List<Byte[]>();
+                var total = 0;
+                var frameLen = len;
+                while (true)
+                {
+                    var part = new Byte[frameLen];
+                    await _reader.ReadAsync(ms, part, 0, frameLen, token).ConfigureAwait(false);
+                    parts.Add(part);
+                    total += frameLen;
 
-            pk.Resize(len);
+                    if (total > maxPacketSize)
+                    {
+                        Active = false;
+                        throw new InvalidOperationException(L.T("Packet size ({0}) exceeds the maximum allowed ({1}).", total, maxPacketSize));
+                    }
+
+                    if (frameLen < MaxPayload) break;
+
+                    // 续读下一帧帧头
+                    await _reader.ReadAsync(ms, buf, 0, 4, token).ConfigureAwait(false);
+                    frameLen = buf[0] + (buf[1] << 8) + (buf[2] << 16);
+                    rs.Sequence = buf[3];
+                    _seq = (Byte)(rs.Sequence + 1);
+                }
+
+                pk = new OwnerPacket(total);
+                var offset = pk.Offset;
+                foreach (var part in parts)
+                {
+                    Buffer.BlockCopy(part, 0, pk.Buffer, offset, part.Length);
+                    offset += part.Length;
+                }
+                pk.Resize(total);
+                rs.Length = total;
+            }
+
             rs.Set(pk);
-            WritePacketLog("<=", rs.Sequence, pk.GetSpan(), len);
+            WritePacketLog("<=", rs.Sequence, pk.GetSpan(), pk.Length);
 
             // 错误包
             if (rs.IsError)
@@ -738,22 +784,33 @@ public class SqlClient : DisposeBase
         var len = pk.Total;
         var pk2 = PrepareFrameHeader(pk, 4);
 
-        pk2[0] = (Byte)(len & 0xFF);
-        pk2[1] = (Byte)((len >> 8) & 0xFF);
-        pk2[2] = (Byte)((len >> 16) & 0xFF);
-        pk2[3] = _seq++;
-
         var payload = pk2.GetSpan();
         if (payload.Length >= len + 4)
             payload = payload.Slice(4, len);
         else if (payload.Length > len)
             payload = payload.Slice(payload.Length - len, len);
 
-        WritePacketLog("=>", pk2[3], payload, len);
-
         try
         {
-            await pk2.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+            if (len < MaxPayload)
+            {
+                pk2[0] = (Byte)(len & 0xFF);
+                pk2[1] = (Byte)((len >> 8) & 0xFF);
+                pk2[2] = (Byte)((len >> 16) & 0xFF);
+                pk2[3] = _seq++;
+
+                WritePacketLog("=>", pk2[3], payload, len);
+
+                await pk2.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                // 超过单帧上限：按 0xFFFFFF 切帧，每帧自带 4 字节帧头；
+                // 旧实现只把低 3 字节写入长度，超长报文长度回绕，服务端按错误长度解包导致协议错位
+                await SendChunkedAsync(pk2, len, ms, cancellationToken).ConfigureAwait(false);
+                WritePacketLog("=>", (Byte)(_seq - 1), ReadOnlySpan<Byte>.Empty, len);
+            }
+
             if (flush) await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
         }
         catch
@@ -772,6 +829,68 @@ public class SqlClient : DisposeBase
         }
 
         LastActive = DateTime.Now;
+    }
+
+    /// <summary>发送超过单帧上限的报文。按 0xFFFFFF 切帧，每帧独立 4 字节帧头</summary>
+    /// <param name="pk">已预留帧头的报文（可能是链式）</param>
+    /// <param name="len">载荷长度</param>
+    /// <param name="ms">目标流</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    private async Task SendChunkedAsync(IPacket pk, Int32 len, Stream ms, CancellationToken cancellationToken)
+    {
+        // 先归一到连续缓冲：链式报文的 GetSpan 只返回单段，切帧需要连续视图
+        var body = new Byte[len];
+        var pos = 0;
+        var skip = 4;
+        for (var node = (IPacket?)pk; node != null; node = node.Next)
+        {
+            var span = node.GetSpan();
+            if (skip > 0)
+            {
+                if (span.Length <= skip)
+                {
+                    skip -= span.Length;
+                    continue;
+                }
+
+                span = span[skip..];
+                skip = 0;
+            }
+            if (pos + span.Length > len) span = span[..(len - pos)];
+            span.CopyTo(new Span<Byte>(body, pos, span.Length));
+            pos += span.Length;
+        }
+
+        var header = new Byte[4];
+        var sent = 0;
+        while (sent < len)
+        {
+            var size = Math.Min(MaxPayload, len - sent);
+            WriteFrameHeader(header, size, _seq++);
+            await ms.WriteAsync(header, 0, 4, cancellationToken).ConfigureAwait(false);
+            await ms.WriteAsync(body, sent, size, cancellationToken).ConfigureAwait(false);
+            sent += size;
+        }
+
+        // 载荷恰好是单帧上限的整数倍时，必须补一个长度 0 的帧表示报文结束
+        if (len % MaxPayload == 0)
+        {
+            WriteFrameHeader(header, 0, _seq++);
+            await ms.WriteAsync(header, 0, 4, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>写入 4 字节协议帧头（3 字节长度 + 1 字节序列号）</summary>
+    /// <param name="header">目标缓冲</param>
+    /// <param name="length">载荷长度</param>
+    /// <param name="sequence">序列号</param>
+    private static void WriteFrameHeader(Byte[] header, Int32 length, Byte sequence)
+    {
+        header[0] = (Byte)(length & 0xFF);
+        header[1] = (Byte)((length >> 8) & 0xFF);
+        header[2] = (Byte)((length >> 16) & 0xFF);
+        header[3] = sequence;
     }
 
     #region 压缩协议
@@ -1413,24 +1532,56 @@ public class SqlClient : DisposeBase
             if (_rowBuffer == null)
                 _rowBuffer = new Byte[16384];
 
-            // 复用 _rowBuffer 前4字节读取帧头
-            await _reader.ReadAsync(ms, _rowBuffer, 0, 4, token).ConfigureAwait(false);
-            var len = _rowBuffer[0] + (_rowBuffer[1] << 8) + (_rowBuffer[2] << 16);
-            _seq = (Byte)(_rowBuffer[3] + 1);
+            // 帧头使用独立的 4 字节缓冲，避免覆盖已读到的行数据（大行续帧时需要）
+            var header = _headerBuf;
+            await _reader.ReadAsync(ms, header, 0, 4, token).ConfigureAwait(false);
+            var len = header[0] + (header[1] << 8) + (header[2] << 16);
+            _seq = (Byte)(header[3] + 1);
 
-            if (_rowBuffer.Length < len)
+            // 行数据包大小上限检测
+            var maxPacketSize = MaxPacketSize > 0 ? MaxPacketSize : 64 * 1024 * 1024;
+            if (len > maxPacketSize)
             {
-                // 行数据包大小上限检测
-                var maxPacketSize = MaxPacketSize > 0 ? MaxPacketSize : 64 * 1024 * 1024;
-                if (len > maxPacketSize)
-                {
-                    Active = false;
-                    throw new InvalidOperationException(L.T("Row packet size ({0}) exceeds the maximum allowed ({1}).", len, maxPacketSize));
-                }
-                _rowBuffer = new Byte[len];
+                Active = false;
+                throw new InvalidOperationException(L.T("Row packet size ({0}) exceeds the maximum allowed ({1}).", len, maxPacketSize));
             }
+            if (_rowBuffer.Length < len)
+                _rowBuffer = new Byte[Math.Max(len, 16384)];
 
             await _reader.ReadAsync(ms, _rowBuffer, 0, len, token).ConfigureAwait(false);
+
+            // 大行：服务端按 0xFFFFFF 分帧，需续读后续帧拼接后再解析
+            if (len == MaxPayload)
+            {
+                var total = len;
+                while (true)
+                {
+                    await _reader.ReadAsync(ms, header, 0, 4, token).ConfigureAwait(false);
+                    var next = header[0] + (header[1] << 8) + (header[2] << 16);
+                    _seq = (Byte)(header[3] + 1);
+
+                    if (total + next > maxPacketSize)
+                    {
+                        Active = false;
+                        throw new InvalidOperationException(L.T("Row packet size ({0}) exceeds the maximum allowed ({1}).", total + next, maxPacketSize));
+                    }
+
+                    if (_rowBuffer.Length < total + next)
+                    {
+                        var bigger = new Byte[Math.Max(total + next, _rowBuffer.Length * 2)];
+                        Buffer.BlockCopy(_rowBuffer, 0, bigger, 0, total);
+                        _rowBuffer = bigger;
+                    }
+
+                    if (next > 0)
+                        await _reader.ReadAsync(ms, _rowBuffer, total, next, token).ConfigureAwait(false);
+
+                    total += next;
+                    if (next < MaxPayload) break;
+                }
+                len = total;
+            }
+
             WritePacketLog("<=", (Byte)(_seq - 1), new ReadOnlySpan<Byte>(_rowBuffer, 0, len), len);
 
             // 错误包
