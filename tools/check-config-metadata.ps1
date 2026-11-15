@@ -26,18 +26,19 @@ if ($AllowFile) {
 }
 
 $skip = @('bin', 'obj', '.git', 'Bin', '.tmp')
-$skipPrefix = '^(UnitTest|Test|Benchmark|Samples|AotSmoke|Bin)(\.|\\)'
+$skipPrefix = '^(UnitTest|Test|Benchmark|Samples|AotSmoke|Bin)(\.|/)'
 $errors = 0
 $files = Get-ChildItem -Path $Root -Recurse -File -Filter *.cs |
-    Where-Object { $_.FullName -notmatch '\\(bin|obj|\.git)\\' } |
+    Where-Object { $_.FullName -notmatch '[\\/](bin|obj|\.git)[\\/]' } |
     Where-Object {
-        $relative = $_.FullName.Substring($Root.Length).TrimStart('\')
-        $segments = $relative.Split('\')
+        # 路径分隔符随平台变化（Windows 为 \，Linux 为 /），先统一归一化为 / 再判定排除规则
+        $relative = ((($_.FullName.Substring($Root.Length)) -replace '^[\\/]+', '') -replace '\\', '/')
+        $segments = $relative.Split('/')
         ($relative -notmatch $skipPrefix) -and -not ($segments | Where-Object { $skip -contains $_ })
     }
 
 foreach ($file in $files) {
-    $relative = $file.FullName.Substring($Root.Length).TrimStart('\')
+    $relative = ((($file.FullName.Substring($Root.Length)) -replace '^[\\/]+', '') -replace '\\', '/')
     $lineNo = 0
     foreach ($line in Get-Content -LiteralPath $file.FullName -Encoding UTF8) {
         $lineNo++
