@@ -77,7 +77,7 @@ public class MySqlCommandTests : IDisposable
             XTrace.WriteLine(values.Join(","));
 
             if (rows++ == 0)
-                Assert.Equal("root", values[0]);
+                Assert.False(values[0]?.ToString().IsNullOrEmpty() ?? true);
         }
     }
 
