@@ -139,9 +139,12 @@ public class MySqlBulkCopy : IDisposable
 
                     if (TotalRowsCopied >= nextNotify)
                     {
-                        var handler = RowsCopied;
-                        handler?.Invoke(this, new MySqlRowsCopiedEventArgs(TotalRowsCopied));
+                        var e = new MySqlRowsCopiedEventArgs(TotalRowsCopied);
+                        RowsCopied?.Invoke(this, e);
                         nextNotify += NotifyAfter;
+
+                        // 事件处理方可以要求中止：已写入的批次保留，后续行不再复制
+                        if (e.Abort) return;
                     }
 
                     batch.Clear();
@@ -155,7 +158,13 @@ public class MySqlBulkCopy : IDisposable
                 TotalRowsCopied += batch.Count;
 
                 var handler = RowsCopied;
-                handler?.Invoke(this, new MySqlRowsCopiedEventArgs(TotalRowsCopied));
+                if (handler != null)
+                {
+                    var e = new MySqlRowsCopiedEventArgs(TotalRowsCopied);
+                    handler(this, e);
+
+                    // 最后一批已写入，Abort 只影响后续可以忽略，这里不再提前返回
+                }
             }
         }
         finally
