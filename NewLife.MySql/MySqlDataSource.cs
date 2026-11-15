@@ -52,9 +52,13 @@ public sealed class MySqlDataSource : DbDataSource
     public new MySqlCommand CreateCommand(String? commandText = null)
     {
         var conn = CreateDbConnection();
-        var cmd = conn.CreateCommand();
+        var cmd = (MySqlCommand)conn.CreateCommand();
         if (commandText != null) cmd.CommandText = commandText;
-        return (MySqlCommand)cmd;
+
+        // DbDataSource 契约：命令首次执行时打开新连接，命令销毁时关闭连接
+        cmd.AutoOpenConnection = true;
+        cmd.CloseConnectionOnDispose = true;
+        return cmd;
     }
 }
 #endif

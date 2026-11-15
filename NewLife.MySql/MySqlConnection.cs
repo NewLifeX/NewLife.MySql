@@ -12,7 +12,17 @@ public sealed partial class MySqlConnection : DbConnection
     public MySqlConnectionStringBuilder Setting { get; } = [];
 
     /// <summary>连接字符串</summary>
-    public override String ConnectionString { get => Setting.ConnectionString; set => Setting.ConnectionString = value; }
+    /// <exception cref="InvalidOperationException">连接已打开时不允许修改连接字符串</exception>
+    public override String ConnectionString
+    {
+        get => Setting.ConnectionString;
+        set
+        {
+            // 打开后修改会让 Setting、池映射和底层客户端配置互相矛盾，按 ADO.NET 惯例直接拒绝
+            if (State != ConnectionState.Closed) throw new InvalidOperationException(L.T("The connection string cannot be changed while the connection is open."));
+            Setting.ConnectionString = value;
+        }
+    }
 
     /// <summary>数据库</summary>
     public override String? Database => Setting.Database;
@@ -49,12 +59,19 @@ public sealed partial class MySqlConnection : DbConnection
 
     private MySqlPool? _pool;
     private SchemaProvider? _schemaProvider;
+    private MySqlTransaction? _transaction;
     private readonly SemaphoreSlim _operationLock = new(1, 1);
     private readonly SemaphoreSlim _openLock = new(1, 1);
     private volatile CancellationTokenSource? _openCts;
 
     /// <summary>当前持有操作租约的个数（主要是未关闭的读取器）。大于 0 时连接不得归还连接池</summary>
-    private Int32 _operations;
+    private readonly OperationCounter _operations = new();
+
+    /// <summary>操作租约计数器。DbConnection 带 COM 可见性，直接对类内 Int32 字段做 Interlocked 会触发 CS0197</summary>
+    private sealed class OperationCounter
+    {
+        public Int32 Value;
+    }
     #endregion
 
     #region 构造
@@ -110,17 +127,26 @@ public sealed partial class MySqlConnection : DbConnection
     {
         var client = Client;
         var pool = _pool;
+        var transaction = _transaction;
 
         Client = null;
         _pool = null;
+        _transaction = null;
+
+        if (transaction != null)
+        {
+            // 事务未提交/回滚就关闭连接：连接归还池后，下一位使用者会继承未结束的事务和锁。
+            // 标记事务结束，并强制销毁物理连接（关闭 socket 由服务端回滚）。
+            transaction.MarkCompleted();
+        }
 
         if (client != null)
         {
             // 检查当前数据库是否与原始数据库一致
             // 如果不一致，说明调用过 SetDatabaseAsync 且未切回，连接状态被污染，直接销毁
             // 如果一致，说明要么未切换过数据库，要么切换后又切回来了，可以安全归还连接池
-            // 仍有未关闭的读取器（操作租约未释放）时，协议流中残留结果集，一并按脏连接销毁
-            if (!client.Active || Volatile.Read(ref _operations) > 0 || !IsSameDatabase(Setting.Database, client.Database))
+            // 仍有未关闭的读取器（操作租约未释放）或未结束事务时，协议/会话状态不可信，一并按脏连接销毁
+            if (!client.Active || transaction != null || Volatile.Read(ref _operations.Value) > 0 || !IsSameDatabase(Setting.Database, client.Database))
             {
                 // 连接已失效（如批量写入中途失败标记 Active=false）或数据库状态被污染，销毁连接不归还连接池，
                 // 避免脏连接被后续查询复用导致协议错位、读取超时。
@@ -182,7 +208,7 @@ public sealed partial class MySqlConnection : DbConnection
     internal async Task<ConnectionOperationLease> EnterOperationAsync(CancellationToken cancellationToken)
     {
         await _operationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        Interlocked.Increment(ref _operations);
+        Interlocked.Increment(ref _operations.Value);
         return new ConnectionOperationLease(this);
     }
 
@@ -364,6 +390,10 @@ public sealed partial class MySqlConnection : DbConnection
         {
             span.SetError(ex);
 
+            // 已挂到连接但尚未完成 Configure 的客户端不得回池：会话参数可能只配置了一半，
+            // 标记失效后由 CloseCore 销毁并释放池槽位
+            if (clientAttached && Client != null) Client.Active = false;
+
             if (clientAttached || Client != null)
                 CloseCore();
             else if (_pool != null && borrowedClient != null)
@@ -419,7 +449,7 @@ public sealed partial class MySqlConnection : DbConnection
             var connection = Interlocked.Exchange(ref _connection, null);
             if (connection == null) return;
 
-            Interlocked.Decrement(ref connection._operations);
+            Interlocked.Decrement(ref connection._operations.Value);
             connection._operationLock.Release();
         }
     }
@@ -445,6 +475,8 @@ public sealed partial class MySqlConnection : DbConnection
     /// <returns></returns>
     protected override DbTransaction BeginDbTransaction(IsolationLevel isolationLevel)
     {
+        if (_transaction != null) throw new InvalidOperationException(L.T("A transaction is already in progress on this connection."));
+
         var sql = "SET TRANSACTION ISOLATION LEVEL ";
         sql += isolationLevel switch
         {
@@ -462,7 +494,26 @@ public sealed partial class MySqlConnection : DbConnection
         using var beginCmd = new MySqlCommand(this, "BEGIN") { SuppressTracing = true };
         beginCmd.ExecuteNonQuery();
 
-        return new MySqlTransaction(this, isolationLevel);
+        var transaction = new MySqlTransaction(this, isolationLevel);
+        SetTransaction(transaction);
+        return transaction;
+    }
+
+    /// <summary>登记当前事务。仅允许一个活动事务，MySQL 的 START TRANSACTION 会隐式提交前一个事务</summary>
+    /// <param name="transaction">事务</param>
+    internal void SetTransaction(MySqlTransaction transaction)
+    {
+        if (_transaction != null && !ReferenceEquals(_transaction, transaction))
+            throw new InvalidOperationException(L.T("A transaction is already in progress on this connection."));
+
+        _transaction = transaction;
+    }
+
+    /// <summary>清除当前事务登记</summary>
+    /// <param name="transaction">事务；为空时无条件清除</param>
+    internal void ClearTransaction(MySqlTransaction? transaction)
+    {
+        if (transaction == null || ReferenceEquals(_transaction, transaction)) _transaction = null;
     }
 
     /// <summary>改变数据库。不支持在事务中途切换数据库</summary>

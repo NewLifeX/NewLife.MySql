@@ -119,6 +119,9 @@ public class MySqlPool : ObjectPool<SqlClient>
 
         var reusable = decision != ConnectionDecision.Discard && value.IsSocketAlive() == SocketHealth.Alive;
 
+        // 归还前重置会话：清理用户变量、临时表、SET sql_mode 等会话状态，避免下一位使用者继承
+        if (reusable) reusable = value.ResetSession();
+
         // 基类在 OnReturn 返回 false 时不会调用 OnDispose，这里主动释放避免 socket 泄漏
         if (!reusable) value.TryDispose();
 

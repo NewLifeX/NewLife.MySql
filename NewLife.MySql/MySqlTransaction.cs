@@ -15,6 +15,9 @@ sealed class MySqlTransaction(MySqlConnection connection, IsolationLevel isolati
     private Boolean _open = true;
     private Boolean _disposed;
 
+    /// <summary>标记事务已结束（连接关闭等外部原因）。不发送任何 SQL</summary>
+    internal void MarkCompleted() => _open = false;
+
     /// <summary>销毁</summary>
     /// <param name="disposing"></param>
     protected override void Dispose(Boolean disposing)
@@ -28,6 +31,8 @@ sealed class MySqlTransaction(MySqlConnection connection, IsolationLevel isolati
                 try { Rollback(); } catch { }
             }
 
+            MarkCompleted();
+            connection.ClearTransaction(this);
             _disposed = true;
         }
     }
@@ -50,11 +55,13 @@ sealed class MySqlTransaction(MySqlConnection connection, IsolationLevel isolati
         {
             // COMMIT 报错时服务端已中止或结果未知，事务不能再当作待提交态对外提供
             _open = false;
+            conn.ClearTransaction(this);
             span.SetError(ex);
             throw;
         }
 
         _open = false;
+        conn.ClearTransaction(this);
     }
 
     /// <summary>回滚事务</summary>
@@ -75,10 +82,12 @@ sealed class MySqlTransaction(MySqlConnection connection, IsolationLevel isolati
         {
             // ROLLBACK 报错（典型为连接已断）时事务不再可用，避免调用方误以为可重试
             _open = false;
+            conn.ClearTransaction(this);
             span.SetError(ex);
             throw;
         }
 
         _open = false;
+        conn.ClearTransaction(this);
     }
 }
