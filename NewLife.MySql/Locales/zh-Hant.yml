@@ -24,6 +24,7 @@
 "Unsupported authentication method: {0}.": "不支援的驗證方式：{0}。"
 "Packet size ({0}) exceeds the maximum allowed ({1}).": "資料封包大小（{0}）超過上限（{1}）。"
 "Timed out reading a packet ({0}s).": "讀取資料封包逾時（{0}s）。"
+"Timed out sending a packet ({0}s).": "傳送資料封包逾時（{0}s）。"
 "Decompressed packet size ({0}) exceeds the maximum allowed ({1}).": "解壓後資料封包大小（{0}）超過上限（{1}）。"
 "Compressed packet size ({0}) exceeds the maximum allowed ({1}).": "壓縮資料封包大小（{0}）超過上限（{1}）。"
 "Row packet size ({0}) exceeds the maximum allowed ({1}).": "資料列封包大小（{0}）超過上限（{1}）。"

@@ -24,6 +24,7 @@
 "Unsupported authentication method: {0}.": "지원되지 않는 인증 방법입니다: {0}."
 "Packet size ({0}) exceeds the maximum allowed ({1}).": "패킷 크기({0})가 최대 허용치({1})를 초과했습니다."
 "Timed out reading a packet ({0}s).": "패킷 읽기 시간이 초과되었습니다({0}s)."
+"Timed out sending a packet ({0}s).": "패킷 전송 시간이 초과되었습니다({0}s)."
 "Decompressed packet size ({0}) exceeds the maximum allowed ({1}).": "압축 해제된 패킷 크기({0})가 최대 허용치({1})를 초과했습니다."
 "Compressed packet size ({0}) exceeds the maximum allowed ({1}).": "압축된 패킷 크기({0})가 최대 허용치({1})를 초과했습니다."
 "Row packet size ({0}) exceeds the maximum allowed ({1}).": "행 패킷 크기({0})가 최대 허용치({1})를 초과했습니다."

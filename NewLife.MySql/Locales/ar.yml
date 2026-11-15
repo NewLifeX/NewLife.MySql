@@ -24,6 +24,7 @@
 "Unsupported authentication method: {0}.": "طريقة مصادقة غير مدعومة: {0}."
 "Packet size ({0}) exceeds the maximum allowed ({1}).": "حجم الحزمة ({0}) يتجاوز الحد الأقصى المسموح ({1})."
 "Timed out reading a packet ({0}s).": "انتهت مهلة قراءة الحزمة ({0}s)."
+"Timed out sending a packet ({0}s).": "انتهت مهلة إرسال الحزمة ({0}s)."
 "Decompressed packet size ({0}) exceeds the maximum allowed ({1}).": "حجم الحزمة بعد فك الضغط ({0}) يتجاوز الحد الأقصى المسموح ({1})."
 "Compressed packet size ({0}) exceeds the maximum allowed ({1}).": "حجم الحزمة المضغوطة ({0}) يتجاوز الحد الأقصى المسموح ({1})."
 "Row packet size ({0}) exceeds the maximum allowed ({1}).": "حجم حزمة الصف ({0}) يتجاوز الحد الأقصى المسموح ({1})."

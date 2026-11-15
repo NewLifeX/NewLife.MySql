@@ -24,6 +24,7 @@
 "Unsupported authentication method: {0}.": "不支持验证方式：{0}。"
 "Packet size ({0}) exceeds the maximum allowed ({1}).": "数据包大小（{0}）超过上限（{1}）。"
 "Timed out reading a packet ({0}s).": "读取数据包超时（{0}s）。"
+"Timed out sending a packet ({0}s).": "发送数据包超时（{0}s）。"
 "Decompressed packet size ({0}) exceeds the maximum allowed ({1}).": "解压后数据包大小（{0}）超过上限（{1}）。"
 "Compressed packet size ({0}) exceeds the maximum allowed ({1}).": "压缩数据包大小（{0}）超过上限（{1}）。"
 "Row packet size ({0}) exceeds the maximum allowed ({1}).": "行数据包大小（{0}）超过上限（{1}）。"

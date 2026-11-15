@@ -24,6 +24,7 @@
 "Unsupported authentication method: {0}.": "サポートされていない認証方式です: {0}。"
 "Packet size ({0}) exceeds the maximum allowed ({1}).": "パケットサイズ（{0}）が上限（{1}）を超えています。"
 "Timed out reading a packet ({0}s).": "パケットの読み取りがタイムアウトしました（{0}s）。"
+"Timed out sending a packet ({0}s).": "パケットの送信がタイムアウトしました（{0}s）。"
 "Decompressed packet size ({0}) exceeds the maximum allowed ({1}).": "解凍後のパケットサイズ（{0}）が上限（{1}）を超えています。"
 "Compressed packet size ({0}) exceeds the maximum allowed ({1}).": "圧縮パケットサイズ（{0}）が上限（{1}）を超えています。"
 "Row packet size ({0}) exceeds the maximum allowed ({1}).": "行パケットサイズ（{0}）が上限（{1}）を超えています。"

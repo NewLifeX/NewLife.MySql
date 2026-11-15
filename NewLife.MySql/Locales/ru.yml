@@ -24,6 +24,7 @@
 "Unsupported authentication method: {0}.": "Неподдерживаемый метод проверки подлинности: {0}."
 "Packet size ({0}) exceeds the maximum allowed ({1}).": "Размер пакета ({0}) превышает допустимый максимум ({1})."
 "Timed out reading a packet ({0}s).": "Время ожидания чтения пакета истекло ({0}s)."
+"Timed out sending a packet ({0}s).": "Время ожидания отправки пакета истекло ({0}s)."
 "Decompressed packet size ({0}) exceeds the maximum allowed ({1}).": "Размер распакованного пакета ({0}) превышает допустимый максимум ({1})."
 "Compressed packet size ({0}) exceeds the maximum allowed ({1}).": "Размер сжатого пакета ({0}) превышает допустимый максимум ({1})."
 "Row packet size ({0}) exceeds the maximum allowed ({1}).": "Размер пакета строки ({0}) превышает допустимый максимум ({1})."

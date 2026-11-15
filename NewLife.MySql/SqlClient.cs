@@ -774,10 +774,23 @@ public class SqlClient : DisposeBase
     {
         var ms = _stream ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
+        // 写方向同样受 Timeout 约束：对端不再收取数据时写入会一直挂起，命令与连接池都被拖死
+        // 超时/取消一律视为连接失效，避免半截请求残留在协议流里
+        var timeout = Timeout;
+        using var cts = timeout > 0
+            ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
+            : null;
+        cts?.CancelAfter(timeout * 1000);
+        var token = cts?.Token ?? cancellationToken;
+#if !NET5_0_OR_GREATER
+        // 旧框架的 NetworkStream 异步写入忽略取消令牌，超时/取消时关闭 socket 以解除阻塞
+        using var abort = token.Register(static s => ((SqlClient)s!).Abort(), this);
+#endif
+
         // 压缩协议
         if (_useCompression)
         {
-            await SendCompressedPacketAsync(pk, ms, flush, cancellationToken).ConfigureAwait(false);
+            await SendCompressedPacketAsync(pk, ms, flush, token).ConfigureAwait(false);
             return;
         }
 
@@ -801,17 +814,23 @@ public class SqlClient : DisposeBase
 
                 WritePacketLog("=>", pk2[3], payload, len);
 
-                await pk2.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+                await pk2.CopyToAsync(ms, token).ConfigureAwait(false);
             }
             else
             {
                 // 超过单帧上限：按 0xFFFFFF 切帧，每帧自带 4 字节帧头；
                 // 旧实现只把低 3 字节写入长度，超长报文长度回绕，服务端按错误长度解包导致协议错位
-                await SendChunkedAsync(pk2, len, ms, cancellationToken).ConfigureAwait(false);
+                await SendChunkedAsync(pk2, len, ms, token).ConfigureAwait(false);
                 WritePacketLog("=>", (Byte)(_seq - 1), ReadOnlySpan<Byte>.Empty, len);
             }
 
-            if (flush) await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
+            if (flush) await ms.FlushAsync(token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // 内部写超时：请求可能已发出半截，连接不能再用
+            Active = false;
+            throw new TimeoutException(L.T("Timed out sending a packet ({0}s).", timeout));
         }
         catch
         {

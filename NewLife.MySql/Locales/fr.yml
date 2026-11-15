@@ -24,6 +24,7 @@
 "Unsupported authentication method: {0}.": "Méthode d'authentification non prise en charge : {0}."
 "Packet size ({0}) exceeds the maximum allowed ({1}).": "La taille du paquet ({0}) dépasse le maximum autorisé ({1})."
 "Timed out reading a packet ({0}s).": "Délai d'expiration lors de la lecture d'un paquet ({0}s)."
+"Timed out sending a packet ({0}s).": "Délai d'expiration lors de l'envoi d'un paquet ({0}s)."
 "Decompressed packet size ({0}) exceeds the maximum allowed ({1}).": "La taille du paquet décompressé ({0}) dépasse le maximum autorisé ({1})."
 "Compressed packet size ({0}) exceeds the maximum allowed ({1}).": "La taille du paquet compressé ({0}) dépasse le maximum autorisé ({1})."
 "Row packet size ({0}) exceeds the maximum allowed ({1}).": "La taille du paquet de ligne ({0}) dépasse le maximum autorisé ({1})."

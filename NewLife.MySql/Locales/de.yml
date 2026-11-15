@@ -24,6 +24,7 @@
 "Unsupported authentication method: {0}.": "Nicht unterstütztes Authentifizierungsverfahren: {0}."
 "Packet size ({0}) exceeds the maximum allowed ({1}).": "Paketgröße ({0}) überschreitet das zulässige Maximum ({1})."
 "Timed out reading a packet ({0}s).": "Zeitüberschreitung beim Lesen eines Pakets ({0}s)."
+"Timed out sending a packet ({0}s).": "Zeitüberschreitung beim Senden eines Pakets ({0}s)."
 "Decompressed packet size ({0}) exceeds the maximum allowed ({1}).": "Die Größe des entpackten Pakets ({0}) überschreitet das zulässige Maximum ({1})."
 "Compressed packet size ({0}) exceeds the maximum allowed ({1}).": "Die Größe des komprimierten Pakets ({0}) überschreitet das zulässige Maximum ({1})."
 "Row packet size ({0}) exceeds the maximum allowed ({1}).": "Die Größe des Zeilenpakets ({0}) überschreitet das zulässige Maximum ({1})."
