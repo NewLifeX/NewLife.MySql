@@ -10,7 +10,6 @@ on:
       - 'UnitTest/**'
       - 'UnitTest.EntityFramework/**'
       - 'UnitTest.EntityFrameworkCore/**'
-      - 'Locales/**'
       - 'tools/**'
       - 'README*.md'
       - 'readme-*.json'
@@ -24,12 +23,14 @@ on:
       - 'UnitTest/**'
       - 'UnitTest.EntityFramework/**'
       - 'UnitTest.EntityFrameworkCore/**'
-      - 'Locales/**'
       - 'tools/**'
       - 'README*.md'
       - 'readme-*.json'
       - 'Directory.Packages.props'
       - '.github/workflows/test.yml'
+  # 观察期平台只在夜间跑，主干 push 不跑
+  schedule:
+    - cron: '0 18 * * *'
   workflow_dispatch:
 
 jobs:
@@ -88,7 +89,18 @@ jobs:
       run: |
         $ver = '8.0.46'
         $zip = "$env:RUNNER_TEMP\mysql.zip"
-        curl.exe -sSL -o $zip "https://cdn.mysql.com/Downloads/MySQL-8.0/mysql-$ver-winx64.zip"
+        # cdn 只保留当前小版本，旧版本会移到 archives；两处都试一遍，避免版本号失效即整作业红
+        $urls = @(
+          "https://cdn.mysql.com/Downloads/MySQL-8.0/mysql-$ver-winx64.zip",
+          "https://downloads.mysql.com/archives/get/p/23/file/mysql-$ver-winx64.zip"
+        )
+        $ok = $false
+        foreach ($u in $urls) {
+          curl.exe -sSL --fail -o $zip $u
+          if ($LASTEXITCODE -eq 0 -and (Test-Path $zip) -and (Get-Item $zip).Length -gt 1MB) { $ok = $true; break }
+          Write-Host "下载失败：$u"
+        }
+        if (-not $ok) { throw "MySQL $ver 下载失败，请更新 test.yml 中的版本号" }
         Expand-Archive -Path $zip -DestinationPath C:\mysql
         $base = "C:\mysql\mysql-$ver-winx64"
         & "$base\bin\mysqld.exe" --initialize-insecure --basedir="$base" --datadir="C:\mysql-data"
@@ -107,7 +119,15 @@ jobs:
         dotnet build -c Release
     - name: Test
       run: |
-        dotnet test -c Release --no-build UnitTest/UnitTest.csproj
+        dotnet test -c Release --no-build UnitTest/UnitTest.csproj --logger "trx;LogFileName=unittest.trx" --results-directory TestResults
+    - name: 上传测试结果
+      # 失败时留 trx 与输出，便于定位是哪些用例在特定平台红
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-results-${{ matrix.rid }}
+        path: TestResults/**
+        if-no-files-found: ignore
     - name: EF Core 测试（linux-x64）
       if: matrix.rid == 'linux-x64'
       run: |
@@ -120,6 +140,8 @@ jobs:
   test-loongarch64:
     name: 单元测试（linux-la64 / QEMU）
     runs-on: ubuntu-latest
+    # 观察期平台：只在夜间定时与手动触发时跑，push/PR 均跳过
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     continue-on-error: true
     timeout-minutes: 120
 

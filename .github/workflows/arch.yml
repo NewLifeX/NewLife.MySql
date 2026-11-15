@@ -4,10 +4,9 @@ name: arch
 # riscv64 使用社区运行时（无 NuGet runtime pack），s390x 使用 Ubuntu 官方 dotnet-runtime-10.0（同时验证大端字节序）。
 # 观察期（continue-on-error），稳定全绿后转阻断。
 on:
-  push:
-    branches: [ '*' ]
-  pull_request:
-    branches: [ '*' ]
+  # 全部为观察期作业（QEMU 仿真 + 社区运行时），主干 push 不跑；改由夜间定时与手动触发
+  schedule:
+    - cron: '0 18 * * *'
   workflow_dispatch:
 
 jobs:

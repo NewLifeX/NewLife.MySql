@@ -31,9 +31,15 @@ jobs:
           9.x
           10.x
     - name: Localization gate
+      # 与 publish.yml 保持一致，避免测试版包词表/元数据已坏
       shell: pwsh
       run: |
         pwsh -NoProfile -File ./tools/check-locales.ps1 -RequireTranslated
+        pwsh -NoProfile -File ./tools/report-locales.ps1 -RequireTranslated
+        pwsh -NoProfile -File ./tools/check-english-exceptions.ps1
+        pwsh -NoProfile -File ./tools/check-assembly-metadata.ps1
+        pwsh -NoProfile -File ./tools/check-config-metadata.ps1
+        pwsh -NoProfile -File ./tools/sync-readme-languages.ps1 -Check
         pwsh -NoProfile -File ./tools/check-readme-coverage.ps1 -RequireFull
         pwsh -NoProfile -File ./tools/sync-readme-package.ps1 -Check
     - name: Build
@@ -44,6 +50,10 @@ jobs:
         dotnet pack --version-suffix $(date "+%Y.%m%d-beta%H%M") -c Release -o out NewLife.MySql/NewLife.MySql.csproj
         dotnet pack --version-suffix $(date "+%Y.%m%d-beta%H%M") -c Release -o out NewLife.MySql.EntityFramework/NewLife.MySql.EntityFramework.csproj
         dotnet pack --version-suffix $(date "+%Y.%m%d-beta%H%M") -c Release -o out NewLife.MySql.EntityFrameworkCore/NewLife.MySql.EntityFrameworkCore.csproj
+    - name: Package consumer smoke
+      # 下游只加 PackageReference 的端到端验证（词表已编入程序集）；失败即不发包
+      shell: pwsh
+      run: pwsh -NoProfile -File ./tools/check-package-consumer.ps1
     - name: NuGet login (OIDC)
       id: nuget-login
       continue-on-error: true

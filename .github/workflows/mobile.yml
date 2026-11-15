@@ -1,18 +1,9 @@
 name: mobile
 
 on:
-  push:
-    branches: [ '*' ]
-    paths:
-      - 'Samples/MobileSmoke/**'
-      - 'NewLife.MySql/**'
-      - '.github/workflows/mobile.yml'
-  pull_request:
-    branches: [ '*' ]
-    paths:
-      - 'Samples/MobileSmoke/**'
-      - 'NewLife.MySql/**'
-      - '.github/workflows/mobile.yml'
+  # 移动端冒烟为观察期作业（模拟器/工作负载版本随镜像滚动），主干 push 不跑；改由夜间定时与手动触发
+  schedule:
+    - cron: '0 18 * * *'
   workflow_dispatch:
 
 jobs:
@@ -56,7 +47,7 @@ jobs:
   # iOS 模拟器：构建 .app 并安装运行，读取应用容器内的 smoke.json。
   ios:
     name: ios simulator
-    runs-on: macos-26
+    runs-on: macos-latest
     timeout-minutes: 45
     continue-on-error: true
 
@@ -65,11 +56,15 @@ jobs:
     - name: Setup dotNET
       uses: actions/setup-dotnet@v4
       with:
-        dotnet-version: 10.0.402
+        dotnet-version: 10.0.x
     - name: Select Xcode
-      run: sudo xcode-select -s /Applications/Xcode_26.6.app
+      # runner 镜像的 Xcode 版本随镜像滚动，取已安装的最新版，避免硬编码版本号失效
+      run: |
+        latest=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
+        echo "Selected $latest"
+        sudo xcode-select -s "$latest"
     - name: Install iOS workload
-      run: dotnet workload install ios --version 10.400.1 || sudo dotnet workload install ios --version 10.400.1
+      run: dotnet workload install ios || sudo dotnet workload install ios
     - name: Run iOS smoke
       run: bash ./Samples/MobileSmoke/run-ios.sh
     - name: Upload iOS artifacts

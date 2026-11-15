@@ -16,6 +16,9 @@ on:
       - 'AotSmoke/**'
       - 'Directory.Packages.props'
       - '.github/workflows/aot.yml'
+  # 观察期平台（la64/musl/win-arm64/osx-*）只在夜间跑，主干 push 只跑必选阻断项
+  schedule:
+    - cron: '0 18 * * *'
   workflow_dispatch:
 
 jobs:
@@ -54,6 +57,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     continue-on-error: ${{ matrix.experimental == true }}
+    # 必选平台阻断；观察期平台（win-arm64/osx-*）只在夜间定时与手动触发时跑
+    if: matrix.experimental != true || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -99,12 +104,19 @@ jobs:
     - name: 启动 MySQL
       if: matrix.db
       run: |
-        sudo systemctl start mysql.service
+        echo -e "[mysqld]\nbind-address = *" | sudo tee /etc/mysql/mysql.conf.d/zz-ci.cnf > /dev/null
+        sudo systemctl restart mysql.service
         for i in $(seq 1 30); do
           if mysqladmin ping -h 127.0.0.1 -uroot -proot --silent 2>/dev/null; then break; fi
           sleep 2
         done
-        mysql -h 127.0.0.1 -uroot -proot -e "SELECT VERSION()"
+        # 与 test.yml 保持一致：预建 test 库与 root@'%'，并输出版本便于定位平台差异
+        mysql -h 127.0.0.1 -uroot -proot -e "
+          CREATE DATABASE IF NOT EXISTS test;
+          CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY 'root';
+          GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;
+          FLUSH PRIVILEGES;"
+        mysql -h 127.0.0.1 -uroot -proot -e "SELECT VERSION(); SELECT @@default_authentication_plugin; SHOW GRANTS FOR CURRENT_USER();"
     - name: JIT 基线冒烟（数据库场景）
       if: matrix.db
       env:
@@ -148,6 +160,8 @@ jobs:
     name: NativeAOT 冒烟（${{ matrix.rid }}）
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
+    # 观察期平台：只在夜间定时与手动触发时跑
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -194,6 +208,8 @@ jobs:
   native-smoke-loongarch64:
     name: NativeAOT 冒烟（linux-la64 / QEMU）
     runs-on: ubuntu-latest
+    # 观察期平台：只在夜间定时与手动触发时跑
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     continue-on-error: true
     timeout-minutes: 90
 
