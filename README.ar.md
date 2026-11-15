@@ -181,7 +181,7 @@ Server=localhost;Port=3306;Database=mydb;User Id=root;******;
 | Password | Pass, Pwd | - | كلمة المرور |
 | ConnectionTimeout | Connection Timeout | 15 | مهلة الاتصال (ثوانٍ) |
 | CommandTimeout | Default Command Timeout | 30 | مهلة الأمر (ثوانٍ) |
-| SslMode | Ssl Mode | None | وضع SSL (None/Preferred/Required) |
+| SslMode | Ssl Mode | Preferred | وضع SSL (None/Preferred/Required) |
 | UseServerPrepare | Use Server Prepare | false | مفتاح التحضير من جانب الخادم على مستوى الاتصال |
 | Pipeline | Pipelining | false | مفتاح التنفيذ المُتدفّق |
 
@@ -478,8 +478,8 @@ var connStr2 = "Server=localhost;Database=mydb;User Id=root;******;SslMode=Requi
 
 | SslMode | السلوك |
 |---------|------|
-| `None` / `Disabled` | لا تستخدم SSL (الافتراضي) |
-| `Preferred` | تفضيل التشفير، والرجوع إلى النص الصريح إذا لم يكن مدعومًا |
+| `None` / `Disabled` | لا تستخدم SSL |
+| `Preferred` | تفضيل التشفير، والرجوع إلى النص الصريح إذا لم يكن مدعومًا (الافتراضي) |
 | `Required` | فرض التشفير |
 
 ---

@@ -183,7 +183,7 @@ Server=localhost;Port=3306;Database=mydb;User Id=root;******;
 | Password | Pass, Pwd | - | 密码 |
 | ConnectionTimeout | Connection Timeout | 15 | 连接超时（秒） |
 | CommandTimeout | Default Command Timeout | 30 | 命令超时（秒） |
-| SslMode | Ssl Mode | None | SSL 模式（None/Preferred/Required） |
+| SslMode | Ssl Mode | Preferred | SSL 模式（None/Preferred/Required） |
 | UseServerPrepare | Use Server Prepare | false | 全局服务端预编译开关 |
 | Pipeline | Pipelining | false | 管道化执行开关 |
 
@@ -480,8 +480,8 @@ var connStr2 = "Server=localhost;Database=mydb;User Id=root;******;SslMode=Requi
 
 | SslMode | 行为 |
 |---------|------|
-| `None` / `Disabled` | 不使用 SSL（默认） |
-| `Preferred` | 优先加密，不支持则明文 |
+| `None` / `Disabled` | 不使用 SSL |
+| `Preferred` | 优先加密，服务器不支持时回退明文（默认） |
 | `Required` | 强制加密 |
 
 ---

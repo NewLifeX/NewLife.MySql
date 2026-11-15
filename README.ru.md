@@ -181,7 +181,7 @@ Server=localhost;Port=3306;Database=mydb;User Id=root;******;
 | Password | Pass, Pwd | - | Пароль |
 | ConnectionTimeout | Connection Timeout | 15 | Тайм-аут подключения (секунды) |
 | CommandTimeout | Default Command Timeout | 30 | Тайм-аут команды (секунды) |
-| SslMode | Ssl Mode | None | Режим SSL (None/Preferred/Required) |
+| SslMode | Ssl Mode | Preferred | Режим SSL (None/Preferred/Required) |
 | UseServerPrepare | Use Server Prepare | false | Глобальный переключатель подготовки на сервере |
 | Pipeline | Pipelining | false | Переключатель конвейерного выполнения |
 
@@ -478,8 +478,8 @@ var connStr2 = "Server=localhost;Database=mydb;User Id=root;******;SslMode=Requi
 
 | SslMode | Поведение |
 |---------|------|
-| `None` / `Disabled` | Не использовать SSL (по умолчанию) |
-| `Preferred` | Предпочитать шифрование, при отсутствии поддержки переключаться на открытый текст |
+| `None` / `Disabled` | Не использовать SSL |
+| `Preferred` | Предпочитать шифрование, при отсутствии поддержки переходить на открытый текст (по умолчанию) |
 | `Required` | Требовать шифрование |
 
 ---

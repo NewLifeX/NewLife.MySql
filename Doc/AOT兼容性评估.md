@@ -4,6 +4,7 @@
 > 复验：2026-10-15（驱动 1.4.2026.1015 + NewLife.Core 12.0.2026.1013-beta0732）场景扩展至 26 项（新增 S20 TLS 加密连接、S21 Unix Socket），win-x64 与 linux-x64 原生发布件均 **26/26 场景全通**、ILC 0 条告警（linux 侧为 WSL Ubuntu 24.04 + 用户态 MySQL 8.0.46），结论不变。
 > 复验：2026-10-16 CI 扩展至主流 RID 矩阵（对照 NewLife.Core 做法）：`aot.yml` 覆盖 win-x64 / linux-x64 / win-arm64 / linux-arm64 / osx-x64 / osx-arm64 / linux-musl-x64 / linux-musl-arm64 / **linux-la64（龙芯，QEMU 仿真）**；`test.yml` 单元测试覆盖 win-x64 / linux-x64 / linux-arm64 / linux-la64。必选平台（阻断）：win-x64 / linux-x64 / linux-arm64；win-arm64 / osx-x64 / osx-arm64 / musl / linux-la64 先观察期（continue-on-error）。
 > 复验：2026-11-09（驱动 1.5.2026.1109 + NewLife.Core 12.0.2026.1109-beta0553 + NewLife.XCode 12.3.2026.1108-beta1704）win-x64 原生发布件 **27/27 场景全通**（含 P5 本地化）、ILC 0 条告警，分析器 net8.0/net10.0 0 条 IL 告警；连接属性改为进程级静态拼接，去掉逐连接反射。
+> 复验：2026-11-15（第四轮审计后）win-x64 NativeAOT 发布件 **27/27 全通**、ILC 0 条告警；S18 改为 TLS 连接（RegisterSlave 非 TLS 带口令已被拒绝），`--no-db` 纯内存场景全通。
 
 ---
 
@@ -20,7 +21,7 @@
 
 ## 2. 实测数据
 
-### 2.1 冒烟场景（27 项：22 数据库场景 + 5 纯内存场景，.NET 10）
+### 2.1 冒烟场景（27 项：23 数据库场景 + 4 纯内存场景，.NET 10）
 
 | # | 场景 | JIT 基线 | NativeAOT（原始） | NativeAOT（修复后） |
 |---|------|---------|------------------|------------------------------|
@@ -42,21 +43,21 @@
 | S15 | Schema 元数据（`GetSchema` TABLES/COLUMNS） | ✅ | — | ✅ |
 | S16 | `MySqlDataSource`（DbDataSource） | ✅ | — | ✅ |
 | S17 | 存储过程 IN/OUT 参数 | ✅ | — | ✅ |
-| S18 | Binlog 订阅（`SubscribeAsync` + WRITE_ROWS 事件） | ✅ | — | ✅ |
+| S18 | Binlog 订阅（`SubscribeAsync` + WRITE_ROWS 事件，TLS 连接） | ✅ | — | ✅ |
 | S19 | DataAdapter Fill / FillSchema / Update | ✅ | — | ✅（调用方声明保留责任） |
 | S20 | TLS 加密连接（`SslMode=Required` + `Ssl_cipher` 断言） | ✅ | — | ✅ |
 | S21 | Unix Socket 连接（Linux 真实套接字路径） | — | — | ✅（linux-x64；Windows 按平台跳过） |
 | P1 | 工厂创建（Connection/Command/Parameter/DataAdapter） | ✅ | — | ✅ |
-| P2 | 参数替换与转义（注入防护路径） | ✅ | — | ✅ |
+| P2 | 参数替换与转义（注入防护路径，真实执行参数往返） | ✅ | — | ✅（需数据库） |
 | P3 | `MySqlGeometry` WKB 封装 | ✅ | — | ✅ |
 | P4 | DbDataSource 创建（不连接） | ✅ | — | ✅ |
 | P5 | 本地化词表与程序集标题翻译（11 种语言） | ✅ | — | ✅（裁剪后语言表可用） |
 
-> 复测（2026-10-10）：NativeAOT 真实发布件 **24/24 场景全部 PASS**（S0~S19 + P1~P4，含连接属性、反射/表达式探针、链路追踪、Schema/DataSource/存储过程/Binlog/DataAdapter），且 **无任何调用方补丁**——实体元数据保留完全由库侧泛型入口注解传导。P1~P4 为纯内存场景，可用 `--no-db` 在无 MySQL 环境运行。
+> 复测（2026-10-10）：NativeAOT 真实发布件 **24/24 场景全部 PASS**（S0~S19 + P1~P4，含连接属性、反射/表达式探针、链路追踪、Schema/DataSource/存储过程/Binlog/DataAdapter），且 **无任何调用方补丁**——实体元数据保留完全由库侧泛型入口注解传导。P1/P3/P4 为纯内存场景，可用 `--no-db` 在无 MySQL 环境运行；P2 需真实数据库执行单引号参数往返。
 
 > 复测（2026-10-15）：场景扩展至 26 项。win-x64 与 linux-x64 原生发布件均 **26/26 全通**（Windows 上 S21 按平台内部跳过）——S20 断言 `Ssl_cipher` 非空，验证 `SslStream`/X509 在裁剪后可用；S21 在 WSL 用户态 MySQL 上经 Unix 域套接字真实连接成功。
 
-> 复测（2026-11-09）：场景扩展至 27 项（新增 P5 本地化）；win-x64 原生发布件与 JIT `--no-db` **27/27 全通**、ILC 0 条告警。S12 连接属性改由进程级静态拼接生成（`Lazy<String>` 一次性构造），不再反射 `ConnectAttributes`，裁剪后无元数据依赖。
+> 复测（2026-11-09）：场景扩展至 27 项（新增 P5 本地化）；win-x64 原生发布件 27/27 全通、JIT `--no-db` 纯内存场景全通、ILC 0 条告警。S12 连接属性改由进程级静态拼接生成（`Lazy<Byte[]>` 一次性构造，长度按 UTF-8 字节数编码），不再反射 `ConnectAttributes`，裁剪后无元数据依赖。
 
 - AOT 判真：原生发布件 `Assembly.Location` 为空、JIT 为磁盘路径（另：冒烟工程固定"严格 AOT 姿态"，两种运行的 `IsDynamicCodeSupported` 均为 False，该值不作判别依据）。
 - S6 原始失败：`Fail to create object type=AotSmoke.Row parameters= No parameterless constructor defined for type 'AotSmoke.Row'`——实体无参构造未被反射元数据保留。

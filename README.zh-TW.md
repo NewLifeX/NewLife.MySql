@@ -183,7 +183,7 @@ Server=localhost;Port=3306;Database=mydb;User Id=root;******;
 | Password | Pass, Pwd | - | 密碼 |
 | ConnectionTimeout | Connection Timeout | 15 | 連線逾時（秒） |
 | CommandTimeout | Default Command Timeout | 30 | 命令逾時（秒） |
-| SslMode | Ssl Mode | None | SSL 模式（None/Preferred/Required） |
+| SslMode | Ssl Mode | Preferred | SSL 模式（None/Preferred/Required） |
 | UseServerPrepare | Use Server Prepare | false | 全域伺服器端預備語句開關 |
 | Pipeline | Pipelining | false | 管線化執行開關 |
 
@@ -480,8 +480,8 @@ var connStr2 = "Server=localhost;Database=mydb;User Id=root;******;SslMode=Requi
 
 | SslMode | 行為 |
 |---------|------|
-| `None` / `Disabled` | 不使用 SSL（預設） |
-| `Preferred` | 優先加密，不支援則走明文 |
+| `None` / `Disabled` | 不使用 SSL |
+| `Preferred` | 優先加密，伺服器不支援時回退明文（預設） |
 | `Required` | 強制加密 |
 
 ---

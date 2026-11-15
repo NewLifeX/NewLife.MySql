@@ -183,7 +183,7 @@ Server=localhost;Port=3306;Database=mydb;User Id=root;******;
 | Password | Pass, Pwd | - | Password |
 | ConnectionTimeout | Connection Timeout | 15 | Connection timeout (seconds) |
 | CommandTimeout | Default Command Timeout | 30 | Command timeout (seconds) |
-| SslMode | Ssl Mode | None | SSL mode (None/Preferred/Required) |
+| SslMode | Ssl Mode | Preferred | SSL mode (None/Preferred/Required) |
 | UseServerPrepare | Use Server Prepare | false | Global server-side prepare switch |
 | Pipeline | Pipelining | false | Pipelined execution switch |
 
@@ -480,8 +480,8 @@ var connStr2 = "Server=localhost;Database=mydb;User Id=root;******;SslMode=Requi
 
 | SslMode | Behavior |
 |---------|------|
-| `None` / `Disabled` | Do not use SSL (default) |
-| `Preferred` | Prefer encryption, fall back to plaintext if unsupported |
+| `None` / `Disabled` | Do not use SSL |
+| `Preferred` | Prefer encryption, fall back to plaintext if unsupported (default) |
 | `Required` | Force encryption |
 
 ---
