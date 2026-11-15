@@ -52,6 +52,17 @@ public class SqlClient : DisposeBase
     /// <summary>服务器变量集合，键值对形式存储</summary>
     public IDictionary<String, String>? Variables { get; set; }
 
+    /// <summary>服务器是否启用 NO_BACKSLASH_ESCAPES。启用时反斜杠是普通字符，字符串字面量只能用双写单引号转义；变量未加载时按未启用处理</summary>
+    public Boolean NoBackslashEscapes
+    {
+        get
+        {
+            if (Variables == null || !Variables.TryGetValue("sql_mode", out var mode) || mode.IsNullOrEmpty()) return false;
+
+            return mode.Contains("NO_BACKSLASH_ESCAPES", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     private Stream? _stream;
     /// <summary>底层网络数据流</summary>
     public Stream? BaseStream { get => _stream; set => _stream = value; }

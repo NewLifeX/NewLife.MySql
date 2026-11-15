@@ -702,7 +702,10 @@ public class MySqlCommand : DbCommand
     }
 
     private String GetDebugCommandText()
-        => CommandType == CommandType.StoredProcedure ? BuildStoredProcedureCall() : SubstituteParameters(CommandText, _parameters);
+        => CommandType == CommandType.StoredProcedure ? BuildStoredProcedureCall() : SubstituteParameters(CommandText, _parameters, NoBackslashEscapes);
+
+    /// <summary>服务器是否启用 NO_BACKSLASH_ESCAPES。该模式下反斜杠不再是转义符，字符串字面量必须改用双写单引号</summary>
+    private Boolean NoBackslashEscapes => _DbConnection?.Client?.NoBackslashEscapes == true;
 
     private String GetBatchDebugCommandText(IDictionary<String, Object?> parameterSet)
     {
@@ -716,7 +719,7 @@ public class MySqlCommand : DbCommand
             parameters.AddWithValue(parameter.ParameterName ?? String.Empty, value);
         }
 
-        return SubstituteParameters(CommandText, parameters);
+        return SubstituteParameters(CommandText, parameters, NoBackslashEscapes);
     }
 
     private String GetArrayBatchDebugCommandText()
@@ -728,7 +731,7 @@ public class MySqlCommand : DbCommand
             parameters.AddWithValue(parameter.ParameterName ?? String.Empty, value);
         }
 
-        return SubstituteParameters(CommandText, parameters);
+        return SubstituteParameters(CommandText, parameters, NoBackslashEscapes);
     }
     #endregion
 
@@ -800,7 +803,7 @@ public class MySqlCommand : DbCommand
         if (CommandType == CommandType.StoredProcedure)
             sql = BuildStoredProcedureCall();
         else
-            sql = SubstituteParameters(CommandText, _parameters);
+            sql = SubstituteParameters(CommandText, _parameters, NoBackslashEscapes);
 
         ms.Write(sql.GetBytes());
     }
@@ -838,7 +841,7 @@ public class MySqlCommand : DbCommand
                     sb.Append("SET ");
                     sb.Append(userVar);
                     sb.Append('=');
-                    sb.Append(SerializeValue(p.Value));
+                    sb.Append(SerializeValue(p.Value, NoBackslashEscapes));
                     sb.Append(';');
                     callArgs.Add(userVar);
                     outParams.Add(userVar);
@@ -846,7 +849,7 @@ public class MySqlCommand : DbCommand
 
                 default: // Input
                     // IN 参数：直接嵌入值，无需 SET 用户变量，避免额外的 OK 结果集
-                    callArgs.Add(SerializeValue(p.Value));
+                    callArgs.Add(SerializeValue(p.Value, NoBackslashEscapes));
                     break;
             }
         }
@@ -924,7 +927,7 @@ public class MySqlCommand : DbCommand
     /// <param name="sql">原始SQL</param>
     /// <param name="parameters">参数集合</param>
     /// <returns></returns>
-    internal static String SubstituteParameters(String sql, MySqlParameterCollection parameters)
+    internal static String SubstituteParameters(String sql, MySqlParameterCollection parameters, Boolean noBackslashEscapes = false)
     {
         if (parameters.Count <= 0) return sql;
 
@@ -977,7 +980,7 @@ public class MySqlCommand : DbCommand
 
                     if (idx >= 0)
                     {
-                        sb.Append(SerializeValue(((MySqlParameter)parameters[idx]).Value));
+                        sb.Append(SerializeValue(((MySqlParameter)parameters[idx]).Value, noBackslashEscapes));
                         continue;
                     }
                 }
@@ -997,39 +1000,56 @@ public class MySqlCommand : DbCommand
     /// <summary>将参数值序列化为SQL字面量</summary>
     /// <param name="value">参数值</param>
     /// <returns></returns>
-    internal static String SerializeValue(Object? value)
+    internal static String SerializeValue(Object? value, Boolean noBackslashEscapes = false)
     {
         if (value == null || value == DBNull.Value) return "NULL";
 
         return value switch
         {
-            String s => "'" + EscapeString(s) + "'",
+            String s => "'" + EscapeString(s, noBackslashEscapes) + "'",
+            Char c => "'" + EscapeString(c.ToString(), noBackslashEscapes) + "'",
             Boolean b => b ? "1" : "0",
-            Int32 n => n.ToString(),
-            Int64 n => n.ToString(),
-            Int16 n => n.ToString(),
-            Byte n => n.ToString(),
-            UInt32 n => n.ToString(),
-            UInt64 n => n.ToString(),
-            // 使用 InvariantCulture 固定日期时间分隔符，避免区域性（如 id-ID 时间分隔符为 .）生成非法 SQL 字面量
+            Int32 n => n.ToString(CultureInfo.InvariantCulture),
+            Int64 n => n.ToString(CultureInfo.InvariantCulture),
+            Int16 n => n.ToString(CultureInfo.InvariantCulture),
+            Byte n => n.ToString(CultureInfo.InvariantCulture),
+            UInt16 n => n.ToString(CultureInfo.InvariantCulture),
+            SByte n => n.ToString(CultureInfo.InvariantCulture),
+            UInt32 n => n.ToString(CultureInfo.InvariantCulture),
+            UInt64 n => n.ToString(CultureInfo.InvariantCulture),
+            // 使用 InvariantCulture 固定小数分隔符与日期时间分隔符，避免区域性（如 de-DE 小数点为逗号）生成非法 SQL 字面量
             DateTime dt => "'" + dt.ToString("yyyy-MM-dd HH:mm:ss.ffffff", CultureInfo.InvariantCulture).TrimEnd('0').TrimEnd('.') + "'",
             DateTimeOffset dto => "'" + dto.ToString("yyyy-MM-dd HH:mm:ss.ffffff", CultureInfo.InvariantCulture).TrimEnd('0').TrimEnd('.') + "'",
+#if NET6_0_OR_GREATER
+            DateOnly d => "'" + d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + "'",
+            TimeOnly t => "'" + t.ToString("HH:mm:ss.ffffff", CultureInfo.InvariantCulture).TrimEnd('0').TrimEnd('.') + "'",
+#endif
+            TimeSpan ts => "'" + ts.ToString("c", CultureInfo.InvariantCulture) + "'",
             Byte[] bytes => "X'" + bytes.ToHex() + "'",
             MySqlGeometry geom => "X'" + geom.Value.ToHex() + "'",
             Guid guid => "'" + guid.ToString() + "'",
-            Enum e => Convert.ToInt64(e).ToString(),
-            Single f => f.ToString("R"),
-            Double d => d.ToString("R"),
-            Decimal m => m.ToString(),
-            _ => value.ToString()!,
+            Enum e => Convert.ToInt64(e).ToString(CultureInfo.InvariantCulture),
+            Single f => f.ToString("R", CultureInfo.InvariantCulture),
+            Double d => d.ToString("R", CultureInfo.InvariantCulture),
+            Decimal m => m.ToString(CultureInfo.InvariantCulture),
+            // 未知类型统一按字符串字面量加引号，避免裸拼接破坏 SQL 结构（也曾把 Char/TimeSpan 输出成裸值）
+            _ => "'" + EscapeString(value.ToString() ?? String.Empty, noBackslashEscapes) + "'",
         };
     }
 
     /// <summary>转义SQL字符串中的特殊字符</summary>
     /// <param name="value">原始字符串</param>
+    /// <param name="noBackslashEscapes">服务器是否启用 NO_BACKSLASH_ESCAPES</param>
     /// <returns></returns>
-    internal static String EscapeString(String value)
+    internal static String EscapeString(String value, Boolean noBackslashEscapes = false)
     {
+        // NO_BACKSLASH_ESCAPES 模式下反斜杠是普通字符，\' 不会闭合引号，必须改用双写单引号；
+        // 继续用反斜杠转义会让单引号直接裸露，形成注入
+        if (noBackslashEscapes)
+        {
+            return value.Contains('\'') ? value.Replace("'", "''") : value;
+        }
+
         // 快速路径：扫描是否需要转义，无特殊字符时直接返回原串
         var needEscape = false;
         foreach (var c in value)

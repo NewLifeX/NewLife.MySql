@@ -337,7 +337,7 @@ internal class SchemaProvider(MySqlConnection connection)
     {
         var sql = "SELECT Host, User FROM mysql.user";
         if (restrictions != null && restrictions.Length != 0)
-            sql += $" WHERE User LIKE '{restrictions[0]}'";
+            sql += $" WHERE User LIKE '{EscapeString(restrictions[0]!)}'";
 
         var collection = QueryCollection("Users", sql);
         collection.Columns[0].Name = "HOST";
@@ -358,7 +358,7 @@ internal class SchemaProvider(MySqlConnection connection)
         if (restrictions != null && restrictions.Length >= 1)
         {
             name = restrictions[0];
-            if (!name.IsNullOrEmpty()) sql = $"{sql} LIKE '{name}'";
+            if (!name.IsNullOrEmpty()) sql = $"{sql} LIKE '{EscapeString(name)}'";
         }
 
         var obj = QueryCollection("Databases", sql);
@@ -742,16 +742,16 @@ internal class SchemaProvider(MySqlConnection connection)
                 // 查询存储过程
                 if (typeRestriction.IsNullOrEmpty() || typeRestriction.EqualIgnoreCase("PROCEDURE"))
                 {
-                    var sql = $"SHOW PROCEDURE STATUS WHERE Db = '{dbName}'";
-                    if (!nameRestriction.IsNullOrEmpty()) sql += $" AND Name LIKE '{nameRestriction}'";
+                    var sql = $"SHOW PROCEDURE STATUS WHERE Db = '{EscapeString(dbName)}'";
+                    if (!nameRestriction.IsNullOrEmpty()) sql += $" AND Name LIKE '{EscapeString(nameRestriction)}'";
                     FillProceduresFromQuery(collection, dbName, sql, "PROCEDURE");
                 }
 
                 // 查询函数
                 if (typeRestriction.IsNullOrEmpty() || typeRestriction.EqualIgnoreCase("FUNCTION"))
                 {
-                    var sql = $"SHOW FUNCTION STATUS WHERE Db = '{dbName}'";
-                    if (!nameRestriction.IsNullOrEmpty()) sql += $" AND Name LIKE '{nameRestriction}'";
+                    var sql = $"SHOW FUNCTION STATUS WHERE Db = '{EscapeString(dbName)}'";
+                    if (!nameRestriction.IsNullOrEmpty()) sql += $" AND Name LIKE '{EscapeString(nameRestriction)}'";
                     FillProceduresFromQuery(collection, dbName, sql, "FUNCTION");
                 }
             }
@@ -838,7 +838,7 @@ internal class SchemaProvider(MySqlConnection connection)
             try
             {
                 var sql = $"SHOW FULL TABLES FROM `{dbName}` WHERE Table_type = 'VIEW'";
-                if (!nameRestriction.IsNullOrEmpty()) sql += $" AND Tables_in_{dbName} LIKE '{nameRestriction}'";
+                if (!nameRestriction.IsNullOrEmpty()) sql += $" AND Tables_in_{dbName} LIKE '{EscapeString(nameRestriction)}'";
 
                 using var cmd = new MySqlCommand(connection, sql);
                 using var reader = cmd.ExecuteReader();
@@ -928,7 +928,7 @@ internal class SchemaProvider(MySqlConnection connection)
             try
             {
                 var sql = $"SHOW TRIGGERS FROM `{dbName}`";
-                if (!tableRestriction.IsNullOrEmpty()) sql += $" WHERE `Table` LIKE '{tableRestriction}'";
+                if (!tableRestriction.IsNullOrEmpty()) sql += $" WHERE `Table` LIKE '{EscapeString(tableRestriction)}'";
 
                 using var cmd = new MySqlCommand(connection, sql);
                 using var reader = cmd.ExecuteReader();
@@ -1022,9 +1022,9 @@ internal class SchemaProvider(MySqlConnection connection)
         {
             try
             {
-                var sql = $"SELECT CONSTRAINT_NAME, TABLE_NAME, COLUMN_NAME, ORDINAL_POSITION, REFERENCED_TABLE_SCHEMA, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = '{dbName}' AND REFERENCED_TABLE_NAME IS NOT NULL";
-                if (!tableRestriction.IsNullOrEmpty()) sql += $" AND TABLE_NAME LIKE '{tableRestriction}'";
-                if (!fkNameRestriction.IsNullOrEmpty()) sql += $" AND CONSTRAINT_NAME LIKE '{fkNameRestriction}'";
+                var sql = $"SELECT CONSTRAINT_NAME, TABLE_NAME, COLUMN_NAME, ORDINAL_POSITION, REFERENCED_TABLE_SCHEMA, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = '{EscapeString(dbName)}' AND REFERENCED_TABLE_NAME IS NOT NULL";
+                if (!tableRestriction.IsNullOrEmpty()) sql += $" AND TABLE_NAME LIKE '{EscapeString(tableRestriction)}'";
+                if (!fkNameRestriction.IsNullOrEmpty()) sql += $" AND CONSTRAINT_NAME LIKE '{EscapeString(fkNameRestriction)}'";
                 sql += " ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION";
 
                 using var cmd = new MySqlCommand(connection, sql);
@@ -1067,6 +1067,16 @@ internal class SchemaProvider(MySqlConnection connection)
         }
     }
 
+    /// <summary>转义字符串字面量。restrictions 可能携带外部输入（如管理页的 schema 浏览器），必须转义后才能拼进 SQL</summary>
+    /// <param name="value">原始值</param>
+    /// <returns>转义后的值</returns>
+    private String EscapeString(String value) => MySqlCommand.EscapeString(value, connection?.Client?.NoBackslashEscapes == true);
+
+    /// <summary>转义反引号包裹的标识符。标识符内出现反引号时需双写，否则会提前闭合</summary>
+    /// <param name="value">原始标识符</param>
+    /// <returns>转义后的标识符</returns>
+    private static String EscapeIdentifier(String value) => value.Replace("`", "``");
+
     private void FindTables(SchemaCollection schema, String[] restrictions)
     {
         if (restrictions == null || restrictions.Length < 2 || restrictions[1].IsNullOrEmpty()) return;
@@ -1074,10 +1084,10 @@ internal class SchemaProvider(MySqlConnection connection)
         var schemaName = restrictions[1];
         var stringBuilder = new StringBuilder();
         var stringBuilder2 = new StringBuilder();
-        stringBuilder.AppendFormat(CultureInfo.InvariantCulture, "SHOW TABLE STATUS FROM `{0}`", schemaName);
+        stringBuilder.AppendFormat(CultureInfo.InvariantCulture, "SHOW TABLE STATUS FROM `{0}`", EscapeIdentifier(schemaName));
         if (restrictions.Length >= 3 && restrictions[2] != null)
         {
-            stringBuilder2.AppendFormat(CultureInfo.InvariantCulture, " LIKE '{0}'", restrictions[2]);
+            stringBuilder2.AppendFormat(CultureInfo.InvariantCulture, " LIKE '{0}'", EscapeString(restrictions[2]!));
         }
         stringBuilder.Append(stringBuilder2.ToString());
         var table_type = schemaName.ToLower(CultureInfo.InvariantCulture) == "information_schema" ? "SYSTEM VIEW" : "BASE TABLE";

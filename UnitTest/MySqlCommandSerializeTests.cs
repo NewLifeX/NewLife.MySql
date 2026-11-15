@@ -65,4 +65,80 @@ public class MySqlCommandSerializeTests
         Assert.Equal("NULL", MySqlCommand.SerializeValue(null));
         Assert.Equal("NULL", MySqlCommand.SerializeValue(DBNull.Value));
     }
+
+    [Fact]
+    [DisplayName("默认模式用反斜杠转义单引号")]
+    public void EscapeString_Default_UsesBackslash()
+    {
+        Assert.Equal(@"a\'b", MySqlCommand.EscapeString("a'b"));
+        Assert.Equal(@"a\\b", MySqlCommand.EscapeString(@"a\b"));
+    }
+
+    [Fact]
+    [DisplayName("NO_BACKSLASH_ESCAPES模式改为双写单引号")]
+    public void EscapeString_NoBackslashEscapes_DoublesQuote()
+    {
+        // 该模式下 反斜杠是普通字符，\' 不会闭合引号，继续用反斜杠转义等于把引号裸露出去
+        Assert.Equal("a''b", MySqlCommand.EscapeString("a'b", true));
+        Assert.Equal(@"a\b", MySqlCommand.EscapeString(@"a\b", true));
+        // 反斜杠保持原样，只把每个单引号双写
+        Assert.Equal(@"a\''b''c", MySqlCommand.EscapeString(@"a\'b'c", true));
+    }
+
+    [Fact]
+    [DisplayName("字符串参数在NO_BACKSLASH_ESCAPES模式下不产生注入")]
+    public void SerializeValue_String_NoBackslashEscapes_IsQuoteSafe()
+    {
+        Assert.Equal("'a''b'", MySqlCommand.SerializeValue("a'b", true));
+        Assert.Equal("'a\\'b'", MySqlCommand.SerializeValue("a'b"));
+    }
+
+    [Fact]
+    [DisplayName("Char与TimeSpan按字面量加引号而非裸拼接")]
+    public void SerializeValue_CharAndTimeSpan_Quoted()
+    {
+        Assert.Equal("'a'", MySqlCommand.SerializeValue('a'));
+        Assert.Equal("'01:00:00'", MySqlCommand.SerializeValue(TimeSpan.FromHours(1)));
+    }
+
+    [Fact]
+    [DisplayName("未知类型按字符串字面量加引号，不裸拼接")]
+    public void SerializeValue_UnknownType_Quoted()
+    {
+        // 曾经直接 ToString 输出裸值，自定义类型的文本会破坏 SQL 结构
+        Assert.Equal(@"'a\'b'", MySqlCommand.SerializeValue(new UnknownValue("a'b")));
+        Assert.Equal("'a''b'", MySqlCommand.SerializeValue(new UnknownValue("a'b"), true));
+    }
+
+    [Fact]
+    [DisplayName("小数序列化不随CurrentCulture变化")]
+    public void Decimal_Invariant()
+    {
+        var old = CultureInfo.CurrentCulture;
+        try
+        {
+            // de-DE 小数点为逗号，未用 InvariantCulture 会生成 "1,5" 这种非法字面量
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+
+            Assert.Equal("1.5", MySqlCommand.SerializeValue(1.5m));
+            Assert.Equal("1.5", MySqlCommand.SerializeValue(1.5d));
+            Assert.Equal("1.5", MySqlCommand.SerializeValue(1.5f));
+            Assert.Equal("42", MySqlCommand.SerializeValue((UInt16)42));
+            Assert.Equal("-42", MySqlCommand.SerializeValue((SByte)(-42)));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = old;
+        }
+    }
+
+    /// <summary>自定义类型，用于验证兜底分支按字符串加引号</summary>
+    private sealed class UnknownValue
+    {
+        private readonly String _text;
+
+        public UnknownValue(String text) => _text = text;
+
+        public override String ToString() => _text;
+    }
 }
