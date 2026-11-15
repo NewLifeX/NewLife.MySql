@@ -268,6 +268,19 @@ public class ParameterizedQueryTests : IDisposable
 
         Assert.Equal(0, rs.ToInt());
     }
+
+    [Fact]
+    public void UserVariableWithoutParameters()
+    {
+        // 无参数集合时 @name 是用户变量，不能被替换成 ?（否则 SET ? = 42 语法错误）
+        using (var cmd = new MySqlCommand(_conn, "SET @nltest_uservar = 42"))
+        {
+            cmd.ExecuteNonQuery();
+        }
+
+        using var query = new MySqlCommand(_conn, "SELECT @nltest_uservar");
+        Assert.Equal(42, query.ExecuteScalar().ToInt());
+    }
     #endregion
 
     #region SerializeValue 边界类型测试
@@ -591,6 +604,23 @@ public class ParameterizedQueryTests : IDisposable
         var sql = "select 1";
         var result = CallConvert(sql, new MySqlParameterCollection());
         Assert.Equal(sql, result);
+    }
+
+    [Fact]
+    public void ConvertKeepUserVariableWithoutParams()
+    {
+        // 没有参数对象时 @name 是 MySQL 用户变量，替换成 ? 会导致 SET ? = 1 语法错误
+        var sql = "SET @total = 1";
+        Assert.Equal(sql, CallConvert(sql, new MySqlParameterCollection()));
+        Assert.Equal("SELECT @total", CallConvert("SELECT @total", new MySqlParameterCollection()));
+    }
+
+    [Fact]
+    public void ConvertBareAtAsPlaceholderWhenPositional()
+    {
+        var sql = "INSERT INTO t (name, age) VALUES (@name, @age)";
+        var result = MySqlCommand.ConvertToPositionalParameters(sql, new MySqlParameterCollection(), null, true);
+        Assert.Equal("INSERT INTO t (name, age) VALUES (?, ?)", result);
     }
 
     [Fact]

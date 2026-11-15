@@ -63,6 +63,9 @@ public class MySqlCommand : DbCommand
     /// <summary>预编译参数顺序映射。索引为 SQL 中 ? 出现的位置，值为 _parameters 中的参数索引</summary>
     private Int32[]? _paramOrder;
 
+    /// <summary>值数组批量按位置绑定时为 true，允许把无参数集合的裸 @name 当作占位符</summary>
+    private Boolean _positionalAt;
+
     /// <summary>是否抑制诊断埋点。驱动内部记账语句（如 SET SQL_SELECT_LIMIT 与事务 COMMIT/ROLLBACK）不产生 Execute 跨度</summary>
     internal Boolean SuppressTracing { get; set; }
     #endregion
@@ -170,7 +173,7 @@ public class MySqlCommand : DbCommand
 
         // 将 @param 替换为 ? 占位符，同时记录参数在 SQL 中的出现顺序
         var paramOrder = new List<Int32>();
-        var prepSql = ConvertToPositionalParameters(sql, _parameters, paramOrder);
+        var prepSql = ConvertToPositionalParameters(sql, _parameters, paramOrder, _positionalAt);
 
         var result = await client.PrepareStatementAsync(prepSql, cancellationToken).ConfigureAwait(false);
         _statementId = result.StatementId;
@@ -523,7 +526,16 @@ public class MySqlCommand : DbCommand
         var needClose = false;
         if (!IsPrepared)
         {
-            await PrepareAsync(cancellationToken).ConfigureAwait(false);
+            // 没有参数集合，但 SQL 仍是参数化的，需临时允许裸 @name 当作占位符
+            _positionalAt = true;
+            try
+            {
+                await PrepareAsync(cancellationToken).ConfigureAwait(false);
+            }
+            finally
+            {
+                _positionalAt = false;
+            }
             needClose = true;
         }
 
@@ -1115,10 +1127,12 @@ public class MySqlCommand : DbCommand
     /// <param name="sql">原始 SQL</param>
     /// <param name="parameters">参数集合，用于匹配参数名</param>
     /// <param name="paramOrder">输出参数顺序映射。记录 ? 占位符对应的参数索引，按 SQL 中出现顺序排列</param>
+    /// <param name="positionalAt">无参数集合时是否把裸 @name 当作占位符。仅值数组批量按位置绑定才需要，其余场景保留用户变量</param>
     /// <returns>替换后的 SQL</returns>
-    internal static String ConvertToPositionalParameters(String sql, MySqlParameterCollection parameters, List<Int32>? paramOrder = null)
+    internal static String ConvertToPositionalParameters(String sql, MySqlParameterCollection parameters, List<Int32>? paramOrder = null, Boolean positionalAt = false)
     {
-        // 无参数集合时（如值数组批量执行），仍需将 @name 替换为 ? 占位符，服务器按位置绑定
+        // 值数组批量执行时参数集合为空，但 SQL 仍是参数化的，需要把 @name 当作位置占位符；
+        // 普通命令没有参数时，@name 是 MySQL 用户变量（如 SET @x = 1），替换成 ? 会直接语法错误
         var hasParams = parameters.Count > 0;
         if (!hasParams && !sql.Contains('@')) return sql;
 
@@ -1175,8 +1189,8 @@ public class MySqlCommand : DbCommand
                         continue;
                     }
 
-                    // 无参数集合：@name 视为位置参数占位符，替换为 ?
-                    if (!hasParams && ch == '@')
+                    // 值数组批量：@name 视为位置参数占位符，替换为 ?
+                    if (!hasParams && positionalAt && ch == '@')
                     {
                         sb.Append('?');
                         continue;
