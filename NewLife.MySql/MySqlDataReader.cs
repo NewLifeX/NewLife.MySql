@@ -38,7 +38,6 @@ public class MySqlDataReader : DbDataReader
     public override Int32 FieldCount => _FieldCount;
 
     /// <summary>是否有行</summary>
-    public override Boolean HasRows => _Values != null && _Values.Length > 0;
 
     private Boolean _IsClosed;
     /// <summary>是否关闭</summary>
@@ -63,6 +62,41 @@ public class MySqlDataReader : DbDataReader
     /// <summary>当前行数值集合</summary>
     public Object[]? Values => _Values;
 
+    private Boolean _hasRows;
+    private Boolean _hasAnyRow;
+    private Boolean _hasRowsEvaluated;
+    private Boolean _hasPrefetchedRow;
+
+    /// <summary>是否有行。首次访问时预取第一行，保证空结果集返回 false、非空结果集在 Read 前返回 true</summary>
+    public override Boolean HasRows
+    {
+        get
+        {
+            if (_hasRowsEvaluated) return _hasRows;
+
+            // 已经通过 Read 读到当前行，或 DbTable 取走当前行但结果集已有数据
+            if (_Values != null || _hasAnyRow)
+            {
+                _hasAnyRow = true;
+                _hasRows = true;
+                _hasRowsEvaluated = true;
+                return true;
+            }
+
+            if (_FieldCount <= 0 || _IsClosed)
+            {
+                _hasRows = false;
+                _hasRowsEvaluated = true;
+                return false;
+            }
+
+            _hasPrefetchedRow = true;
+            _hasRows = ReadCoreAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+            _hasRowsEvaluated = true;
+            return _hasRows;
+        }
+    }
+
     /// <summary>当前行数据。尚未 Read 或已读完时给出明确异常，而不是空引用</summary>
     private Object[] CurrentValues => _Values ?? throw new InvalidOperationException(L.T("No data exists for the row or column."));
 
@@ -80,6 +114,10 @@ public class MySqlDataReader : DbDataReader
     {
         _Values = values;
         _FieldCount = values?.Length ?? 0;
+        _hasAnyRow = values != null;
+        _hasRows = values != null;
+        _hasRowsEvaluated = true;
+        _hasPrefetchedRow = false;
     }
 
     /// <summary>取走当前行值数组。调用后下次 Read 将分配新数组，避免逐列复制开销</summary>
@@ -87,6 +125,9 @@ public class MySqlDataReader : DbDataReader
     /// <returns>当前行数组，调用方拥有所有权</returns>
     public Object[]? TakeValues()
     {
+        // 如果调用方在 HasRows 预取后直接取走首行，后续 Read 必须从下一行开始；
+        // 预取结果为空时保持预取标记，让后续 Read 直接返回 false，避免再次读网络
+        if (_hasPrefetchedRow && _hasRows) _hasPrefetchedRow = false;
         var values = _Values;
         _Values = null;
         return values;
@@ -388,6 +429,18 @@ public class MySqlDataReader : DbDataReader
     /// <returns></returns>
     public override async Task<Boolean> ReadAsync(CancellationToken cancellationToken)
     {
+        // HasRows 预取过第一行，首次 Read 直接返回该行，不能再次读取网络
+        if (_hasPrefetchedRow)
+        {
+            _hasPrefetchedRow = false;
+            return _hasRows;
+        }
+
+        return await ReadCoreAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<Boolean> ReadCoreAsync(CancellationToken cancellationToken)
+    {
         if (_FieldCount <= 0) return false;
 
         var client = Client;
@@ -408,11 +461,16 @@ public class MySqlDataReader : DbDataReader
             // EOF 到达，记录是否有更多结果集
             _hasMoreResults = result.HasMoreResults;
             _allRowsConsumed = true;
+            _hasRowsEvaluated = true;
+            _hasRows = _hasAnyRow;
             return false;
         }
 
         _Values = values;
         _allRowsConsumed = false;
+        _hasAnyRow = true;
+        _hasRows = true;
+        _hasRowsEvaluated = true;
         return true;
     }
 
@@ -446,6 +504,9 @@ public class MySqlDataReader : DbDataReader
             _FieldCount = 0;
             _Columns = null;
             _Values = null;
+            _hasRows = false;
+            _hasRowsEvaluated = true;
+            _hasPrefetchedRow = false;
             return false;
         }
 
@@ -465,14 +526,18 @@ public class MySqlDataReader : DbDataReader
             _FieldCount = qr.FieldCount;
             _Values = null;
             _allRowsConsumed = true;
+            _hasAnyRow = false;
+            _hasRows = false;
+            _hasRowsEvaluated = false;
+            _hasPrefetchedRow = false;
 
             if (qr.FieldCount <= 0)
             {
                 // OK 包（INSERT/UPDATE/DELETE）
                 _Columns = null;
-                // 根据 ADO.NET 标准，NextResult 每次只移动一个结果。
-                // 即使当前结果是 OK 包（FieldCount=0），我们也成功读取了一个结果，应返回 true。
-                // 下次调用时，通过 _hasMoreResults 判断是否继续。
+                _hasRowsEvaluated = true;
+                // 根据 ADO.NET 标准，NextResult 每次只移动一个结果。即使当前结果是 OK 包（FieldCount=0），
+                // 也成功读取了一个结果，应返回 true；下次调用时通过 _hasMoreResults 判断是否继续。
                 return true;
             }
 

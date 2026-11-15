@@ -302,8 +302,9 @@ class Authentication(SqlClient client)
         if ((caps & ClientFlags.CAN_HANDLE_EXPIRED_PASSWORD) != 0)
             flags |= ClientFlags.CAN_HANDLE_EXPIRED_PASSWORD;
 
-        // 支持发送会话跟踪变量
-        flags |= ClientFlags.CLIENT_SESSION_TRACK;
+        // 支持发送会话跟踪变量（仅服务器声明支持时）
+        if ((caps & ClientFlags.CLIENT_SESSION_TRACK) != 0)
+            flags |= ClientFlags.CLIENT_SESSION_TRACK;
 
         // 查询属性
         if ((caps & ClientFlags.CLIENT_QUERY_ATTRIBUTES) != 0)

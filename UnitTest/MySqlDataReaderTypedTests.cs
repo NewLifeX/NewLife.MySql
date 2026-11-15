@@ -44,6 +44,61 @@ public class MySqlDataReaderTypedTests : IDisposable
     }
 
     [Fact]
+    [DisplayName("HasRows在Read前正确反映空结果集")]
+    public void WhenEmptyResultThenHasRowsFalse()
+    {
+        using var dr = OpenReader("SELECT 1 WHERE 0");
+
+        Assert.False(dr.HasRows);
+        Assert.False(dr.Read());
+        Assert.False(dr.HasRows);
+    }
+
+    [Fact]
+    [DisplayName("TakeValues取走HasRows预取的首行后Read从下一行开始")]
+    public void WhenTakePrefetchedValuesThenReadNextRow()
+    {
+        using var dr = OpenReader("SELECT 1 UNION ALL SELECT 2");
+
+        Assert.True(dr.HasRows);
+        var first = dr.TakeValues();
+        Assert.NotNull(first);
+        Assert.Equal(1, Convert.ToInt32(first![0]));
+
+        Assert.True(dr.Read());
+        Assert.Equal(2, dr.GetInt32(0));
+    }
+
+    [Fact]
+    [DisplayName("HasRows按结果集重置")]
+    public void WhenNextResultThenHasRowsResets()
+    {
+        using var dr = OpenReader("SELECT 1; SELECT 2 WHERE 0");
+
+        Assert.True(dr.HasRows);
+        Assert.True(dr.Read());
+        Assert.Equal(1, dr.GetInt32(0));
+        Assert.True(dr.NextResult());
+        Assert.False(dr.HasRows);
+        Assert.False(dr.Read());
+    }
+
+    [Fact]
+    [DisplayName("HasRows预取首行后Read不跳过数据")]
+    public void WhenHasRowsThenFirstReadReturnsPrefetchedRow()
+    {
+        using var dr = OpenReader("SELECT 1 AS v UNION ALL SELECT 2");
+
+        Assert.True(dr.HasRows);
+        Assert.True(dr.Read());
+        Assert.Equal(1, dr.GetInt32(0));
+        Assert.True(dr.Read());
+        Assert.Equal(2, dr.GetInt32(0));
+        Assert.False(dr.Read());
+        Assert.True(dr.HasRows);
+    }
+
+    [Fact]
     [DisplayName("类型化Get方法读取各类列")]
     public void WhenReadThenTypedGettersReturnValues()
     {

@@ -45,6 +45,20 @@ public class CompressionTests : IDisposable
     }
 
     [Fact]
+    [DisplayName("压缩连接关闭重开后仍可查询")]
+    public void Compressed_CloseAndReopen()
+    {
+        var connStr = _ConnStr.TrimEnd(';') + ";UseCompression=true;MaxPoolSize=1;";
+        using var conn = new MySqlConnection(connStr);
+        conn.Open();
+        using (var cmd = new MySqlCommand(conn, "SELECT 1")) Assert.Equal(1L, cmd.ExecuteScalar());
+
+        conn.Close();
+        conn.Open();
+        using (var cmd = new MySqlCommand(conn, "SELECT 2")) Assert.Equal(2L, cmd.ExecuteScalar());
+    }
+
+    [Fact]
     [DisplayName("压缩协议下预编译语句查询")]
     public void Compressed_PreparedQuery()
     {

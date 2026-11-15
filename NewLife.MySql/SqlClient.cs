@@ -148,6 +148,9 @@ public class SqlClient : DisposeBase
         if (_stream != null) return;
         cancellationToken.ThrowIfCancellationRequested();
 
+        // 同一个 SqlClient 可能被连接池复用；新连接不能继承上一条连接的压缩缓存/序列状态
+        ResetCompressionState();
+
         var set = Setting;
         var server = set.Server;
         var socketPath = set.Socket;
@@ -436,6 +439,7 @@ public class SqlClient : DisposeBase
         _client = null;
         _stream = null;
         _reader.Reset();
+        ResetCompressionState();
 
         Active = false;
         SessionVersion++;
@@ -597,6 +601,7 @@ public class SqlClient : DisposeBase
         _client = null;
         _stream = null;
         _reader.Reset();
+        ResetCompressionState();
     }
 
     /// <summary>探测底层 socket 健康状态。非阻塞、微秒级，取代旧 Reset 的排残留逻辑</summary>
@@ -777,6 +782,15 @@ public class SqlClient : DisposeBase
 #endif
             throw;
         }
+    }
+
+    private void ResetCompressionState()
+    {
+        _useCompression = false;
+        _compressCache = null;
+        _compressCacheOffset = 0;
+        _compressCacheLength = 0;
+        _compressPending = false;
     }
 
     private void WritePacketLog(String direction, Byte sequence, ReadOnlySpan<Byte> payload, Int32 length)
@@ -1205,7 +1219,7 @@ public class SqlClient : DisposeBase
         {
             // 普通包长度与压缩包长度字段都只有 3 字节，超过 16MB 需要压缩层分帧（各服务端实现差异大），
             // 这里明确拒绝，避免发出长度回绕的包把协议流搞乱
-            if (len >= MaxPayload)
+            if (len > MaxPayload)
                 throw new NotSupportedException(L.T("Packets larger than 16MB require UseCompression=false in the connection string."));
 
             // 链式数据（PrepareFrameHeader 可能生成 { 帧头, Next=原包 } 链，GetSpan 仅返回单段）合并到连续缓冲，
