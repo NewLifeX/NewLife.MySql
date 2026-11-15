@@ -182,37 +182,49 @@ public class BinlogClient : DisposeBase
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
     public async IAsyncEnumerable<BinlogEvent> SubscribeAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        _cts = cts;
 
-        await ConnectAndDumpAsync(_cts.Token).ConfigureAwait(false);
-        Running = true;
-
-        while (!_cts.Token.IsCancellationRequested)
+        try
         {
-            BinlogEvent? ev;
-            try
+            await ConnectAndDumpAsync(cts.Token).ConfigureAwait(false);
+            Running = true;
+
+            while (!cts.Token.IsCancellationRequested)
             {
-                ev = await ReadAndParseEventAsync(_cts.Token).ConfigureAwait(false);
+                BinlogEvent? ev;
+                try
+                {
+                    ev = await ReadAndParseEventAsync(cts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    OnError?.Invoke(ex);
+                    if (!AutoReconnect) break;
+
+                    Log.ErrorPrefixed(LogPrefix, "Binlog read error; reconnecting in {0}ms: {1}", ReconnectInterval, ex.Message);
+                    await Task.Delay(ReconnectInterval, cts.Token).ConfigureAwait(false);
+                    await ReconnectAsync(cts.Token).ConfigureAwait(false);
+                    continue;
+                }
+
+                if (ev == null) continue;
+                if (!FilterEvent(ev)) continue;
+
+                yield return ev;
             }
-            catch (OperationCanceledException) { break; }
-            catch (Exception ex)
-            {
-                OnError?.Invoke(ex);
-                if (!AutoReconnect) break;
-
-                Log.ErrorPrefixed(LogPrefix, "Binlog read error; reconnecting in {0}ms: {1}", ReconnectInterval, ex.Message);
-                await Task.Delay(ReconnectInterval, _cts.Token).ConfigureAwait(false);
-                await ReconnectAsync(_cts.Token).ConfigureAwait(false);
-                continue;
-            }
-
-            if (ev == null) continue;
-            if (!FilterEvent(ev)) continue;
-
-            yield return ev;
         }
+        finally
+        {
+            _client.TryDispose();
+            _client = null;
+            lock (_tableMap) _tableMap.Clear();
 
-        Running = false;
+            if (ReferenceEquals(_cts, cts)) _cts = null;
+            cts.TryDispose();
+            Running = false;
+        }
     }
 #endif
 
@@ -317,6 +329,13 @@ public class BinlogClient : DisposeBase
                 catch (Exception ex2)
                 {
                     OnError?.Invoke(ex2);
+
+                    // 重连本身失败时 _client 仍为空，立即 continue 会空转占满 CPU；退避后再重试
+                    try
+                    {
+                        await Task.Delay(ReconnectInterval, cancellationToken).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) { break; }
                 }
                 continue;
             }
@@ -334,6 +353,17 @@ public class BinlogClient : DisposeBase
             }
         }
 
+        // 事件循环结束（取消、关闭重试或 AutoReconnect=false）时释放物理连接，
+        // 否则再次 Start 会覆盖 _client，旧连接泄漏。
+        // Running 最后置 false，避免清理期间新 Start 抢到新连接又被这里释放。
+        _client.TryDispose();
+        _client = null;
+        lock (_tableMap) _tableMap.Clear();
+
+        // 事件循环自然结束（AutoReconnect=false）时释放本轮启动的令牌；Stop 已置空时无影响
+        var cts = _cts;
+        _cts = null;
+        cts.TryDispose();
         Running = false;
     }
 
