@@ -22,6 +22,11 @@ public class DALTests
         if (_ConnStr.Contains("Server=localhost", StringComparison.OrdinalIgnoreCase))
             _ConnStr = _ConnStr.Replace("Server=localhost", "Server=127.0.0.1", StringComparison.OrdinalIgnoreCase);
 
+        // 集成测试需要覆盖多语句、存储过程 OUT/INOUT、DbBatch 等场景；驱动默认已开启多语句，
+        // 这里显式声明以兼容从环境变量继承来、可能显式关闭的连接串
+        if (!_ConnStr.Contains("AllowMultiStatements", StringComparison.OrdinalIgnoreCase))
+            _ConnStr = _ConnStr.TrimEnd(';') + ";AllowMultiStatements=True;";
+
         DAL.AddConnStr("mysql", _ConnStr, null, "MySql");
     }
 

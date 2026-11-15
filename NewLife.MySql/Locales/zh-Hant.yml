@@ -48,3 +48,6 @@
 "NewLife MySQL Driver": "新生命MySQL驅動"
 "Pure C# high-performance MySQL ADO.NET driver. Zero third-party dependencies, full async/await, Pipelined Batch Execution for 2~3× faster batch DML. MIT license. Supports net45~net10, MySQL 5.x~9.0+, OceanBase, TiDB, Doris, Aurora, CloudSQL; NativeAOT compatible on net8.0+; OpenTelemetry-compatible tracing (ActivitySource) on net6.0+.": "純 C# 高效能 MySQL ADO.NET 驅動。零第三方相依、全非同步/await、管線化批次執行讓批次 DML 提速 2~3 倍。MIT 授權。支援 net45~net10、MySQL 5.x~9.0+、OceanBase、TiDB、Doris、Aurora、CloudSQL；net8.0+ 相容 NativeAOT；net6.0+ 提供相容 OpenTelemetry 的鏈路追蹤（ActivitySource）。"
 "Rows copied: {0}": "已複製 {0} 行"
+"Server certificate validation failed ({0}). Set SslMode=Required to skip certificate validation.": "伺服器憑證驗證失敗（{0}）。如需略過憑證驗證，請設定 SslMode=Required。"
+"Stored procedure with OUT/INOUT parameters requires AllowMultiStatements=true in the connection string.": "預存程序包含 OUT/INOUT 參數時，連線字串必須開啟 AllowMultiStatements=true。"
+"Reading multiple result sets requires AllowMultiStatements=true in the connection string.": "讀取多個結果集時，連線字串必須開啟 AllowMultiStatements=true。"

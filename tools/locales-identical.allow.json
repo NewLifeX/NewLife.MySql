@@ -3,6 +3,9 @@
   "keys": [
     "SQL: {0}",
     "WebAuthn: the server did not provide a valid challenge or rpId.",
-    "WebAuthn authentication failed."
+    "WebAuthn authentication failed.",
+    "Server certificate validation failed ({0}). Set SslMode=Required to skip certificate validation.",
+    "Stored procedure with OUT/INOUT parameters requires AllowMultiStatements=true in the connection string.",
+    "Reading multiple result sets requires AllowMultiStatements=true in the connection string."
   ]
 }

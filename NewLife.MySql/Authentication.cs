@@ -268,7 +268,9 @@ class Authentication(SqlClient client)
         flags |= ClientFlags.FOUND_ROWS;
         flags |= ClientFlags.PROTOCOL_41;
         flags |= ClientFlags.TRANSACTIONS;
-        flags |= ClientFlags.MULTI_STATEMENTS;
+        // 多语句能力默认开启（与 MySql.Data 的 AllowBatch 默认 true 一致）。
+        // 关闭后即使上层拼接 SQL 出错，也无法堆叠第二条语句；MySqlBatch 合并执行与存储过程 OUT/INOUT 参数依赖该能力
+        if (client.Setting != null && client.Setting.AllowMultiStatements) flags |= ClientFlags.MULTI_STATEMENTS;
         flags |= ClientFlags.MULTI_RESULTS;
         if ((caps & ClientFlags.LONG_FLAG) != 0)
             flags |= ClientFlags.LONG_FLAG;

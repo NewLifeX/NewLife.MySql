@@ -46,6 +46,11 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// <summary>是否输出协议收发包日志。默认false，仅用于排查协议层问题</summary>
     public Boolean TracePackets { get => this[nameof(TracePackets)].ToBoolean(); set => this[nameof(TracePackets)] = value; }
 
+    /// <summary>是否允许一次请求执行多条语句（分号分隔）。默认true，与 MySql.Data 的 AllowBatch 保持一致。
+    /// MySqlBatch 合并执行、存储过程 OUT/INOUT 参数，以及上层拼接的 INSERT;SELECT LAST_INSERT_ID() 都依赖该能力。
+    /// 对安全敏感的场景可设为false：服务端拒绝堆叠语句，上层拼接 SQL 出错也无法追加第二条</summary>
+    public Boolean AllowMultiStatements { get => this[nameof(AllowMultiStatements)].ToBoolean(true); set => this[nameof(AllowMultiStatements)] = value; }
+
     /// <summary>网络断线时是否自动重连重试。默认true。遇到 IOException/MySqlException(2006/2013) 等临时网络错误时，
     /// 在 ConnectionTimeout 时间内指数退避等待并重建连接重试；超过 ConnectionTimeout 才向上层抛出异常。
     /// 事务内自动跳过重试以避免 DML 重复执行。设为 false 可关闭。</summary>
@@ -103,6 +108,7 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
             [nameof(UseServerPrepare)] = ["useserverprepare", "use server prepare", "use_server_prepare"],
             [nameof(Pipeline)] = ["pipeline", "pipelining"],
             [nameof(TracePackets)] = ["tracepackets", "trace packets", "packettrace", "packet trace"],
+            [nameof(AllowMultiStatements)] = ["allowmultistatements", "allow multi statements", "allow multiple statements", "multistatements", "multi statements"],
             [nameof(RetryOnNetworkFailure)] = ["retryonnetworkfailure", "retry on network failure", "retry_on_network_failure"],
             [nameof(MinPoolSize)] = ["minpoolsize", "min pool size", "minimum pool size", "minimumPoolSize"],
             [nameof(MaxPoolSize)] = ["maxpoolsize", "max pool size", "maximum pool size", "maximumPoolSize"],
@@ -122,6 +128,7 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
         ConnectionTimeout = 15;
         CommandTimeout = 30;
         CharSet = MySqlCharSet.Utf8Mb4;
+        AllowMultiStatements = true;
         RetryOnNetworkFailure = true;
         ConnectionLifeTime = 600;
         IdlePoolTime = 60;

@@ -707,6 +707,9 @@ public class MySqlCommand : DbCommand
     /// <summary>服务器是否启用 NO_BACKSLASH_ESCAPES。该模式下反斜杠不再是转义符，字符串字面量必须改用双写单引号</summary>
     private Boolean NoBackslashEscapes => _DbConnection?.Client?.NoBackslashEscapes == true;
 
+    /// <summary>连接是否开启多语句能力</summary>
+    private Boolean AllowMultiStatements => _DbConnection?.Setting.AllowMultiStatements == true;
+
     private String GetBatchDebugCommandText(IDictionary<String, Object?> parameterSet)
     {
         var parameters = new MySqlParameterCollection();
@@ -815,6 +818,16 @@ public class MySqlCommand : DbCommand
     /// <returns>完整的存储过程调用SQL</returns>
     private String BuildStoredProcedureCall()
     {
+        // OUT/INOUT 参数需要 SET 变量 → CALL → SELECT 多段语句，多语句关闭时无法生成合法调用
+        if (!AllowMultiStatements)
+        {
+            foreach (MySqlParameter item in _parameters)
+            {
+                if (item.Direction != ParameterDirection.Input && !item.ParameterName.IsNullOrEmpty())
+                    throw new InvalidOperationException(L.T("Stored procedure with OUT/INOUT parameters requires AllowMultiStatements=true in the connection string."));
+            }
+        }
+
         var sb = Pool.StringBuilder.Get();
         var callArgs = new List<String>();
         var outParams = new List<String>();

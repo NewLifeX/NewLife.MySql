@@ -244,10 +244,23 @@ public class AuthenticationTests
         Assert.True(result.HasFlag(ClientFlags.FOUND_ROWS));
         Assert.True(result.HasFlag(ClientFlags.PROTOCOL_41));
         Assert.True(result.HasFlag(ClientFlags.TRANSACTIONS));
+        // 多语句默认协商（与 MySql.Data 的 AllowBatch 默认 true 一致），需要加固时显式关闭
         Assert.True(result.HasFlag(ClientFlags.MULTI_STATEMENTS));
         Assert.True(result.HasFlag(ClientFlags.MULTI_RESULTS));
         Assert.True(result.HasFlag(ClientFlags.LONG_PASSWORD));
         //Assert.True(result.HasFlag(ClientFlags.CONNECT_WITH_DB));
+    }
+
+    [Fact]
+    [DisplayName("AllowMultiStatements开启后才协商多语句标志")]
+    public void WhenAllowMultiStatementsThenFlagSet()
+    {
+        var client = new SqlClient(new MySqlConnectionStringBuilder("server=127.0.0.1;AllowMultiStatements=true"));
+        var auth = new Authentication(client);
+
+        var result = auth.GetFlags(ClientFlags.SECURE_CONNECTION);
+
+        Assert.True(result.HasFlag(ClientFlags.MULTI_STATEMENTS));
     }
 
     [Fact]

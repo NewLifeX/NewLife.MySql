@@ -18,6 +18,7 @@ public class MySqlConnectionStringBuilderTests
         Assert.Null(builder.Password);
         Assert.Equal(15, builder.ConnectionTimeout);
         Assert.Equal(30, builder.CommandTimeout);
+        Assert.True(builder.AllowMultiStatements);
     }
 
     [Fact]
