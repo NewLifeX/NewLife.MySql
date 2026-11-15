@@ -72,13 +72,13 @@ public class MySqlBatch : DbBatch
                 throw new NotSupportedException(L.T("Reading multiple result sets requires AllowMultiStatements=true in the connection string."));
 
             var singleSql = BuildSingleSql();
-            using var singleCommand = new MySqlCommand(_connection!, singleSql);
-            return await singleCommand.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            using var singleCommand = CreateCommand(singleSql);
+            return await singleCommand.ExecuteReaderAsync(behavior, cancellationToken).ConfigureAwait(false);
         }
 
         var combinedSql = BuildCombinedSql();
 
-        using var command = new MySqlCommand(_connection!, combinedSql);
+        using var command = CreateCommand(combinedSql);
         return await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -104,7 +104,7 @@ public class MySqlBatch : DbBatch
                 var sql = BuildCommandSql(_commands[i]);
                 if (sql.IsNullOrEmpty()) continue;
 
-                using var single = new MySqlCommand(_connection, sql);
+                using var single = CreateCommand(sql);
                 total += await single.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
             }
 
@@ -113,7 +113,7 @@ public class MySqlBatch : DbBatch
 
         var combinedSql = BuildCombinedSql();
 
-        using var command = new MySqlCommand(_connection!, combinedSql);
+        using var command = CreateCommand(combinedSql);
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -138,7 +138,7 @@ public class MySqlBatch : DbBatch
                 var sql = BuildCommandSql(_commands[i]);
                 if (sql.IsNullOrEmpty()) continue;
 
-                using var single = new MySqlCommand(_connection, sql);
+                using var single = CreateCommand(sql);
                 var value = await single.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
                 if (value != null && value != DBNull.Value) return value;
             }
@@ -148,7 +148,7 @@ public class MySqlBatch : DbBatch
 
         var combinedSql = BuildCombinedSql();
 
-        using var command = new MySqlCommand(_connection!, combinedSql);
+        using var command = CreateCommand(combinedSql);
         return await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -170,6 +170,18 @@ public class MySqlBatch : DbBatch
     #region 辅助
     /// <summary>连接是否开启多语句能力</summary>
     private Boolean AllowMultiStatements => _connection?.Setting.AllowMultiStatements == true;
+
+    /// <summary>创建命令并继承批量的连接、事务与超时设置</summary>
+    /// <param name="sql">SQL 文本</param>
+    /// <returns>新命令</returns>
+    private MySqlCommand CreateCommand(String sql)
+    {
+        var cmd = new MySqlCommand(_connection!, sql);
+        // 批量上的事务与超时必须下传到实际执行的命令，否则批量内的语句不在事务里、也不受超时约束
+        if (_transaction != null) cmd.Transaction = _transaction;
+        if (Timeout > 0) cmd.CommandTimeout = Timeout;
+        return cmd;
+    }
 
     /// <summary>取单条命令的 SQL，并把参数替换为字面量</summary>
     /// <param name="cmd">批量命令</param>

@@ -323,8 +323,42 @@ public class BatchTests
     }
     #endregion
 
-    #region 批量执行测试 - Oracle 风格数组绑定
+    #region 批处理事务下传
     [Fact]
+    public void DbBatch_InheritsTransaction()
+    {
+        using var conn = CreateConnection();
+        var table = "batch_test_tx_" + Rand.Next(10000);
+        CreateTestTable(conn, table);
+
+        try
+        {
+            using var tx = conn.BeginTransaction();
+
+            var cmd = new MySqlBatchCommand($"INSERT INTO `{table}` (name, age) VALUES (@name, @age)");
+            cmd.Parameters.AddWithValue("name", "TxAlice");
+            cmd.Parameters.AddWithValue("age", 20);
+
+            using var batch = new MySqlBatch(conn) { Transaction = tx };
+            batch.BatchCommands.Add(cmd);
+
+            var affected = batch.ExecuteNonQuery();
+            Assert.Equal(1, affected);
+
+            tx.Rollback();
+
+            // 批量语句确实在事务内，回滚后数据消失
+            using (var check = new MySqlCommand(conn, $"SELECT COUNT(*) FROM `{table}`"))
+                Assert.Equal(0, check.ExecuteScalar().ToInt());
+        }
+        finally
+        {
+            DropTestTable(conn, table);
+        }
+    }
+    #endregion
+
+    #region 批量执行测试 - Oracle 风格数组绑定    [Fact]
     public void ExecuteArrayBatch_Insert()
     {
         var table = "batch_test_arr_" + Rand.Next(10000);
