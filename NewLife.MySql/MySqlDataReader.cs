@@ -108,11 +108,17 @@ public class MySqlDataReader : DbDataReader
     /// <summary>关闭读取器时是否恢复底层客户端超时值</summary>
     internal Boolean RestoreTimeoutOnClose { get; set; }
 
+    /// <summary>关闭时重新读取 sql_mode。SET sql_mode 会改变 NO_BACKSLASH_ESCAPES，缓存必须同步</summary>
+    internal Boolean RefreshSqlModeOnClose { get; set; }
+
     /// <summary>关闭读取器时是否恢复会话变量 SQL_SELECT_LIMIT。SchemaOnly/SingleRow 会改写该变量，不恢复将污染连接池中的会话</summary>
     internal Boolean ResetSelectLimit { get; set; }
 
     /// <summary>关闭读取器时是否同时关闭连接（CommandBehavior.CloseConnection）</summary>
     internal Boolean CloseConnectionOnClose { get; set; }
+
+    /// <summary>关闭读取器时是否释放创建它的命令（MySqlBatch 组合执行时命令的生命周期跟随读取器）</summary>
+    internal Boolean CloseCommandOnClose { get; set; }
 
     /// <summary>命令执行阶段超时。用于等待首包和结果集切换</summary>
     internal Int32 CommandPhaseTimeout { get; set; }
@@ -143,13 +149,14 @@ public class MySqlDataReader : DbDataReader
     /// <returns>指定列的名称</returns>
     public override String GetName(Int32 ordinal) => CurrentColumns[ordinal].Name;
 
-    /// <summary>获取指定列名对应的列序号</summary>
-    /// <param name="name">列名，不区分大小写</param>
-    /// <returns>从零开始的列序号，不存在返回-1</returns>
+    /// <summary>获取指定列名的序号。ADO.NET 约定：列不存在时抛出 IndexOutOfRangeException</summary>
+    /// <param name="name">列名</param>
+    /// <returns>从零开始的列序号</returns>
+    /// <exception cref="IndexOutOfRangeException">列名不存在</exception>
     public override Int32 GetOrdinal(String name)
     {
         var columns = _Columns;
-        if (columns == null) return -1;
+        if (columns == null) throw new InvalidOperationException(L.T("No data exists for the row or column."));
 
         var cache = _ordinalCache;
         if (cache == null || !ReferenceEquals(_ordinalCacheSource, columns))
@@ -165,7 +172,9 @@ public class MySqlDataReader : DbDataReader
             _ordinalCacheSource = columns;
         }
 
-        return cache.TryGetValue(name, out var idx) ? idx : -1;
+        if (cache.TryGetValue(name, out var idx)) return idx;
+
+        throw new IndexOutOfRangeException(L.T("The column name '{0}' was not found.", name));
     }
 
     /// <summary>获取指定列的数据类型名称</summary>
@@ -508,11 +517,32 @@ public class MySqlDataReader : DbDataReader
             if (ResetSelectLimit)
                 await ResetSelectLimitAsync().ConfigureAwait(false);
 
+            // SET sql_mode 后刷新缓存，避免后续文本参数按旧转义模式拼接
+            if (RefreshSqlModeOnClose)
+                await RefreshSqlModeAsync().ConfigureAwait(false);
+
             if (RestoreTimeoutOnClose && Command.Connection is MySqlConnection conn && conn.Client != null)
                 conn.Client.Timeout = OriginalTimeout;
 
             RestoreTimeoutOnClose = false;
             Activity.Dispose();
+
+            // 在释放连接租约前关闭命令：预编译语句的 COM_STMT_CLOSE 必须写在同一协议流上，
+            // 提前释放租约会让其它命令插进来，导致响应错位
+            if (CloseCommandOnClose)
+            {
+                CloseCommandOnClose = false;
+                if (Command is MySqlCommand command)
+                {
+                    try
+                    {
+                        await command.UnprepareAsync(CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch { /* 关闭阶段尽力清理 */ }
+                    command.Dispose();
+                }
+            }
+
             OperationLease?.Dispose();
             OperationLease = null;
 
@@ -546,9 +576,40 @@ public class MySqlDataReader : DbDataReader
         }
     }
 
+    /// <summary>重新读取 sql_mode，刷新 NO_BACKSLASH_ESCAPES 判断依据</summary>
+    private async Task RefreshSqlModeAsync()
+    {
+        RefreshSqlModeOnClose = false;
+
+        if (Command.Connection is not MySqlConnection conn || conn.Client is not { Active: true } client) return;
+
+        try
+        {
+            // 复用同一客户端但不重入连接租约（当前读取器仍持有租约）
+            var tempConn = new MySqlConnection(conn.ConnectionString) { Client = client };
+            using var cmd = new MySqlCommand(tempConn, "SELECT @@SESSION.sql_mode") { SuppressTracing = true };
+            var mode = await cmd.ExecuteScalarAsync(CancellationToken.None).ConfigureAwait(false) as String;
+            if (mode == null) return;
+
+            // 复制一份再更新，避免把会话级 sql_mode 写进池共享的 Variables 字典；
+            // 归还池时 COM_RESET_CONNECTION 会恢复默认值，池缓存必须保持建连时的原始值
+            var variables = client.Variables;
+            var copy = variables != null
+                ? new Dictionary<String, String>(variables, StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<String, String>(StringComparer.OrdinalIgnoreCase);
+            copy["sql_mode"] = mode;
+            client.Variables = copy;
+        }
+        catch
+        {
+            // 查不到最新 sql_mode 时不能继续用旧值拼接参数，标记连接失效
+            client.Active = false;
+        }
+    }
+
     private static void SetClientTimeout(SqlClient client, Int32 timeout)
     {
-        if (timeout > 0 && client.Timeout != timeout)
+        if (client.Timeout != timeout)
             client.Timeout = timeout;
     }
 

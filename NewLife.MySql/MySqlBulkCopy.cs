@@ -1,5 +1,7 @@
 ﻿using System.Data;
 using System.Data.Common;
+using System.Globalization;
+using System.Text;
 using NewLife.Log;
 using NewLife;
 
@@ -111,10 +113,11 @@ public class MySqlBulkCopy : IDisposable
             // 构建列映射
             var mappings = ResolveColumnMappings(reader);
 
-            // 构建 INSERT 语句
-            var columns = mappings.Select(m => $"`{m.DestinationColumn}`").ToArray();
-            var parameters = mappings.Select(m => $"@{m.DestinationColumn}").ToArray();
-            var insertSql = $"INSERT INTO {DestinationTableName} ({String.Join(", ", columns)}) VALUES ({String.Join(", ", parameters)})";
+            // 构建 INSERT 语句。表名与列名来自调用方，必须按标识符规则转义，避免反引号截断注入；
+            // 参数名固定为 @p0/@p1…，不把列名拼进参数名（列名可能含 -、空格等字符）
+            var columns = mappings.Select(m => EscapeIdentifier(m.DestinationColumn)).ToArray();
+            var parameters = mappings.Select((m, i) => "@p" + i.ToString(CultureInfo.InvariantCulture)).ToArray();
+            var insertSql = $"INSERT INTO {EscapeTableName(DestinationTableName)} ({String.Join(", ", columns)}) VALUES ({String.Join(", ", parameters)})";
 
             var batch = new List<Object?[]>(BatchSize);
             var nextNotify = NotifyAfter > 0 ? NotifyAfter : Int32.MaxValue;
@@ -196,6 +199,60 @@ public class MySqlBulkCopy : IDisposable
             mappings.Add((colName, i));
         }
         return mappings;
+    }
+
+    /// <summary>按 MySQL 标识符规则转义列名。反引号需双写，否则可提前闭合标识符</summary>
+    /// <param name="value">原始标识符</param>
+    /// <returns>带反引号的标识符</returns>
+    internal static String EscapeIdentifier(String value)
+    {
+        if (value.IsNullOrEmpty()) throw new ArgumentException(L.T("Identifier cannot be empty."), nameof(value));
+        if (value.Contains('\0')) throw new ArgumentException(L.T("Identifier cannot contain NUL characters."), nameof(value));
+
+        return "`" + value.Replace("`", "``") + "`";
+    }
+
+    /// <summary>转义表名。支持 table、db.table、`db`.`table` 三种写法，逐段转义反引号</summary>
+    /// <param name="value">原始表名</param>
+    /// <returns>带反引号的表名</returns>
+    internal static String EscapeTableName(String value)
+    {
+        if (value.IsNullOrEmpty()) throw new ArgumentException(L.T("DestinationTableName cannot be empty."), nameof(value));
+
+        // 不以反引号开头时，把反引号视为标识符内容（如 a`b），按点号分段后逐段转义
+        if (value[0] != '`')
+            return String.Join(".", value.Split('.').Select(EscapeIdentifier));
+
+        var parts = new List<String>();
+        var sb = new StringBuilder();
+        var quoted = false;
+        for (var i = 0; i < value.Length; i++)
+        {
+            var ch = value[i];
+            if (ch == '`')
+            {
+                // `db`.`table` 中成对反引号是标识符内容，单个反引号切换引用状态
+                if (quoted && i + 1 < value.Length && value[i + 1] == '`')
+                {
+                    sb.Append('`');
+                    i++;
+                }
+                else
+                    quoted = !quoted;
+            }
+            else if (ch == '.' && !quoted)
+            {
+                parts.Add(sb.ToString());
+                sb.Clear();
+            }
+            else
+                sb.Append(ch);
+        }
+        parts.Add(sb.ToString());
+
+        if (quoted) throw new ArgumentException(L.T("Unbalanced backtick in the table name."), nameof(value));
+
+        return String.Join(".", parts.Select(EscapeIdentifier));
     }
 
     /// <summary>执行一批次写入。使用 Pipeline + 预编译语句确保高性能</summary>

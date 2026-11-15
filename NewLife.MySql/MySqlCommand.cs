@@ -20,13 +20,7 @@ public class MySqlCommand : DbCommand
     protected override DbConnection DbConnection
     {
         get => _DbConnection;
-        set
-        {
-            _DbConnection = (value as MySqlConnection)!;
-
-            if (_DbConnection != null && CommandTimeout <= 0)
-                CommandTimeout = _DbConnection.Setting.CommandTimeout;
-        }
+        set => _DbConnection = (value as MySqlConnection)!;
     }
 
     /// <summary>命令语句</summary>
@@ -45,8 +39,13 @@ public class MySqlCommand : DbCommand
     /// <summary>参数集合</summary>
     public new MySqlParameterCollection Parameters => _parameters;
 
-    /// <summary>命令超时。单位秒</summary>
-    public override Int32 CommandTimeout { get; set; }
+    private Int32 _commandTimeout = -1;
+    /// <summary>命令超时。单位秒，0 表示不限制；未显式设置时取连接的命令超时</summary>
+    public override Int32 CommandTimeout
+    {
+        get => _commandTimeout >= 0 ? _commandTimeout : _DbConnection?.Setting.CommandTimeout ?? 30;
+        set => _commandTimeout = value;
+    }
 
     /// <summary>设计时可见</summary>
     public override Boolean DesignTimeVisible { get; set; }
@@ -68,6 +67,12 @@ public class MySqlCommand : DbCommand
 
     /// <summary>是否抑制诊断埋点。驱动内部记账语句（如 SET SQL_SELECT_LIMIT 与事务 COMMIT/ROLLBACK）不产生 Execute 跨度</summary>
     internal Boolean SuppressTracing { get; set; }
+
+    /// <summary>执行前自动打开连接。DbDataSource.CreateCommand 返回的命令按 ADO.NET 约定在首次执行时打开关联连接</summary>
+    internal Boolean AutoOpenConnection { get; set; }
+
+    /// <summary>销毁命令时关闭关联连接。与 AutoOpenConnection 配套，由 DbDataSource 创建的命令使用</summary>
+    internal Boolean CloseConnectionOnDispose { get; set; }
     #endregion
 
     #region 构造
@@ -97,7 +102,15 @@ public class MySqlCommand : DbCommand
     protected override void Dispose(Boolean disposing)
     {
         if (disposing)
+        {
             UnprepareAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+
+            if (CloseConnectionOnDispose)
+            {
+                CloseConnectionOnDispose = false;
+                _DbConnection?.Close();
+            }
+        }
 
         base.Dispose(disposing);
     }
@@ -108,6 +121,13 @@ public class MySqlCommand : DbCommand
     public override async ValueTask DisposeAsync()
     {
         await UnprepareAsync(CancellationToken.None).ConfigureAwait(false);
+
+        if (CloseConnectionOnDispose)
+        {
+            CloseConnectionOnDispose = false;
+            if (_DbConnection != null) await _DbConnection.CloseAsync().ConfigureAwait(false);
+        }
+
         await base.DisposeAsync().ConfigureAwait(false);
 
         GC.SuppressFinalize(this);
@@ -139,20 +159,14 @@ public class MySqlCommand : DbCommand
     /// <summary>预编译语句。通过 COM_STMT_PREPARE 在服务端编译，后续执行走二进制协议</summary>
     public override void Prepare() => PrepareAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
 
-    /// <summary>返回适合日志输出的 SQL 文本。</summary>
+    /// <summary>返回适合日志输出的 SQL 文本。参数值可能包含口令、手机号等敏感信息，这里只展示参数名</summary>
     /// <returns></returns>
     public override String ToString()
     {
         if (CommandText.IsNullOrEmpty()) return base.ToString() ?? String.Empty;
         if (_parameters.Count == 0) return CommandText;
 
-        if (TryGetArrayBatchCount(out var batchCount))
-        {
-            var sql = GetArrayBatchDebugCommandText();
-            return batchCount > 1 ? $"{sql} /* BatchPreview:1/{batchCount} */" : sql;
-        }
-
-        return GetDebugCommandText();
+        return GetSafeCommandText();
     }
 
     /// <summary>异步预编译语句</summary>
@@ -169,11 +183,14 @@ public class MySqlCommand : DbCommand
         var sql = CommandText;
         if (sql.IsNullOrEmpty()) throw new InvalidOperationException(L.T("CommandText cannot be empty."));
 
+        if (AutoOpenConnection && _DbConnection != null && _DbConnection.State != ConnectionState.Open)
+            await _DbConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
+
         var client = _DbConnection?.Client ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
         // 将 @param 替换为 ? 占位符，同时记录参数在 SQL 中的出现顺序
         var paramOrder = new List<Int32>();
-        var prepSql = ConvertToPositionalParameters(sql, _parameters, paramOrder, _positionalAt);
+        var prepSql = ConvertToPositionalParameters(sql, _parameters, paramOrder, _positionalAt, NoBackslashEscapes);
 
         var result = await client.PrepareStatementAsync(prepSql, cancellationToken).ConfigureAwait(false);
         _statementId = result.StatementId;
@@ -268,6 +285,11 @@ public class MySqlCommand : DbCommand
         if (sql.IsNullOrEmpty()) throw new ArgumentNullException(nameof(CommandText), L.T("CommandText cannot be empty."));
 
         var conn = _DbConnection ?? throw new InvalidOperationException(L.T("The connection has not been set."));
+
+        // DbDataSource.CreateCommand 的命令在首次执行时打开关联连接
+        if (AutoOpenConnection && conn.State != ConnectionState.Open)
+            await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+
         var client = conn.Client ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
         if (CommandType == CommandType.TableDirect) sql = "Select * From " + sql;
@@ -305,11 +327,14 @@ public class MySqlCommand : DbCommand
                 OriginalTimeout = previousTimeout,
                 RestoreTimeoutOnClose = true,
                 CommandPhaseTimeout = CommandTimeout,
-                ReadPhaseTimeout = previousTimeout,
+                // CommandTimeout=0 表示整条命令（含读取阶段）都不限时；否则读取阶段沿用连接超时
+                ReadPhaseTimeout = CommandTimeout > 0 ? previousTimeout : 0,
                 // 跨度覆盖命令发送到读取器关闭的完整周期
                 Activity = span,
                 // 会话变量 SQL_SELECT_LIMIT 已改写，关闭时需恢复，避免污染连接池中的会话
                 ResetSelectLimit = selectLimit >= 0,
+                // SET sql_mode 可能改变 NO_BACKSLASH_ESCAPES，关闭时重新读取，避免后续文本参数按旧模式转义
+                RefreshSqlModeOnClose = IsSetSqlMode(sql),
                 // CloseConnection 由读取器在关闭时执行，避免调用方忘记关闭
                 CloseConnectionOnClose = behavior.HasFlag(CommandBehavior.CloseConnection)
             };
@@ -322,6 +347,12 @@ public class MySqlCommand : DbCommand
         catch (Exception ex)
         {
             client.Timeout = previousTimeout;
+
+            // 执行失败时读取器不会交给调用方，关闭阶段不会执行 ResetSelectLimit；
+            // 这里必须主动恢复，否则会话把 SQL_SELECT_LIMIT=0 带回连接池，后续查询全部被静默截断为空。
+            if (selectLimit >= 0)
+                await ResetSelectLimitAsync(conn, client).ConfigureAwait(false);
+
             operationLease.Dispose();
 
             if (IsNetworkException(ex))
@@ -337,6 +368,39 @@ public class MySqlCommand : DbCommand
 
             throw error;
         }
+    }
+
+    /// <summary>恢复会话变量 SQL_SELECT_LIMIT。执行失败路径使用，复用当前连接租约内的客户端</summary>
+    /// <param name="conn">原连接</param>
+    /// <param name="client">底层客户端</param>
+    /// <returns></returns>
+    private static async Task ResetSelectLimitAsync(MySqlConnection conn, SqlClient client)
+    {
+        if (!client.Active) return;
+
+        try
+        {
+            var resetConn = new MySqlConnection(conn.ConnectionString) { Client = client };
+            using var cmd = new MySqlCommand(resetConn, "SET SQL_SELECT_LIMIT=DEFAULT") { SuppressTracing = true };
+            await cmd.ExecuteNonQueryAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+            // 恢复失败时会话状态不可信，标记连接失效，避免带着行数限制归还连接池
+            client.Active = false;
+        }
+    }
+
+    /// <summary>判断是否为可能修改 sql_mode 的 SET 语句</summary>
+    /// <param name="sql">命令文本</param>
+    /// <returns>可能修改时返回 true</returns>
+    internal static Boolean IsSetSqlMode(String? sql)
+    {
+        if (sql.IsNullOrEmpty()) return false;
+
+        var text = sql.TrimStart();
+        return text.StartsWith("SET", StringComparison.OrdinalIgnoreCase) &&
+               text.IndexOf("sql_mode", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     /// <summary>异步执行并返回影响行数。多语句累加所有语句的影响行数</summary>
@@ -431,11 +495,26 @@ public class MySqlCommand : DbCommand
         if (commandType != CommandType.Text || sql.IsNullOrEmpty()) return false;
 
         var head = sql.TrimStart();
-        return head.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase)
-            || head.StartsWith("SHOW", StringComparison.OrdinalIgnoreCase)
+        // EXPLAIN ANALYZE 会真实执行语句（MySQL 8.0.18+），不能按只读重试，否则断线重连可能重复执行 DML
+        if (head.StartsWith("EXPLAIN", StringComparison.OrdinalIgnoreCase))
+        {
+            var rest = head[7..].TrimStart();
+            return !rest.StartsWith("ANALYZE", StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (head.StartsWith("SELECT", StringComparison.OrdinalIgnoreCase))
+        {
+            // SELECT ... INTO OUTFILE/DUMPFILE 有文件副作用，断线重试可能覆盖目标文件
+            if (head.Contains("INTO OUTFILE", StringComparison.OrdinalIgnoreCase) ||
+                head.Contains("INTO DUMPFILE", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return true;
+        }
+
+        return head.StartsWith("SHOW", StringComparison.OrdinalIgnoreCase)
             || head.StartsWith("DESC", StringComparison.OrdinalIgnoreCase)
-            || head.StartsWith("DESCRIBE", StringComparison.OrdinalIgnoreCase)
-            || head.StartsWith("EXPLAIN", StringComparison.OrdinalIgnoreCase);
+            || head.StartsWith("DESCRIBE", StringComparison.OrdinalIgnoreCase);
     }
     #endregion
 
@@ -652,25 +731,6 @@ public class MySqlCommand : DbCommand
         return value;
     }
 
-    private Boolean TryGetArrayBatchCount(out Int32 count)
-    {
-        foreach (MySqlParameter parameter in _parameters)
-        {
-            switch (parameter.Value)
-            {
-                case Array arr:
-                    count = arr.Length;
-                    return true;
-                case System.Collections.IList list:
-                    count = list.Count;
-                    return true;
-            }
-        }
-
-        count = 0;
-        return false;
-    }
-
     private static BatchParameterBinding[] GetBatchBindings(MySqlParameterCollection parameters, Int32[]? paramOrder)
     {
         if (paramOrder == null || paramOrder.Length == 0)
@@ -728,9 +788,6 @@ public class MySqlCommand : DbCommand
         };
     }
 
-    private String GetDebugCommandText()
-        => CommandType == CommandType.StoredProcedure ? BuildStoredProcedureCall() : SubstituteParameters(CommandText, _parameters, NoBackslashEscapes);
-
     /// <summary>异常信息里展示的 SQL：只保留命令文本与参数名，不把替换后的实际值（密码、手机号等）写进日志与链路追踪</summary>
     /// <returns></returns>
     private String GetSafeCommandText()
@@ -753,33 +810,6 @@ public class MySqlCommand : DbCommand
 
     /// <summary>连接是否开启多语句能力</summary>
     private Boolean AllowMultiStatements => _DbConnection?.Setting.AllowMultiStatements == true;
-
-    private String GetBatchDebugCommandText(IDictionary<String, Object?> parameterSet)
-    {
-        var parameters = new MySqlParameterCollection();
-        foreach (MySqlParameter parameter in _parameters)
-        {
-            Object? value = null;
-            if (!parameterSet.TryGetValue((parameter.ParameterName ?? String.Empty).TrimStart('@'), out value) && !String.IsNullOrEmpty(parameter.ParameterName))
-                parameterSet.TryGetValue(parameter.ParameterName, out value);
-
-            parameters.AddWithValue(parameter.ParameterName ?? String.Empty, value);
-        }
-
-        return SubstituteParameters(CommandText, parameters, NoBackslashEscapes);
-    }
-
-    private String GetArrayBatchDebugCommandText()
-    {
-        var parameters = new MySqlParameterCollection();
-        foreach (MySqlParameter parameter in _parameters)
-        {
-            var value = ExtractArrayValue(parameter.Value, 0);
-            parameters.AddWithValue(parameter.ParameterName ?? String.Empty, value);
-        }
-
-        return SubstituteParameters(CommandText, parameters, NoBackslashEscapes);
-    }
     #endregion
 
     #region 执行
@@ -883,6 +913,9 @@ public class MySqlCommand : DbCommand
 
             // 去掉前缀 @
             var cleanName = name.StartsWith("@") ? name[1..] : name;
+            if (cleanName.IsNullOrEmpty() || !IsValidUserVariableName(cleanName))
+                throw new ArgumentException(L.T("Invalid parameter name: {0}.", name), nameof(p));
+
             var userVar = "@" + cleanName;
 
             switch (p.Direction)
@@ -936,6 +969,19 @@ public class MySqlCommand : DbCommand
         return sb.Return(true);
     }
 
+    /// <summary>判断参数名是否可安全用作 MySQL 用户变量（字母、数字、下划线）</summary>
+    /// <param name="name">去掉 @ 前缀后的参数名</param>
+    /// <returns>合法时返回 true</returns>
+    private static Boolean IsValidUserVariableName(String name)
+    {
+        foreach (var ch in name)
+        {
+            if (!(ch is >= 'A' and <= 'Z' or >= 'a' and <= 'z' or >= '0' and <= '9' or '_')) return false;
+        }
+
+        return true;
+    }
+
     /// <summary>读取存储过程的输出参数值</summary>
     /// <param name="reader">数据读取器</param>
     /// <param name="cancellationToken">取消令牌</param>
@@ -983,6 +1029,7 @@ public class MySqlCommand : DbCommand
     /// <summary>客户端参数替换。将SQL中的@参数名替换为转义后的参数值</summary>
     /// <param name="sql">原始SQL</param>
     /// <param name="parameters">参数集合</param>
+    /// <param name="noBackslashEscapes">服务器是否启用 NO_BACKSLASH_ESCAPES</param>
     /// <returns></returns>
     internal static String SubstituteParameters(String sql, MySqlParameterCollection parameters, Boolean noBackslashEscapes = false)
     {
@@ -998,7 +1045,31 @@ public class MySqlCommand : DbCommand
             // 跳过字符串字面量，避免替换字符串内的 @
             if (ch == '\'' || ch == '"')
             {
-                SkipStringLiteral(sql, ref i, sb);
+                SkipStringLiteral(sql, ref i, sb, noBackslashEscapes);
+                continue;
+            }
+
+            // 跳过反引号标识符：其中的 @ 是列名/表名的一部分
+            if (ch == '`')
+            {
+                SkipQuotedIdentifier(sql, ref i, sb);
+                continue;
+            }
+
+            // 跳过注释：注释里的 @ 不是参数；若不跳过，参数值中的 */ 可提前结束块注释形成注入
+            if (ch == '#')
+            {
+                SkipLineComment(sql, ref i, sb);
+                continue;
+            }
+            if (ch == '-' && i + 1 < sql.Length && sql[i + 1] == '-' && (i + 2 >= sql.Length || Char.IsWhiteSpace(sql[i + 2])))
+            {
+                SkipLineComment(sql, ref i, sb);
+                continue;
+            }
+            if (ch == '/' && i + 1 < sql.Length && sql[i + 1] == '*')
+            {
+                SkipBlockComment(sql, ref i, sb);
                 continue;
             }
 
@@ -1056,6 +1127,7 @@ public class MySqlCommand : DbCommand
 
     /// <summary>将参数值序列化为SQL字面量</summary>
     /// <param name="value">参数值</param>
+    /// <param name="noBackslashEscapes">服务器是否启用 NO_BACKSLASH_ESCAPES</param>
     /// <returns></returns>
     internal static String SerializeValue(Object? value, Boolean noBackslashEscapes = false)
     {
@@ -1143,8 +1215,9 @@ public class MySqlCommand : DbCommand
     /// <param name="parameters">参数集合，用于匹配参数名</param>
     /// <param name="paramOrder">输出参数顺序映射。记录 ? 占位符对应的参数索引，按 SQL 中出现顺序排列</param>
     /// <param name="positionalAt">无参数集合时是否把裸 @name 当作占位符。仅值数组批量按位置绑定才需要，其余场景保留用户变量</param>
+    /// <param name="noBackslashEscapes">服务器是否启用 NO_BACKSLASH_ESCAPES</param>
     /// <returns>替换后的 SQL</returns>
-    internal static String ConvertToPositionalParameters(String sql, MySqlParameterCollection parameters, List<Int32>? paramOrder = null, Boolean positionalAt = false)
+    internal static String ConvertToPositionalParameters(String sql, MySqlParameterCollection parameters, List<Int32>? paramOrder = null, Boolean positionalAt = false, Boolean noBackslashEscapes = false)
     {
         // 值数组批量执行时参数集合为空，但 SQL 仍是参数化的，需要把 @name 当作位置占位符；
         // 普通命令没有参数时，@name 是 MySQL 用户变量（如 SET @x = 1），替换成 ? 会直接语法错误
@@ -1161,7 +1234,29 @@ public class MySqlCommand : DbCommand
             // 跳过字符串字面量
             if (ch == '\'' || ch == '"')
             {
-                SkipStringLiteral(sql, ref i, sb);
+                SkipStringLiteral(sql, ref i, sb, noBackslashEscapes);
+                continue;
+            }
+
+            // 跳过反引号标识符与注释
+            if (ch == '`')
+            {
+                SkipQuotedIdentifier(sql, ref i, sb);
+                continue;
+            }
+            if (ch == '#')
+            {
+                SkipLineComment(sql, ref i, sb);
+                continue;
+            }
+            if (ch == '-' && i + 1 < sql.Length && sql[i + 1] == '-' && (i + 2 >= sql.Length || Char.IsWhiteSpace(sql[i + 2])))
+            {
+                SkipLineComment(sql, ref i, sb);
+                continue;
+            }
+            if (ch == '/' && i + 1 < sql.Length && sql[i + 1] == '*')
+            {
+                SkipBlockComment(sql, ref i, sb);
                 continue;
             }
 
@@ -1252,7 +1347,8 @@ public class MySqlCommand : DbCommand
     /// <param name="sql">SQL 字符串</param>
     /// <param name="i">当前索引，方法结束后指向字面量之后</param>
     /// <param name="sb">输出缓冲区</param>
-    private static void SkipStringLiteral(String sql, ref Int32 i, StringBuilder sb)
+    /// <param name="noBackslashEscapes">服务器是否启用 NO_BACKSLASH_ESCAPES</param>
+    private static void SkipStringLiteral(String sql, ref Int32 i, StringBuilder sb, Boolean noBackslashEscapes)
     {
         var quote = sql[i];
         sb.Append(quote);
@@ -1262,9 +1358,9 @@ public class MySqlCommand : DbCommand
             var ch = sql[i];
             sb.Append(ch);
             i++;
-            if (ch == '\\' && i < sql.Length)
+            if (ch == '\\' && !noBackslashEscapes && i < sql.Length)
             {
-                // 反斜杠转义，跳过下一个字符
+                // 反斜杠转义，跳过下一个字符；NO_BACKSLASH_ESCAPES 下反斜杠是普通字符
                 sb.Append(sql[i]);
                 i++;
             }
@@ -1278,6 +1374,69 @@ public class MySqlCommand : DbCommand
                 }
                 else
                     break;
+            }
+        }
+    }
+
+    /// <summary>跳过反引号标识符，处理 `` 双写</summary>
+    /// <param name="sql">SQL 字符串</param>
+    /// <param name="i">当前索引，方法结束后指向标识符之后</param>
+    /// <param name="sb">输出缓冲区</param>
+    private static void SkipQuotedIdentifier(String sql, ref Int32 i, StringBuilder sb)
+    {
+        sb.Append('`');
+        i++;
+        while (i < sql.Length)
+        {
+            var ch = sql[i];
+            sb.Append(ch);
+            i++;
+            if (ch == '`')
+            {
+                if (i < sql.Length && sql[i] == '`')
+                {
+                    sb.Append('`');
+                    i++;
+                }
+                else
+                    break;
+            }
+        }
+    }
+
+    /// <summary>跳过行注释（# 或 -- ），保留换行符</summary>
+    /// <param name="sql">SQL 字符串</param>
+    /// <param name="i">当前索引，方法结束后指向行尾</param>
+    /// <param name="sb">输出缓冲区</param>
+    private static void SkipLineComment(String sql, ref Int32 i, StringBuilder sb)
+    {
+        while (i < sql.Length)
+        {
+            var ch = sql[i];
+            sb.Append(ch);
+            i++;
+            if (ch == '\n' || ch == '\r') break;
+        }
+    }
+
+    /// <summary>跳过块注释，保留注释定界符；未闭合时消费到 SQL 末尾</summary>
+    /// <param name="sql">SQL 字符串</param>
+    /// <param name="i">当前索引，方法结束后指向注释之后</param>
+    /// <param name="sb">输出缓冲区</param>
+    private static void SkipBlockComment(String sql, ref Int32 i, StringBuilder sb)
+    {
+        sb.Append("/*");
+        i += 2;
+        while (i < sql.Length)
+        {
+            var ch = sql[i];
+            sb.Append(ch);
+            i++;
+            if (ch == '*' && i < sql.Length && sql[i] == '/')
+            {
+                sb.Append('/');
+                i++;
+                break;
             }
         }
     }

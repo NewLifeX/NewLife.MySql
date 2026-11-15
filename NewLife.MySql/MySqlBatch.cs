@@ -72,14 +72,36 @@ public class MySqlBatch : DbBatch
                 throw new NotSupportedException(L.T("Reading multiple result sets requires AllowMultiStatements=true in the connection string."));
 
             var singleSql = BuildSingleSql();
-            using var singleCommand = CreateCommand(singleSql);
-            return await singleCommand.ExecuteReaderAsync(behavior, cancellationToken).ConfigureAwait(false);
+            var singleCommand = CreateCommand(singleSql);
+            try
+            {
+                // 不能 using 释放命令：UseServerPrepare 时 Dispose 会发送 COM_STMT_CLOSE，
+                // 而此刻读取器仍在消费该语句的结果集，会破坏协议流。命令由读取器持有，关闭时释放。
+                var reader = (MySqlDataReader)await singleCommand.ExecuteReaderAsync(behavior, cancellationToken).ConfigureAwait(false);
+                reader.CloseCommandOnClose = true;
+                return reader;
+            }
+            catch
+            {
+                singleCommand.Dispose();
+                throw;
+            }
         }
 
         var combinedSql = BuildCombinedSql();
 
-        using var command = CreateCommand(combinedSql);
-        return await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        var command = CreateCommand(combinedSql);
+        try
+        {
+            var reader = (MySqlDataReader)await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            reader.CloseCommandOnClose = true;
+            return reader;
+        }
+        catch
+        {
+            command.Dispose();
+            throw;
+        }
     }
 
     /// <summary>执行并返回总影响行数</summary>
@@ -179,21 +201,29 @@ public class MySqlBatch : DbBatch
         var cmd = new MySqlCommand(_connection!, sql);
         // 批量上的事务与超时必须下传到实际执行的命令，否则批量内的语句不在事务里、也不受超时约束
         if (_transaction != null) cmd.Transaction = _transaction;
-        if (Timeout > 0) cmd.CommandTimeout = Timeout;
+        cmd.CommandTimeout = Timeout;
         return cmd;
     }
 
     /// <summary>取单条命令的 SQL，并把参数替换为字面量</summary>
     /// <param name="cmd">批量命令</param>
     /// <returns></returns>
-    private static String BuildCommandSql(MySqlBatchCommand cmd)
+    private String BuildCommandSql(MySqlBatchCommand cmd)
+        => BuildCommandSql(cmd, _connection?.Client?.NoBackslashEscapes == true);
+
+    /// <summary>取单条命令的 SQL，并按指定 sql_mode 转义参数</summary>
+    /// <param name="cmd">批量命令</param>
+    /// <param name="noBackslashEscapes">服务器是否启用 NO_BACKSLASH_ESCAPES</param>
+    /// <returns></returns>
+    internal static String BuildCommandSql(MySqlBatchCommand cmd, Boolean noBackslashEscapes)
     {
         var sql = cmd.CommandText;
         if (sql.IsNullOrEmpty()) return sql;
 
-        // 替换参数
+        // 替换参数。必须与服务端 sql_mode 保持一致：NO_BACKSLASH_ESCAPES 下反斜杠不转义，
+        // 继续用 \' 会让单引号裸露，形成注入面
         if (cmd.Parameters.Count > 0)
-            sql = MySqlCommand.SubstituteParameters(sql, cmd.Parameters);
+            sql = MySqlCommand.SubstituteParameters(sql, cmd.Parameters, noBackslashEscapes);
 
         return sql;
     }
