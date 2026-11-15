@@ -27,9 +27,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Setup dotNET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.x
     - name: 构建驱动与 EF Core 提供程序（net8.0 / net10.0）并校验 0 条 IL 告警
@@ -50,7 +50,7 @@ jobs:
 
   # NativeAOT 冒烟矩阵：NativeAOT 官方不支持跨 OS 编译，每个 RID 用原生 runner 发布与运行。
   # 运行器镜像核实：Ubuntu（含 arm64）自带 MySQL 8 服务端（root/root，默认未启动）→ linux 双平台跑全量 27 场景；
-  # Windows 仅装 MySQL CLI、macOS 无 MySQL → 其余平台用 --no-db 运行纯内存场景（S13 + P1~P5）。
+  # Windows 仅装 MySQL CLI、macOS 无 MySQL → 其余平台用 --no-db 运行纯内存场景（S13 + P1/P3/P4/P5；P2 需真实数据库执行参数往返）。
   # 必选平台（阻断）：win-x64 / linux-x64 / linux-arm64；win-arm64 / osx-x64 / osx-arm64 / linux-la64 先观察期（continue-on-error），稳定全绿后逐项转阻断。
   native-smoke:
     name: NativeAOT 冒烟（${{ matrix.rid }}）
@@ -92,9 +92,9 @@ jobs:
             experimental: true
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Setup dotNET
-      uses: actions/setup-dotnet@v4
+      uses: actions/setup-dotnet@v6
       with:
         dotnet-version: 10.x
     - name: 安装 NativeAOT 依赖（clang / zlib）
@@ -173,7 +173,7 @@ jobs:
             os: ubuntu-24.04-arm
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Alpine 容器内发布并运行（--no-db）
       run: |
         docker run --rm -v "$PWD:/src" -w /src alpine:3.20 sh -c '
@@ -214,9 +214,19 @@ jobs:
     timeout-minutes: 90
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v7
     - name: Setup QEMU
-      uses: docker/setup-qemu-action@v3
+      uses: docker/setup-qemu-action@v4
+    - name: 预拉取龙芯镜像（失败重试）
+      # cr.loongnix.cn 偶发传输中断（unexpected EOF），docker run 会直接以 125 失败；先独立重试拉取
+      run: |
+        for i in 1 2 3 4; do
+          if docker pull --platform linux/loong64 cr.loongnix.cn/extra/dotnet:8.0.7; then exit 0; fi
+          echo "第 $i 次拉取失败，15 秒后重试"
+          sleep 15
+        done
+        echo "::error::龙芯镜像拉取失败"
+        exit 1
     - name: 龙芯容器内构建并运行冒烟
       run: |
         docker run --rm --platform linux/loong64 \
