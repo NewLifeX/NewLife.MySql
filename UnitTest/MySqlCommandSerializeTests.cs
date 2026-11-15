@@ -132,6 +132,45 @@ public class MySqlCommandSerializeTests
         }
     }
 
+    [Fact]
+    [DisplayName("参数替换跳过注释、反引号标识符与字符串")]
+    public void SubstituteParameters_SkipsCommentsAndQuotedIdentifiers()
+    {
+        var parameters = new MySqlParameterCollection();
+        parameters.AddWithValue("@p", "x");
+
+        var sql = "SELECT `@p`, '@p', @p /* @p */ -- @p";
+        var result = MySqlCommand.SubstituteParameters(sql, parameters);
+
+        Assert.Equal("SELECT `@p`, '@p', 'x' /* @p */ -- @p", result);
+    }
+
+    [Fact]
+    [DisplayName("NO_BACKSLASH_ESCAPES下反斜杠不转义字符串结束引号")]
+    public void SubstituteParameters_NoBackslashEscapes_EndsStringAtQuote()
+    {
+        var parameters = new MySqlParameterCollection();
+        parameters.AddWithValue("@p", "x");
+
+        // 默认模式下 \' 被当作转义引号，字符串延续到结尾，@p 不替换
+        Assert.Equal(@"SELECT 'a\' , @p", MySqlCommand.SubstituteParameters(@"SELECT 'a\' , @p", parameters));
+        // NO_BACKSLASH_ESCAPES 下 \ 是普通字符，引号关闭字符串，后面的 @p 必须替换
+        Assert.Equal(@"SELECT 'a\' , 'x'", MySqlCommand.SubstituteParameters(@"SELECT 'a\' , @p", parameters, true));
+    }
+
+    [Fact]
+    [DisplayName("ToString只展示参数名，不泄露参数值")]
+    public void ToString_DoesNotLeakParameterValues()
+    {
+        using var cmd = new MySqlCommand(new MySqlConnection(), "SELECT * FROM t WHERE pwd=@pwd");
+        cmd.Parameters.AddWithValue("@pwd", "s3cr3t-value");
+
+        var text = cmd.ToString();
+
+        Assert.Contains("@pwd", text);
+        Assert.DoesNotContain("s3cr3t-value", text);
+    }
+
     /// <summary>自定义类型，用于验证兜底分支按字符串加引号</summary>
     private sealed class UnknownValue
     {

@@ -1014,5 +1014,47 @@ public class BatchTests
             DropTestTable(conn2, table2);
         }
     }
+    [Fact(DisplayName = "NO_BACKSLASH_ESCAPES下批量参数双写单引号")]
+    public void BatchParameter_NoBackslashEscapes()
+    {
+        var bc = new MySqlBatchCommand("INSERT INTO t VALUES (@v)");
+        bc.Parameters.AddWithValue("@v", "a'b");
+
+        Assert.Equal("INSERT INTO t VALUES ('a''b')", MySqlBatch.BuildCommandSql(bc, true));
+        Assert.Equal(@"INSERT INTO t VALUES ('a\'b')", MySqlBatch.BuildCommandSql(bc, false));
+    }
+
+    [Fact(DisplayName = "MySqlBatch读取器在UseServerPrepare下不提前关闭语句")]
+    public async Task BatchReader_WithServerPrepare()
+    {
+        var connStr = _ConnStr.TrimEnd(';') + ";UseServerPrepare=true;";
+        using var conn = new MySqlConnection(connStr);
+        conn.Open();
+        var table = "batch_reader_" + Rand.Next(10000);
+        CreateTestTable(conn, table);
+        try
+        {
+            conn.ExecuteNonQuery($"INSERT INTO `{table}` (name, age) VALUES ('a', 1), ('b', 2)");
+
+            var batch = new MySqlBatch(conn);
+            var bc = new MySqlBatchCommand($"SELECT name FROM `{table}` WHERE age = @age");
+            bc.Parameters.AddWithValue("@age", 2);
+            batch.BatchCommands.Add(bc);
+
+            using (var reader = await batch.ExecuteReaderAsync())
+            {
+                Assert.True(await reader.ReadAsync());
+                Assert.Equal("b", reader.GetString(0));
+            }
+
+            // 读取器关闭时释放预编译语句；同一连接上的后续命令不应被残留响应或语句状态干扰
+            using var check = new MySqlCommand(conn, $"SELECT COUNT(*) FROM `{table}`");
+            Assert.Equal(2, check.ExecuteScalar().ToInt());
+        }
+        finally
+        {
+            DropTestTable(conn, table);
+        }
+    }
     #endregion
 }

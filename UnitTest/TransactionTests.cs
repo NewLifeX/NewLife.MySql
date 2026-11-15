@@ -1,4 +1,5 @@
-﻿using System.Data;
+﻿using System.ComponentModel;
+using System.Data;
 using NewLife;
 using NewLife.MySql;
 using NewLife.Security;
@@ -112,6 +113,50 @@ public class TransactionTests : IDisposable
 
         // 第二次回滚应抛出异常
         Assert.Throws<InvalidOperationException>(() => tr.Rollback());
+    }
+
+    [Fact]
+    public void NestedTransactionThrows()
+    {
+        using var tr = _conn.BeginTransaction();
+
+        // MySQL 的 START TRANSACTION 会隐式提交前一个事务，必须直接拒绝，避免数据被静默提交
+        Assert.Throws<InvalidOperationException>(() => _conn.BeginTransaction());
+
+        tr.Rollback();
+    }
+
+    [Fact]
+    [DisplayName("事务未结束就关闭连接时不得把未提交事务带回连接池")]
+    public void CloseWithPendingTransactionRollsBack()
+    {
+        var table = "tx_close_" + Rand.Next(10000);
+
+        using (var conn = new MySqlConnection(_ConnStr))
+        {
+            conn.Open();
+            conn.ExecuteNonQuery($"CREATE TABLE IF NOT EXISTS `{table}` (`id` INT NOT NULL PRIMARY KEY) ENGINE=InnoDB");
+
+            var tx = conn.BeginTransaction();
+            conn.ExecuteNonQuery($"INSERT INTO `{table}` (id) VALUES (1)");
+
+            // 不提交也不回滚，直接关闭连接
+            conn.Close();
+            tx.Dispose();
+        }
+
+        using var conn2 = new MySqlConnection(_ConnStr);
+        conn2.Open();
+        try
+        {
+            // 连接池若复用了带未提交事务的会话，这里会读到 1
+            using var cmd = new MySqlCommand(conn2, $"SELECT COUNT(*) FROM `{table}`");
+            Assert.Equal(0, cmd.ExecuteScalar().ToInt());
+        }
+        finally
+        {
+            conn2.ExecuteNonQuery($"DROP TABLE IF EXISTS `{table}`");
+        }
     }
 
     [Fact]

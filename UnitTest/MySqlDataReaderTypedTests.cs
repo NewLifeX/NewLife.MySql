@@ -143,7 +143,7 @@ public class MySqlDataReaderTypedTests : IDisposable
         Assert.Equal("i", dr.GetName(2));
         Assert.Equal(2, dr.GetOrdinal("i"));
         Assert.Equal(2, dr.GetOrdinal("I"));
-        Assert.Equal(-1, dr.GetOrdinal("not_exists"));
+        Assert.Throws<IndexOutOfRangeException>(() => dr.GetOrdinal("not_exists"));
 
         Assert.Equal(typeof(SByte), dr.GetFieldType(0));
         Assert.Equal(typeof(Int32), dr.GetFieldType(2));

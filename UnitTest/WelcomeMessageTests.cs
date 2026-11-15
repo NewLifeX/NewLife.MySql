@@ -1,4 +1,5 @@
-﻿using NewLife;
+using System.ComponentModel;
+using NewLife;
 using NewLife.MySql.Messages;
 
 namespace UnitTest;
@@ -224,5 +225,26 @@ public class WelcomeMessageTests
         Assert.Equal(28u, message.ThreadID);
         Assert.Equal(20, message.Seed!.Length);
         Assert.Equal("caching_sha2_password", message.AuthMethod);
+    }
+
+    [Fact]
+    [DisplayName("握手包过短时抛出格式异常")]
+    public void ReadSpan_TooShort_Throws()
+    {
+        var message = new WelcomeMessage();
+
+        Assert.Throws<InvalidDataException>(() => message.Read(new Byte[10]));
+    }
+
+    [Fact]
+    [DisplayName("BinaryReader握手包被截断时抛出格式异常")]
+    public void ReadBinaryReader_Truncated_Throws()
+    {
+        var data = BuildHandshakeV10();
+        var message = new WelcomeMessage();
+        using var ms = new MemoryStream(data[..20]);
+        using var br = new BinaryReader(ms);
+
+        Assert.Throws<InvalidDataException>(() => message.Read(br));
     }
 }

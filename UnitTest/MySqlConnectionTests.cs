@@ -1,4 +1,5 @@
-﻿using System.Data;
+using System.ComponentModel;
+using System.Data;
 using NewLife;
 using NewLife.MySql;
 
@@ -35,6 +36,16 @@ public class MySqlConnectionTests
 
         Assert.Equal(ConnectionState.Closed, connection.State);
         Assert.Null(connection.Client);
+    }
+
+    [Fact]
+    [DisplayName("连接打开后修改连接字符串抛出异常")]
+    public void WhenOpenThenChangingConnectionStringThrows()
+    {
+        using var connection = new MySqlConnection(_ConnStr);
+        connection.Open();
+
+        Assert.Throws<InvalidOperationException>(() => connection.ConnectionString = _ConnStr + ";ConnectionTimeout=99");
     }
 
     [Fact]

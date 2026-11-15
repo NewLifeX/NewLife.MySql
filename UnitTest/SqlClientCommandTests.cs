@@ -498,13 +498,25 @@ public class SqlClientCommandTests
     #endregion
 
     #region RegisterSlaveAsync
-    [Fact(DisplayName = "RegisterSlaveAsync发送正确的注册数据包")]
+    [Fact(DisplayName = "RegisterSlaveAsync非TLS带密码拒绝发送")]
+    public async Task RegisterSlaveAsync_NonTlsWithPassword_Throws()
+    {
+        var ms = new MemoryStream();
+        var client = new SqlClient { BaseStream = ms };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => client.RegisterSlaveAsync(100, "slave1", "repl_user", "repl_pwd", 3306));
+
+        Assert.Equal(0, ms.Length);
+    }
+
+    [Fact(DisplayName = "RegisterSlaveAsync无密码时发送正确的注册数据包")]
     public async Task RegisterSlaveAsync_SendsCorrectPacket()
     {
         var serverId = 100;
         var host = "slave1";
         var user = "repl_user";
-        var password = "repl_pwd";
+        var password = "";
         Int16 port = 3306;
 
         var hostBytes = System.Text.Encoding.UTF8.GetBytes(host);

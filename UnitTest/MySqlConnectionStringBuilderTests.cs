@@ -135,11 +135,38 @@ public class MySqlConnectionStringBuilderTests
     }
 
     [Fact]
-    [DisplayName("SslMode默认值为None")]
+    [DisplayName("SslMode默认值为Preferred")]
     public void TestSslModeDefault()
     {
         var builder = new MySqlConnectionStringBuilder();
-        Assert.Null(builder.SslMode);
+        Assert.Equal("Preferred", builder.SslMode);
+    }
+
+    [Fact]
+    [DisplayName("未知字符集名称直接报错")]
+    public void UnknownCharSet_Throws()
+    {
+        var builder = new MySqlConnectionStringBuilder("charset=gb18030");
+
+        Assert.Throws<ArgumentException>(() => _ = builder.CharSet);
+    }
+
+    [Fact]
+    [DisplayName("TracePacketPayload默认值为false")]
+    public void TestTracePacketPayloadDefault()
+    {
+        var builder = new MySqlConnectionStringBuilder();
+
+        Assert.False(builder.TracePacketPayload);
+    }
+
+    [Fact]
+    [DisplayName("TracePacketPayload别名可正确解析")]
+    public void TestTracePacketPayloadAlias()
+    {
+        var builder = new MySqlConnectionStringBuilder("tracepacketpayload=true");
+
+        Assert.True(builder.TracePacketPayload);
     }
 
     [Fact]

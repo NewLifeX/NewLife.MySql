@@ -95,6 +95,22 @@ END");
     }
 
     [Fact]
+    [DisplayName("存储过程非法参数名被拒绝")]
+    public void WhenParameterNameInvalidThenThrows()
+    {
+        using var cmd = _conn.CreateCommand();
+        cmd.CommandText = _spInsert;
+        cmd.CommandType = CommandType.StoredProcedure;
+
+        var ps = cmd.Parameters as MySqlParameterCollection;
+        ps!.AddWithValue("p_name;DROP", "x");
+        ps.AddWithValue("p_age", 1);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => cmd.ExecuteNonQuery());
+        Assert.IsType<ArgumentException>(ex.InnerException);
+    }
+
+    [Fact]
     [DisplayName("存储过程_IN参数查询结果集")]
     public void WhenCallWithSelectThenReturnsResultSet()
     {

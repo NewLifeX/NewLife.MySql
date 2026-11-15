@@ -329,5 +329,26 @@ public class MySqlBulkCopyTests : IDisposable
 
         Assert.Throws<ArgumentNullException>(() => bulkCopy.WriteToServer((DataTable)null!));
     }
+    [Theory(DisplayName = "MySqlBulkCopy_表名按标识符规则转义")]
+    [InlineData("t", "`t`")]
+    [InlineData("db.t", "`db`.`t`")]
+    [InlineData("`db`.`t`", "`db`.`t`")]
+    [InlineData("a`b", "`a``b`")]
+    [InlineData("t` (x) --", "`t`` (x) --`")]
+    public void EscapeTableName_QuotesIdentifiers(String input, String expected)
+        => Assert.Equal(expected, MySqlBulkCopy.EscapeTableName(input));
+
+    [Theory(DisplayName = "MySqlBulkCopy_列名双写反引号")]
+    [InlineData("name", "`name`")]
+    [InlineData("na`me", "`na``me`")]
+    public void EscapeIdentifier_DoublesBacktick(String input, String expected)
+        => Assert.Equal(expected, MySqlBulkCopy.EscapeIdentifier(input));
+
+    [Fact(DisplayName = "MySqlBulkCopy_空表名或未闭合反引号被拒绝")]
+    public void EscapeTableName_Invalid_Throws()
+    {
+        Assert.Throws<ArgumentException>(() => MySqlBulkCopy.EscapeTableName(""));
+        Assert.Throws<ArgumentException>(() => MySqlBulkCopy.EscapeTableName("`unclosed"));
+    }
     #endregion
 }

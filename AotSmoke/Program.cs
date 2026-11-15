@@ -60,7 +60,8 @@ static class Program
 
         _connBase = cfg ?? Environment.GetEnvironmentVariable("MYSQL_CONN")
             ?? "Server=127.0.0.1;Port=3306;Database=mysql;User Id=root;Password=root;";
-        _conn = new MySqlConnectionStringBuilder(_connBase) { Database = "aotsmoke" }.ConnectionString;
+        // 存储过程 OUT/INOUT 参数需要多语句能力（SET 用户变量 + CALL + SELECT），默认关闭时显式为本冒烟库开启
+        _conn = new MySqlConnectionStringBuilder(_connBase) { Database = "aotsmoke", AllowMultiStatements = true }.ConnectionString;
 
         // 清理模式：删除冒烟库
         if (args.Contains("--drop"))
@@ -374,8 +375,12 @@ static class Program
             }
 
             var events = new List<BinlogEvent>();
+            Exception? subscribeError = null;
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-            using var client = new BinlogClient(_conn);
+
+            // COM_REGISTER_SLAVE 会携带口令；非 TLS 连接现在会被驱动拒绝，冒烟显式要求 TLS
+            var binlogConn = new MySqlConnectionStringBuilder(_conn) { SslMode = "Required" };
+            using var client = new BinlogClient(binlogConn.ConnectionString);
 
             var task = Task.Run(async () =>
             {
@@ -388,7 +393,11 @@ static class Program
                     }
                 }
                 catch (OperationCanceledException) { }
-                catch (Exception) { /* 订阅结束阶段异常不影响事件断言 */ }
+                catch (Exception ex)
+                {
+                    // 订阅启动/读取失败会让事件数保持 0，必须把真实异常带出来，否则只会看到“未收到事件”的误导信息
+                    subscribeError = ex;
+                }
             });
 
             // 等订阅就绪后写入一行，触发 WRITE_ROWS_EVENT
@@ -406,7 +415,7 @@ static class Program
             cts.Cancel();
             await task;
 
-            if (!HasWriteRows()) throw new Exception($"未收到 WRITE_ROWS_EVENT（事件数={events.Count}）");
+            if (!HasWriteRows()) throw new Exception($"未收到 WRITE_ROWS_EVENT（事件数={events.Count}）" + (subscribeError != null ? $"；订阅异常：{subscribeError.GetType().Name}: {subscribeError.Message}" : ""));
 
             Boolean HasWriteRows()
             {
@@ -484,18 +493,24 @@ static class Program
             if (conn is not MySqlConnection) throw new Exception($"连接类型异常：{conn.GetType().Name}");
         }, needsDb: false);
 
-        // P2 参数替换与转义（纯内存，覆盖注入防护路径）
+        // P2 参数替换与转义（需要数据库：实际执行一次带单引号的参数，覆盖注入防护路径）
         Run("P2 ParameterSubstitution", () =>
         {
-            using var holder = new MySqlConnection();
-            using var cmd = new MySqlCommand("SELECT * FROM t1 WHERE Name = @Name AND Price > @Price", holder);
+            using var conn = new MySqlConnection(_conn);
+            conn.Open();
+            using var cmd = new MySqlCommand(conn, "SELECT @Name, @Price");
             cmd.Parameters.AddWithValue("@Name", "O'Reilly");
             cmd.Parameters.AddWithValue("@Price", 12.5m);
 
-            var sql = cmd.ToString();
-            if (!sql.Contains(@"O\'Reilly")) throw new Exception($"单引号未转义：{sql}");
-            if (!sql.Contains("12.5")) throw new Exception($"数值未替换：{sql}");
-        }, needsDb: false);
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read()) throw new Exception("未返回结果行");
+            if (reader.GetString(0) != "O'Reilly") throw new Exception($"单引号参数往返错误：{reader.GetString(0)}");
+            if (reader.GetDecimal(1) != 12.5m) throw new Exception($"数值参数往返错误：{reader.GetDecimal(1)}");
+
+            // ToString 只应展示参数名，不能把实际值写进日志
+            var text = cmd.ToString();
+            if (text.Contains("O'Reilly")) throw new Exception($"ToString 泄露参数值：{text}");
+        });
 
         // P3 Geometry WKB 封装（纯内存）
         Run("P3 GeometryWkb", () =>

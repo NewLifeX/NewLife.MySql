@@ -21,4 +21,14 @@ public class MySqlDataSourceIntegrationTests
         cmd.CommandText = "SELECT 1";
         Assert.Equal(1, Convert.ToInt32(cmd.ExecuteScalar()));
     }
+
+    [Fact]
+    [DisplayName("CreateCommand首次执行自动打开连接")]
+    public void CreateCommand_AutoOpenConnection()
+    {
+        using var ds = new MySqlDataSource(DALTests.GetConnStr());
+        using var cmd = ds.CreateCommand("SELECT 1");
+
+        Assert.Equal(1, Convert.ToInt32(cmd.ExecuteScalar()));
+    }
 }

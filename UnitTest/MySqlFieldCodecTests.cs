@@ -1,3 +1,4 @@
+using System.Globalization;
 ﻿using System.Text;
 using NewLife;
 using NewLife.Buffers;
@@ -315,6 +316,22 @@ public class MySqlFieldCodecTests
         Assert.Equal(34, ts.Minutes);
         Assert.Equal(56, ts.Seconds);
         Assert.Equal(123, ts.Milliseconds);
+        // 123456 微秒 = 1,234,560 ticks，不能只保留到毫秒
+        Assert.Equal(1234560L, ts.Ticks % TimeSpan.TicksPerSecond);
+    }
+
+    [Fact(DisplayName = "文本协议_DateTime_带微秒")]
+    public void ReadTextValue_DateTime_WithMicroseconds()
+    {
+        var str = "2024-12-25 10:30:45.123456";
+        var bytes = Encoding.UTF8.GetBytes(str);
+        var reader = new SpanReader(bytes);
+        var column = new MySqlColumn { Type = MySqlDbType.DateTime };
+
+        var result = MySqlFieldCodec.ReadTextValue(ref reader, column, bytes.Length);
+
+        var dt = Assert.IsType<DateTime>(result);
+        Assert.Equal(new DateTime(2024, 12, 25, 10, 30, 45).AddTicks(1234560L), dt);
     }
 
     [Fact(DisplayName = "文本协议_Year")]
@@ -1828,6 +1845,27 @@ public class MySqlFieldCodecTests
         var result = reader.ReadString();
         Assert.Contains("Name", result);
         Assert.Contains("test", result);
+    }
+
+    [Fact(DisplayName = "写入二进制_Decimal不随CurrentCulture变化")]
+    public void WriteBinaryValue_Decimal_Invariant()
+    {
+        var old = CultureInfo.CurrentCulture;
+        try
+        {
+            CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("de-DE");
+
+            var buffer = new Byte[100];
+            var writer = new SpanWriter(buffer);
+            MySqlFieldCodec.WriteBinaryValue(ref writer, 1.5m, Encoding.UTF8);
+
+            var reader = new SpanReader(buffer);
+            Assert.Equal("1.5", reader.ReadString());
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = old;
+        }
     }
 
     [Fact(DisplayName = "写入二进制_MySqlGeometry")]

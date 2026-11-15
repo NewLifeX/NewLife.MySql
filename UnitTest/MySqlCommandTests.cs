@@ -28,6 +28,15 @@ public class MySqlCommandTests : IDisposable
         _conn.Dispose();
     }
 
+    [Fact]
+    [DisplayName("CommandTimeout为零时保持不超时语义")]
+    public void WhenCommandTimeoutZeroThenPreserved()
+    {
+        using var cmd = new MySqlCommand(_conn, "SELECT 1") { CommandTimeout = 0 };
+
+        Assert.Equal(0, cmd.CommandTimeout);
+    }
+
     /// <summary>获取一个已打开的连接</summary>
     private static MySqlConnection CreateConnection()
     {

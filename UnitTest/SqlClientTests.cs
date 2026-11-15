@@ -490,11 +490,12 @@ public class SqlClientTests
     [Fact]
     public async Task ReadPacket_Error_StateCode()
     {
-        // 验证带状态码的错误包解析：msg[0]=='#' 时分离6字符状态码
+        // 验证带状态码的错误包解析：msg[0]=='#' 时拆分 '#' + 5 字符 SQLSTATE，State 不含 '#'
         var code = (UInt16)Rand.Next(1, 1 << 16);
-        var stateCode = "#42S02";
+        var wireState = "#42S02";
+        var expectedState = "42S02";
         var errorMsg = Rand.NextString(32);
-        var fullMsg = stateCode + errorMsg;
+        var fullMsg = wireState + errorMsg;
         var seq = (Byte)Rand.Next(1, 256);
 
         var msgBytes = fullMsg.GetBytes();
@@ -517,7 +518,7 @@ public class SqlClientTests
         var ex = await Assert.ThrowsAsync<MySqlException>(() => client.ReadPacketAsync());
 
         Assert.Equal(code, ex.ErrorCode);
-        Assert.Equal(stateCode, ex.State);
+        Assert.Equal(expectedState, ex.State);
         Assert.Equal(errorMsg, ex.Message);
     }
 

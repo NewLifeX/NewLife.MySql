@@ -187,9 +187,6 @@ public class LocalizationTests
             Localization.Culture = CultureInfo.GetCultureInfo("zh-Hans");
 
             Assert.Equal(
-                "[MySqlSsl] db=test server=localhost:3306 SslMode=Preferred 跳过 TLS，使用缓存的明文回退",
-                L.T("[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred skip TLS and use cached plain-text fallback", "test", "localhost", 3306));
-            Assert.Equal(
                 "[MySqlSsl] db=test server=localhost:3306 SslMode=Preferred 回退到明文：IOException：boom",
                 L.T("[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred fallback to plain text: {3}: {4}", "test", "localhost", 3306, "IOException", "boom"));
         }

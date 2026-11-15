@@ -33,6 +33,29 @@ public class MySqlTypeMappingSourceTests
     }
 
     [Fact]
+    [DisplayName("Decimal按模型精度生成DECIMAL")]
+    public void FindMapping_DecimalWithPrecision_ShouldUsePrecision()
+    {
+        var source = CreateTypeMappingSource();
+
+        var mapping = source.FindMapping(typeof(Decimal), null, false, null, null, null, null, 10, 2);
+
+        Assert.NotNull(mapping);
+        Assert.Equal("DECIMAL(10,2)", mapping.StoreType);
+    }
+
+    [Fact]
+    [DisplayName("POINT等含INT的存储类型不被误判为整数")]
+    public void FindMapping_PointStoreType_ShouldNotBeInt()
+    {
+        var source = CreateTypeMappingSource();
+
+        var mapping = source.FindMapping("POINT");
+
+        Assert.NotEqual("INT", mapping?.StoreType);
+    }
+
+    [Fact]
     [DisplayName("String类型应映射到VARCHAR")]
     public void FindMapping_String_ShouldReturnVarchar()
     {

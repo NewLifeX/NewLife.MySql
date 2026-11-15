@@ -91,4 +91,19 @@ public class MySqlCommandBehaviorTests : IDisposable
             conn2.ExecuteNonQuery($"DROP TABLE IF EXISTS `{table}`");
         }
     }
+
+    [Fact]
+    [DisplayName("SchemaOnly执行失败后SELECT上限恢复")]
+    public void WhenSchemaOnlyFailsThenSelectLimitRestored()
+    {
+        // 会话变量在命令执行前已写入，执行失败时读取器不会交给调用方，
+        // 必须在失败路径恢复 SQL_SELECT_LIMIT，否则连接回池后所有查询被截断为空
+        using (var cmd = new MySqlCommand(_conn, "SELECT * FROM no_such_table_for_behavior_test"))
+        {
+            Assert.ThrowsAny<Exception>(() => cmd.ExecuteReader(CommandBehavior.SchemaOnly));
+        }
+
+        using var verify = new MySqlCommand(_conn, $"SELECT COUNT(*) FROM `{_table}`");
+        Assert.Equal(2, verify.ExecuteScalar().ToInt());
+    }
 }

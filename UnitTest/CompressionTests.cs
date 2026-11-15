@@ -83,4 +83,28 @@ public class CompressionTests : IDisposable
         var ex = Assert.ThrowsAny<Exception>(() => cmd.ExecuteNonQuery());
         Assert.Contains("UseCompression", ex.ToString());
     }
+
+    [Fact]
+    [DisplayName("压缩与管道化同时开启时批量执行回退串行且结果正确")]
+    public void Compressed_PipelineBatch()
+    {
+        var table = "comp_pipe_" + Rand.Next(10000);
+        var connStr = _ConnStr.TrimEnd(';') + ";UseCompression=true;Pipeline=true;";
+        using var conn = new MySqlConnection(connStr);
+        conn.Open();
+        conn.ExecuteNonQuery($"CREATE TABLE IF NOT EXISTS `{table}` (`id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY, `name` VARCHAR(32)) ENGINE=InnoDB");
+        try
+        {
+            using var cmd = new MySqlCommand(conn, $"INSERT INTO `{table}` (`name`) VALUES (@n)");
+            var sets = new List<Object?[]> { new Object?[] { "a" }, new Object?[] { "b" }, new Object?[] { "c" } };
+            Assert.Equal(3, cmd.ExecuteBatchValues(sets));
+
+            using var check = new MySqlCommand(conn, $"SELECT COUNT(*) FROM `{table}`");
+            Assert.Equal(3, check.ExecuteScalar().ToInt());
+        }
+        finally
+        {
+            conn.ExecuteNonQuery($"DROP TABLE IF EXISTS `{table}`");
+        }
+    }
 }

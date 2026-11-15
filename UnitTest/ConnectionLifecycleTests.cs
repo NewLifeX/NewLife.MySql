@@ -13,6 +13,41 @@ public class ConnectionLifecycleTests
     private static String _ConnStr = DALTests.GetConnStr();
 
     [Fact]
+    [DisplayName("SET sql_mode后立即刷新转义模式缓存")]
+    public void WhenSetSqlModeThenCacheRefreshed()
+    {
+        using var conn = new MySqlConnection(_ConnStr);
+        conn.Open();
+
+        conn.ExecuteNonQuery("SET SESSION sql_mode='NO_BACKSLASH_ESCAPES'");
+        Assert.True(conn.Client!.NoBackslashEscapes);
+
+        conn.ExecuteNonQuery("SET SESSION sql_mode=DEFAULT");
+        Assert.False(conn.Client!.NoBackslashEscapes);
+    }
+
+    [Fact]
+    [DisplayName("归还连接池前重置会话变量")]
+    public void WhenConnectionReturnedThenSessionReset()
+    {
+        var connStr = _ConnStr + ";MaxPoolSize=1;MinPoolSize=0";
+        using var conn = new MySqlConnection(connStr);
+        conn.Open();
+        conn.ExecuteNonQuery("SET @session_probe=123");
+        conn.ExecuteNonQuery("SET SESSION sql_mode='NO_BACKSLASH_ESCAPES'");
+        Assert.True(conn.Client!.NoBackslashEscapes);
+        conn.Close();
+
+        conn.Open();
+        using (var cmd = new MySqlCommand(conn, "SELECT @session_probe"))
+        {
+            var value = cmd.ExecuteScalar();
+            Assert.True(value == null || value == DBNull.Value);
+        }
+        Assert.False(conn.Client!.NoBackslashEscapes);
+    }
+
+    [Fact]
     [DisplayName("多次Open_Close循环正常工作")]
     public void WhenMultipleOpenCloseCyclesThenAllSucceed()
     {

@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Security.Cryptography;
 using System.Text;
 using NewLife;
@@ -209,7 +209,7 @@ public class AuthenticationTests
     {
         var auth = CreateAuth();
 
-        var bytes = Encoding.UTF8.GetBytes(auth.GetConnectAttrs());
+        var bytes = auth.GetConnectAttrs();
         var attrs = new Dictionary<String, String>();
         var idx = 0;
         while (idx < bytes.Length)

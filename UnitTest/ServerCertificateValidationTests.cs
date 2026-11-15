@@ -37,4 +37,41 @@ public class ServerCertificateValidationTests
         var errors = SslPolicyErrors.RemoteCertificateChainErrors | SslPolicyErrors.RemoteCertificateNameMismatch;
         Assert.True(SqlClient.AcceptServerCertificate(false, errors));
     }
+
+    [Theory]
+    [DisplayName("受支持的SslMode取值")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("None")]
+    [InlineData("Disabled")]
+    [InlineData("Preferred")]
+    [InlineData("Required")]
+    [InlineData("VerifyCA")]
+    [InlineData("VerifyFull")]
+    [InlineData("VerifyIdentity")]
+    public void SupportedSslModes(String mode) => Assert.True(SqlClient.IsSupportedSslMode(mode));
+
+    [Theory]
+    [DisplayName("拼错的SslMode被拒绝，避免静默降级明文")]
+    [InlineData("Require")]
+    [InlineData("VerfiyFull")]
+    [InlineData("ssl")]
+    public void UnsupportedSslMode_Throws(String mode)
+    {
+        Assert.False(SqlClient.IsSupportedSslMode(mode));
+
+        using var conn = new MySqlConnection($"Server=127.0.0.1;Port=3306;User Id=root;Password=root;SslMode={mode}");
+        Assert.Throws<ArgumentException>(() => conn.Open());
+    }
+
+    [Theory]
+    [DisplayName("非UTF8字符集建连前被拒绝")]
+    [InlineData("gbk")]
+    [InlineData("gb2312")]
+    [InlineData("latin1")]
+    public void NonUtf8CharSet_Throws(String charSet)
+    {
+        using var conn = new MySqlConnection($"Server=127.0.0.1;Port=3306;User Id=root;Password=root;CharSet={charSet}");
+        Assert.Throws<NotSupportedException>(() => conn.Open());
+    }
 }
