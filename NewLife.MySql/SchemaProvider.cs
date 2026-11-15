@@ -1,4 +1,4 @@
-﻿using System.Data;
+using System.Data;
 using System.Data.Common;
 using System.Data.SqlTypes;
 using System.Diagnostics.CodeAnalysis;
@@ -479,7 +479,7 @@ internal class SchemaProvider(MySqlConnection connection)
     {
         try
         {
-            var sql = $"SHOW FULL COLUMNS FROM `{schema}`.`{tableName}`";
+            var sql = $"SHOW FULL COLUMNS FROM `{EscapeIdentifier(schema)}`.`{EscapeIdentifier(tableName)}`";
             using var cmd = new MySqlCommand(connection, sql);
             var pos = 1;
             using var reader = cmd.ExecuteReader(CommandBehavior.Default);
@@ -607,7 +607,7 @@ internal class SchemaProvider(MySqlConnection connection)
         {
             try
             {
-                var sql = String.Format("SHOW INDEX FROM `{0}`.`{1}`", table["TABLE_SCHEMA"], table["TABLE_NAME"]);
+                var sql = String.Format("SHOW INDEX FROM `{0}`.`{1}`", EscapeIdentifier(table["TABLE_SCHEMA"]?.ToString() ?? ""), EscapeIdentifier(table["TABLE_NAME"]?.ToString() ?? ""));
                 foreach (var row in QueryCollection("indexes", sql).Rows)
                 {
                     var keyName = row["KEY_NAME"]?.ToString();
@@ -655,7 +655,7 @@ internal class SchemaProvider(MySqlConnection connection)
         {
             try
             {
-                var sql = String.Format("SHOW INDEX FROM `{0}`.`{1}`", table["TABLE_SCHEMA"], table["TABLE_NAME"]);
+                var sql = String.Format("SHOW INDEX FROM `{0}`.`{1}`", EscapeIdentifier(table["TABLE_SCHEMA"]?.ToString() ?? ""), EscapeIdentifier(table["TABLE_NAME"]?.ToString() ?? ""));
                 using var cmd = new MySqlCommand(connection, sql);
                 using var reader = cmd.ExecuteReader();
                 while (reader.Read())
@@ -837,8 +837,8 @@ internal class SchemaProvider(MySqlConnection connection)
         {
             try
             {
-                var sql = $"SHOW FULL TABLES FROM `{dbName}` WHERE Table_type = 'VIEW'";
-                if (!nameRestriction.IsNullOrEmpty()) sql += $" AND Tables_in_{dbName} LIKE '{EscapeString(nameRestriction)}'";
+                var sql = $"SHOW FULL TABLES FROM `{EscapeIdentifier(dbName!)}` WHERE Table_type = 'VIEW'";
+                if (!nameRestriction.IsNullOrEmpty()) sql += $" AND `Tables_in_{EscapeIdentifier(dbName!)}` LIKE '{EscapeString(nameRestriction)}'";
 
                 using var cmd = new MySqlCommand(connection, sql);
                 using var reader = cmd.ExecuteReader();
@@ -927,7 +927,7 @@ internal class SchemaProvider(MySqlConnection connection)
         {
             try
             {
-                var sql = $"SHOW TRIGGERS FROM `{dbName}`";
+                var sql = $"SHOW TRIGGERS FROM `{EscapeIdentifier(dbName!)}`";
                 if (!tableRestriction.IsNullOrEmpty()) sql += $" WHERE `Table` LIKE '{EscapeString(tableRestriction)}'";
 
                 using var cmd = new MySqlCommand(connection, sql);
