@@ -179,7 +179,7 @@ public class MySqlPoolManager
     /// <summary>获取连接池。连接字符串相同时共用连接池</summary>
     /// <param name="setting"></param>
     /// <returns></returns>
-    public MySqlPool GetPool(MySqlConnectionStringBuilder setting) => _pools.GetOrAdd(setting.ConnectionString, k => CreatePool(setting));
+    public MySqlPool GetPool(MySqlConnectionStringBuilder setting) => _pools.GetOrAdd(setting.GetPoolKey(), k => CreatePool(setting));
 
     /// <summary>创建连接池</summary>
     /// <param name="setting"></param>

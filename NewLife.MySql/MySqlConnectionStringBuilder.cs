@@ -1,4 +1,7 @@
 ﻿using System.Data.Common;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.RegularExpressions;
 using NewLife.MySql.Common;
 
 namespace NewLife.MySql;
@@ -186,5 +189,29 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// <summary>深拷贝连接字符串构造器。连接池持有克隆快照，避免调用方修改共享实例（如 ChangeDatabase 修改 Database）污染池配置</summary>
     /// <returns>独立的新实例，与当前实例互不影响</returns>
     public MySqlConnectionStringBuilder Clone() => new(ConnectionString);
+
+    /// <summary>口令字面量匹配。用于把连接串里的口令值抹掉后再做池标识</summary>
+    private static readonly Regex _passwordPattern = new(@"(?i)\b(password|pwd|pass)\s*=\s*[^;]*", RegexOptions.Compiled);
+
+    /// <summary>获取连接池标识。把口令替换为摘要，避免明文口令长期驻留为字典键</summary>
+    /// <returns>连接池标识。连接串相同且口令相同才落到同一个池</returns>
+    internal String GetPoolKey()
+    {
+        var key = ConnectionString;
+        var pwd = Password;
+        if (pwd.IsNullOrEmpty()) return key;
+
+        // 口令仍然参与区分（不同口令绝不能共用连接池，否则等于认证越权），但只以摘要形式保存
+        key = _passwordPattern.Replace(key, "Password=#");
+
+        var bytes = Encoding.UTF8.GetBytes(pwd);
+#if NET5_0_OR_GREATER
+        var hash = SHA256.HashData(bytes);
+#else
+        using var sha = SHA256.Create();
+        var hash = sha.ComputeHash(bytes);
+#endif
+        return key + "|pwd=" + hash.ToHex();
+    }
     #endregion
 }

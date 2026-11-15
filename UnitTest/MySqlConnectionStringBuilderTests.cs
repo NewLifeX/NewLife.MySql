@@ -185,4 +185,18 @@ public class MySqlConnectionStringBuilderTests
         builder["pipelining"] = true;
         Assert.True(builder.Pipeline);
     }
+
+    [Fact]
+    [DisplayName("连接池标识不含明文口令且能区分不同口令")]
+    public void TestPoolKeyMaskPassword()
+    {
+        var a1 = new MySqlConnectionStringBuilder("server=s;database=d;uid=u;pwd=secret123").GetPoolKey();
+        var a2 = new MySqlConnectionStringBuilder("server=s;database=d;uid=u;pwd=secret123").GetPoolKey();
+        var b = new MySqlConnectionStringBuilder("server=s;database=d;uid=u;pwd=other456").GetPoolKey();
+
+        Assert.Equal(a1, a2);
+        Assert.NotEqual(a1, b);
+        Assert.DoesNotContain("secret123", a1);
+        Assert.DoesNotContain("other456", b);
+    }
 }
