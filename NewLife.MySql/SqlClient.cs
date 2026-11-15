@@ -664,6 +664,14 @@ public class SqlClient : DisposeBase
     {
         if (!Setting.TracePackets) return;
 
+        // 认证阶段（含握手响应与密码校验包）直接跳过载荷，避免密码哈希/明文口令进日志
+        if (!Active)
+        {
+            XTrace.WriteLine("[MySqlPacket] {0} db={1} seq={2} len={3} kind=Auth payload=skipped",
+                direction, Database, sequence, length);
+            return;
+        }
+
         try
         {
             var available = Math.Min(Math.Max(length, 0), payload.Length);

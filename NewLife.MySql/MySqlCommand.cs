@@ -326,7 +326,7 @@ public class MySqlCommand : DbCommand
                 throw;
             }
 
-            var error = CreateCommandException(ex, GetDebugCommandText());
+            var error = CreateCommandException(ex, GetSafeCommandText());
             span.SetError(error);
             span.Dispose();
 
@@ -485,7 +485,7 @@ public class MySqlCommand : DbCommand
         }
         catch (Exception ex)
         {
-            var error = CreateCommandException(ex, GetBatchDebugCommandText(firstSet), parameterSets.Count);
+            var error = CreateCommandException(ex, GetSafeCommandText(), parameterSets.Count);
             span.SetError(error);
             throw error;
         }
@@ -535,7 +535,7 @@ public class MySqlCommand : DbCommand
         }
         catch (Exception ex)
         {
-            var error = CreateCommandException(ex, GetDebugCommandText(), valueSets.Count);
+            var error = CreateCommandException(ex, GetSafeCommandText(), valueSets.Count);
             span.SetError(error);
             throw error;
         }
@@ -595,7 +595,7 @@ public class MySqlCommand : DbCommand
         }
         catch (Exception ex)
         {
-            var error = CreateCommandException(ex, GetArrayBatchDebugCommandText(), count);
+            var error = CreateCommandException(ex, GetSafeCommandText(), count);
             span.SetError(error);
             throw error;
         }
@@ -703,6 +703,23 @@ public class MySqlCommand : DbCommand
 
     private String GetDebugCommandText()
         => CommandType == CommandType.StoredProcedure ? BuildStoredProcedureCall() : SubstituteParameters(CommandText, _parameters, NoBackslashEscapes);
+
+    /// <summary>异常信息里展示的 SQL：只保留命令文本与参数名，不把替换后的实际值（密码、手机号等）写进日志与链路追踪</summary>
+    /// <returns></returns>
+    private String GetSafeCommandText()
+    {
+        var text = CommandText ?? String.Empty;
+        if (_parameters.Count == 0) return text;
+
+        var names = new List<String>(_parameters.Count);
+        foreach (MySqlParameter item in _parameters)
+        {
+            var name = item.ParameterName;
+            if (!name.IsNullOrEmpty()) names.Add(name);
+        }
+
+        return names.Count == 0 ? text : text + " [" + String.Join(",", names) + "]";
+    }
 
     /// <summary>服务器是否启用 NO_BACKSLASH_ESCAPES。该模式下反斜杠不再是转义符，字符串字面量必须改用双写单引号</summary>
     private Boolean NoBackslashEscapes => _DbConnection?.Client?.NoBackslashEscapes == true;
