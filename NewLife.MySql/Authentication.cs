@@ -74,8 +74,14 @@ class Authentication(SqlClient client)
         // 如果返回0xFE，表示需要继续验证。例如 caching_sha2_password 验证降级为 mysql_native_password 验证
         if (rs.IsEOF)
             await ToNativePasswordAsync(rs, set.Password!, cancellationToken).ConfigureAwait(false);
-        else if (rs.Data[0] == 0x01 && rs.Data[1] == 0x04)
+        else if (rs.Data.Length >= 2 && rs.Data[0] == 0x01 && rs.Data[1] == 0x04)
             await PerformFullAuthenticationAsync(set.Password!, seed, cancellationToken).ConfigureAwait(false);
+        else if (!rs.IsOK)
+        {
+            // 既不是 OK 也不是已知的继续认证包（如空包），不能静默当作成功
+            client.Active = false;
+            throw new InvalidOperationException(L.T("Authentication failed."));
+        }
     }
 
     private async Task ToNativePasswordAsync(ServerPacket rs, String password, CancellationToken cancellationToken)

@@ -48,6 +48,8 @@ sealed class MySqlTransaction(MySqlConnection connection, IsolationLevel isolati
         }
         catch (Exception ex)
         {
+            // COMMIT 报错时服务端已中止或结果未知，事务不能再当作待提交态对外提供
+            _open = false;
             span.SetError(ex);
             throw;
         }
@@ -71,6 +73,8 @@ sealed class MySqlTransaction(MySqlConnection connection, IsolationLevel isolati
         }
         catch (Exception ex)
         {
+            // ROLLBACK 报错（典型为连接已断）时事务不再可用，避免调用方误以为可重试
+            _open = false;
             span.SetError(ex);
             throw;
         }
