@@ -255,7 +255,7 @@ public static class MySqlFieldCodec
             microsecond = reader.ReadInt32();
         }
 
-        return new DateTime(year, month, day, hour, minute, second, microsecond / 1000);
+        return new DateTime(year, month, day, hour, minute, second).AddTicks(microsecond * 10L);
     }
 
     /// <summary>读取二进制 TIME 值</summary>
@@ -278,7 +278,7 @@ public static class MySqlFieldCodec
         if (len >= 12)
             microseconds = reader.ReadInt32();
 
-        var ts = new TimeSpan(days, hours, minutes, seconds, microseconds / 1000);
+        var ts = new TimeSpan(days, hours, minutes, seconds).Add(TimeSpan.FromTicks(microseconds * 10L));
         return isNeg ? ts.Negate() : ts;
     }
     #endregion
@@ -415,8 +415,10 @@ public static class MySqlFieldCodec
     /// <param name="dt">日期时间值</param>
     private static void WriteBinaryDateTime(ref SpanWriter writer, DateTime dt)
     {
-        var hasTime = dt.Hour != 0 || dt.Minute != 0 || dt.Second != 0 || dt.Millisecond != 0;
-        var hasMicro = dt.Millisecond != 0;
+        // 微秒=当前秒内不足一秒的 tick 数除以 10，不能用 Millisecond，否则 DATETIME(6) 的亚毫秒部分被舍弃
+        var micro = (Int32)(dt.Ticks % TimeSpan.TicksPerSecond / 10);
+        var hasTime = dt.Hour != 0 || dt.Minute != 0 || dt.Second != 0 || micro != 0;
+        var hasMicro = micro != 0;
 
         if (!hasTime)
         {
@@ -447,7 +449,7 @@ public static class MySqlFieldCodec
             writer.Write((Byte)dt.Hour);
             writer.Write((Byte)dt.Minute);
             writer.Write((Byte)dt.Second);
-            writer.Write((Int32)(dt.Millisecond * 1000));
+            writer.Write(micro);
         }
     }
 
@@ -463,7 +465,7 @@ public static class MySqlFieldCodec
         var isNegative = ts < TimeSpan.Zero;
         if (isNegative) ts = ts.Negate();
 
-        var hasMicro = ts.Milliseconds != 0;
+        var hasMicro = ts.Ticks % TimeSpan.TicksPerSecond != 0;
 
         if (!hasMicro)
         {
@@ -484,7 +486,7 @@ public static class MySqlFieldCodec
             writer.Write((Byte)ts.Hours);
             writer.Write((Byte)ts.Minutes);
             writer.Write((Byte)ts.Seconds);
-            writer.Write((Int32)(ts.Milliseconds * 1000));
+            writer.Write((Int32)(ts.Ticks % TimeSpan.TicksPerSecond / 10));
         }
     }
     #endregion

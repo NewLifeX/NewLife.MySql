@@ -1690,6 +1690,25 @@ public class MySqlFieldCodecTests
         Assert.Equal(123000, BitConverter.ToInt32(buffer, 8)); // 123 ms = 123000 us
     }
 
+    [Fact(DisplayName = "二进制协议_DateTime_微秒精度往返")]
+    public void BinaryDateTime_MicrosecondsRoundTrip()
+    {
+        // 亚毫秒部分必须原样保留，不能按毫秒截断
+        var dt = new DateTime(2024, 12, 25, 10, 30, 45).AddTicks(123456 * 10);
+
+        var buffer = new Byte[100];
+        var writer = new SpanWriter(buffer);
+        MySqlFieldCodec.WriteBinaryValue(ref writer, dt, Encoding.UTF8);
+
+        Assert.Equal(123456, BitConverter.ToInt32(buffer, 8));
+
+        var reader = new SpanReader(buffer.AsSpan(0, writer.Position).ToArray());
+        var column = new MySqlColumn { Type = MySqlDbType.DateTime };
+        var result = MySqlFieldCodec.ReadBinaryValue(ref reader, column);
+
+        Assert.Equal(dt, (DateTime)result);
+    }
+
     [Fact(DisplayName = "写入二进制_DateTimeOffset")]
     public void WriteBinaryValue_DateTimeOffset()
     {
