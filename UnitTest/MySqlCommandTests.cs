@@ -29,6 +29,24 @@ public class MySqlCommandTests : IDisposable
     }
 
     [Fact]
+    [DisplayName("预编译命令在连接关闭重开后不沿用失效语句")]
+    public void WhenPreparedCommandReusedAfterReopenThenWorks()
+    {
+        using var conn = new MySqlConnection(_ConnStr);
+        conn.Open();
+
+        using var cmd = new MySqlCommand(conn, "SELECT @v");
+        cmd.Parameters.AddWithValue("@v", 7);
+        cmd.Prepare();
+        Assert.True(cmd.IsPrepared);
+
+        conn.Close();
+        conn.Open();
+
+        Assert.Equal(7, cmd.ExecuteScalar().ToInt());
+    }
+
+    [Fact]
     [DisplayName("CommandTimeout为零时保持不超时语义")]
     public void WhenCommandTimeoutZeroThenPreserved()
     {

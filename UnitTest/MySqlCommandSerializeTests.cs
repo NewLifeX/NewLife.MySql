@@ -146,6 +146,18 @@ public class MySqlCommandSerializeTests
     }
 
     [Fact]
+    [DisplayName("系统变量@@name不按参数替换")]
+    public void SubstituteParameters_SkipsSystemVariables()
+    {
+        var parameters = new MySqlParameterCollection();
+        parameters.AddWithValue("@version", "hacked");
+
+        var result = MySqlCommand.SubstituteParameters("SELECT @@version, @version", parameters);
+
+        Assert.Equal("SELECT @@version, 'hacked'", result);
+    }
+
+    [Fact]
     [DisplayName("NO_BACKSLASH_ESCAPES下反斜杠不转义字符串结束引号")]
     public void SubstituteParameters_NoBackslashEscapes_EndsStringAtQuote()
     {

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Data;
+using System.Data.Common;
 using NewLife;
 using NewLife.MySql;
 using NewLife.Security;
@@ -114,6 +115,34 @@ public class DataAdapterUpdateTests : IDisposable
         Assert.Equal(1, count);
         using var verify = new MySqlCommand(_conn, $"SELECT age FROM `{_table}` WHERE name='Frank'");
         Assert.Equal(44, verify.ExecuteScalar().ToInt());
+    }
+
+    [Fact]
+    [DisplayName("UpdateAsync按表映射更新时自动打开已关闭连接")]
+    public async Task WhenUpdateAsyncWithMappingAndClosedConnectionThenOpens()
+    {
+        using var select = new MySqlCommand($"SELECT id, name, age FROM `{_table}` ORDER BY id", _conn);
+        var adapter = new MySqlDataAdapter(select);
+        var insert = new MySqlCommand($"INSERT INTO `{_table}` (name, age) VALUES (@name, @age)", _conn);
+        insert.Parameters.AddWithValue("@name", "").SourceColumn = "name";
+        insert.Parameters.AddWithValue("@age", 0).SourceColumn = "age";
+        adapter.InsertCommand = insert;
+
+        var dt = new DataTable();
+        adapter.Fill(dt);
+        var row = dt.NewRow();
+        row["name"] = "Grace";
+        row["age"] = 50;
+        dt.Rows.Add(row);
+
+        _conn.Close();
+        var mapping = new DataTableMapping("Table", "Table");
+        var count = await adapter.UpdateAsync(dt.Rows.Cast<DataRow>().ToArray(), mapping);
+
+        Assert.Equal(1, count);
+        _conn.Open();
+        using var verify = new MySqlCommand(_conn, $"SELECT age FROM `{_table}` WHERE name='Grace'");
+        Assert.Equal(50, verify.ExecuteScalar().ToInt());
     }
 
     [Fact]

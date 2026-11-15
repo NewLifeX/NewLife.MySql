@@ -1,5 +1,6 @@
 ﻿using System.ComponentModel;
 using NewLife.MySql;
+using NewLife.MySql.Common;
 
 namespace UnitTest;
 
@@ -142,6 +143,18 @@ public class MySqlConnectionStringBuilderTests
         Assert.Equal("Preferred", builder.SslMode);
     }
 
+    [Theory]
+    [DisplayName("常见UTF-8排序规则可解析")]
+    [InlineData("utf8mb4_0900_ai_ci", MySqlCharSet.Utf8Mb4)]
+    [InlineData("utf8mb4_bin", MySqlCharSet.Utf8Mb4)]
+    [InlineData("utf8mb4_unicode_520_ci", MySqlCharSet.Utf8Mb4)]
+    [InlineData("utf8_unicode_ci", MySqlCharSet.Utf8)]
+    [InlineData("utf8mb3_general_ci", MySqlCharSet.Utf8)]
+    public void ParseCharSet_Utf8Collations(String name, MySqlCharSet expected)
+    {
+        Assert.Equal(expected, MySqlConnectionStringBuilder.ParseCharSet(name));
+    }
+
     [Fact]
     [DisplayName("未知字符集名称直接报错")]
     public void UnknownCharSet_Throws()
@@ -211,6 +224,33 @@ public class MySqlConnectionStringBuilderTests
         var builder = new MySqlConnectionStringBuilder();
         builder["pipelining"] = true;
         Assert.True(builder.Pipeline);
+    }
+
+    [Fact]
+    [DisplayName("连接池标识对不同连接串无歧义")]
+    public void TestPoolKeyNoCollision()
+    {
+        // 值中包含 ; 时，旧的 key=value; 拼接会与“拆成两个键”的连接串撞车：
+        // A 的数据库名是 a;UserID=u，B 的数据库是 a 且用户是 u
+        var a = new MySqlConnectionStringBuilder("server=s;database='a;UserID=u'").GetPoolKey();
+        var b = new MySqlConnectionStringBuilder("server=s;database=a;uid=u").GetPoolKey();
+
+        Assert.NotEqual(a, b);
+    }
+
+    [Fact]
+    [DisplayName("解析连接字符串后仍保留默认值")]
+    public void ParsedConnectionString_KeepsDefaults()
+    {
+        var builder = new MySqlConnectionStringBuilder("server=s");
+
+        Assert.Equal(3306, builder.Port);
+        Assert.Equal(15, builder.ConnectionTimeout);
+        Assert.Equal(30, builder.CommandTimeout);
+        Assert.Equal("Preferred", builder.SslMode);
+        Assert.True(builder.RetryOnNetworkFailure);
+        Assert.Equal(600, builder.ConnectionLifeTime);
+        Assert.Equal(60, builder.IdlePoolTime);
     }
 
     [Fact]

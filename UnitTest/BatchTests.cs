@@ -1024,6 +1024,24 @@ public class BatchTests
         Assert.Equal(@"INSERT INTO t VALUES ('a\'b')", MySqlBatch.BuildCommandSql(bc, false));
     }
 
+    [Fact(DisplayName = "批量多结果集读取器支持CloseConnection行为")]
+    public async Task BatchReader_CloseConnectionBehavior()
+    {
+        using var conn = new MySqlConnection(_ConnStr);
+        conn.Open();
+
+        var batch = new MySqlBatch(conn);
+        batch.BatchCommands.Add(new MySqlBatchCommand("SELECT 1; SELECT 2"));
+
+        using (var reader = await batch.ExecuteReaderAsync(System.Data.CommandBehavior.CloseConnection))
+        {
+            Assert.True(await reader.ReadAsync());
+            Assert.Equal(1, reader.GetInt32(0));
+        }
+
+        Assert.Equal(System.Data.ConnectionState.Closed, conn.State);
+    }
+
     [Fact(DisplayName = "MySqlBatch读取器在UseServerPrepare下不提前关闭语句")]
     public async Task BatchReader_WithServerPrepare()
     {

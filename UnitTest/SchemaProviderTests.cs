@@ -204,6 +204,16 @@ public class SchemaProviderTests
         Assert.Contains("root", users);
     }
 
+    [Fact(DisplayName = "GetSchema_Users限制为null时返回全部用户")]
+    public void GetSchema_Users_NullRestriction()
+    {
+        using var conn = OpenConnection();
+
+        var dt = conn.GetSchema("Users", [null]);
+
+        Assert.True(dt.Rows.Count > 0);
+    }
+
     [Fact(DisplayName = "GetSchema_Users支持限制条件")]
     public void GetSchema_Users_WithRestriction()
     {
@@ -301,6 +311,42 @@ public class SchemaProviderTests
         }
     }
 
+    [Fact(DisplayName = "GetSchema_Tables只传数据库限制")]
+    public void GetSchema_Tables_WithSingleDatabaseRestriction()
+    {
+        using var conn = OpenConnection();
+
+        var dt = conn.GetSchema("Tables", ["sys"]);
+
+        Assert.True(dt.Rows.Count > 0);
+        foreach (DataRow row in dt.Rows)
+        {
+            Assert.Equal("sys", row["TABLE_SCHEMA"]?.ToString());
+        }
+    }
+
+    [Fact(DisplayName = "GetSchema_Tables区分视图与基表并按类型过滤")]
+    public void GetSchema_Tables_WithViewTypeRestriction()
+    {
+        using var conn = OpenConnection();
+        conn.ExecuteNonQuery("CREATE DATABASE IF NOT EXISTS `newlife_test`");
+        conn.ExecuteNonQuery("DROP VIEW IF EXISTS `newlife_test`.`schema_view_probe`");
+        conn.ExecuteNonQuery("CREATE VIEW `newlife_test`.`schema_view_probe` AS SELECT 1 AS id");
+        try
+        {
+            var views = conn.GetSchema("Tables", [null, "newlife_test", null, "VIEW"]);
+            Assert.Contains(views.Rows.Cast<DataRow>(), r => r["TABLE_NAME"]?.ToString() == "schema_view_probe");
+            Assert.All(views.Rows.Cast<DataRow>(), r => Assert.Equal("VIEW", r["TABLE_TYPE"]?.ToString()));
+
+            var tables = conn.GetSchema("Tables", [null, "newlife_test", null, "BASE TABLE"]);
+            Assert.DoesNotContain(tables.Rows.Cast<DataRow>(), r => r["TABLE_NAME"]?.ToString() == "schema_view_probe");
+        }
+        finally
+        {
+            conn.ExecuteNonQuery("DROP VIEW IF EXISTS `newlife_test`.`schema_view_probe`");
+        }
+    }
+
     [Fact(DisplayName = "GetSchema_Tables支持表名限制")]
     public void GetSchema_Tables_WithTableNameRestriction()
     {
@@ -374,10 +420,14 @@ public class SchemaProviderTests
         var tableName = "sys_config";
         var columnName = "variable";
 
-        var dt = conn.GetSchema("Columns", [null, schema, tableName, columnName]);
+        var restrictions = new String?[] { null, schema, tableName, columnName };
+        var dt = conn.GetSchema("Columns", restrictions);
 
         Assert.True(dt.Rows.Count >= 1);
         Assert.Equal(columnName, dt.Rows[0]["COLUMN_NAME"]?.ToString());
+
+        // GetSchema 不应把调用方的限制数组改成 null
+        Assert.Equal(columnName, restrictions[3]);
     }
     #endregion
 
