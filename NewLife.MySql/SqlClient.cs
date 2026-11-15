@@ -279,7 +279,7 @@ public class SqlClient : DisposeBase
                         return;
                     }
                 }
-                else if (sslMode.EqualIgnoreCase("Required"))
+                else if (sslMode.EqualIgnoreCase("Required") || VerifyCertificate)
                     throw new NotSupportedException(L.T("The server does not support SSL connections."));
             }
 
@@ -364,24 +364,51 @@ public class SqlClient : DisposeBase
         _seq = 1;
         await SendPacketAsync((ArrayPacket)buf, cancellationToken).ConfigureAwait(false);
 
-        // 升级为 SslStream
-        var sslStream = new SslStream(_stream!, false, (sender, certificate, chain, errors) => true);
-#if NET5_0_OR_GREATER
-        await sslStream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+        // 升级为 SslStream。VerifyFull/VerifyCA/VerifyIdentity 必须校验证书链与主机名，
+        // Required/Preferred 保持历史行为（不校验），便于自签证书环境继续可用
+        var verifyCertificate = VerifyCertificate;
+        var sslErrors = SslPolicyErrors.None;
+        var sslStream = new SslStream(_stream!, false, (sender, certificate, chain, errors) =>
         {
-            TargetHost = server,
-            EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-        }, cancellationToken).ConfigureAwait(false);
+            var accepted = AcceptServerCertificate(verifyCertificate, errors);
+            if (!accepted) sslErrors = errors;
+
+            return accepted;
+        });
+#if NET5_0_OR_GREATER
+        try
+        {
+            await sslStream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
+            {
+                TargetHost = server,
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+            }, cancellationToken).ConfigureAwait(false);
+        }
 #else
-#if !NET5_0_OR_GREATER
         // 旧框架的 TLS 握手同样不响应取消令牌，超时/取消时关闭 socket 解除挂起
         using var abort = cancellationToken.Register(static s => ((SqlClient)s!).Abort(), this);
+        try
+        {
+            await sslStream.AuthenticateAsClientAsync(server, null, SslProtocols.Tls12, false).ConfigureAwait(false);
+        }
 #endif
-        await sslStream.AuthenticateAsClientAsync(server, null, SslProtocols.Tls12, false).ConfigureAwait(false);
-#endif
+        catch (AuthenticationException ex) when (sslErrors != SslPolicyErrors.None)
+        {
+            throw new AuthenticationException(
+                L.T("Server certificate validation failed ({0}). Set SslMode=Required to skip certificate validation.", sslErrors), ex);
+        }
         _reader.Reset();
         _stream = sslStream;
     }
+
+    /// <summary>当前 SslMode 是否要求校验证书链与主机名</summary>
+    private Boolean VerifyCertificate => Setting.SslMode.EqualIgnoreCase("VerifyFull", "VerifyCA", "VerifyIdentity");
+
+    /// <summary>判断是否接受服务端证书</summary>
+    /// <param name="verifyCertificate">是否要求校验证书</param>
+    /// <param name="errors">证书链/主机名校验结果</param>
+    /// <returns>是否接受</returns>
+    internal static Boolean AcceptServerCertificate(Boolean verifyCertificate, SslPolicyErrors errors) => !verifyCertificate || errors == SslPolicyErrors.None;
 
     /// <summary>关闭与服务器的连接并释放资源</summary>
     public void Close()
