@@ -299,7 +299,7 @@ public sealed class MySqlDataAdapter : DbDataAdapter, IDbDataAdapter, IDataAdapt
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>成功更新的行数</returns>
     [RequiresUnreferencedCode(TrimMessage)]
-    public Task<Int32> UpdateAsync(DataRow[] dataRows, DataTableMapping tableMapping, CancellationToken cancellationToken = default) => ExecuteAsync(() => base.Update(dataRows, tableMapping), cancellationToken);
+    public Task<Int32> UpdateAsync(DataRow[] dataRows, DataTableMapping tableMapping, CancellationToken cancellationToken = default) => ExecuteAsync(() => Update(dataRows, tableMapping), cancellationToken);
 
     /// <summary>异步更新 DataSet 的指定表</summary>
     /// <param name="dataSet">要更新的 DataSet</param>

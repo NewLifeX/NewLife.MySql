@@ -336,7 +336,7 @@ internal class SchemaProvider(MySqlConnection connection)
     public SchemaCollection GetUsers(String?[]? restrictions)
     {
         var sql = "SELECT Host, User FROM mysql.user";
-        if (restrictions != null && restrictions.Length != 0)
+        if (restrictions != null && restrictions.Length > 0 && !restrictions[0].IsNullOrEmpty())
             sql += $" WHERE User LIKE '{EscapeString(restrictions[0]!)}'";
 
         var collection = QueryCollection("Users", sql);
@@ -414,15 +414,17 @@ internal class SchemaProvider(MySqlConnection connection)
         collection.AddColumn("TABLE_COMMENT", typeof(String));
 
         var dbRestriction = new String?[4];
-        if (restrictions != null && restrictions.Length >= 2)
-        {
-            dbRestriction[0] = restrictions[1];
-        }
-        var dbs = GetDatabases(dbRestriction);
         if (restrictions != null)
         {
             Array.Copy(restrictions, dbRestriction, Math.Min(dbRestriction.Length, restrictions.Length));
+
+            // database 与 schema 在 MySQL 中等价：只给 schema 或只给 database 时都能定位到同一个库
+            if (dbRestriction[0].IsNullOrEmpty() && !dbRestriction[1].IsNullOrEmpty())
+                dbRestriction[0] = dbRestriction[1];
+            if (restrictions.Length == 1 && dbRestriction[1].IsNullOrEmpty())
+                dbRestriction[1] = dbRestriction[0];
         }
+        var dbs = GetDatabases(dbRestriction);
         foreach (var row in dbs.Rows)
         {
             var schemaName = row["SCHEMA_NAME"]?.ToString();
@@ -458,12 +460,15 @@ internal class SchemaProvider(MySqlConnection connection)
         collection.AddColumn("COLUMN_COMMENT", typeof(String));
         collection.AddColumn("GENERATION_EXPRESSION", typeof(String));
         String? columnName = null;
+        var tableRestrictions = restrictions;
         if (restrictions != null && restrictions.Length == 4)
         {
-            columnName = restrictions[3];
-            restrictions[3] = null!;
+            // 复制一份：列名不是 Tables 集合的限制项，不能把调用方数组改成 null
+            tableRestrictions = (String?[])restrictions.Clone();
+            columnName = tableRestrictions[3];
+            tableRestrictions[3] = null;
         }
-        foreach (var row in GetTables(restrictions).Rows)
+        foreach (var row in GetTables(tableRestrictions).Rows)
         {
             var schemaName = row["TABLE_SCHEMA"]?.ToString();
             var tableName = row["TABLE_NAME"]?.ToString();
@@ -613,7 +618,7 @@ internal class SchemaProvider(MySqlConnection connection)
                     var keyName = row["KEY_NAME"]?.ToString();
                     if (keyName.IsNullOrEmpty()) continue;
 
-                    if (row["SEQ_IN_INDEX"].ToInt() == 1 && (restrictions == null || restrictions.Length != 4 || restrictions[3] == null || String.Equals(keyName, restrictions[3], StringComparison.Ordinal)))
+                    if (row["SEQ_IN_INDEX"].ToInt() == 1 && (restrictions == null || restrictions.Length < 4 || restrictions[3] == null || String.Equals(keyName, restrictions[3], StringComparison.Ordinal)))
                     {
                         var tableName = row["TABLE"]?.ToString();
                         if (tableName.IsNullOrEmpty()) continue;
@@ -1086,16 +1091,22 @@ internal class SchemaProvider(MySqlConnection connection)
         }
         stringBuilder.Append(stringBuilder2.ToString());
         var table_type = schemaName!.ToLower(CultureInfo.InvariantCulture) == "information_schema" ? "SYSTEM VIEW" : "BASE TABLE";
+        var typeRestriction = restrictions.Length > 3 ? restrictions[3] : null;
         using var cmd = new MySqlCommand(connection, stringBuilder.ToString());
         using var reader = cmd.ExecuteReader();
         while (reader.Read())
         {
+            var engine = GetString(reader, 1);
+            // SHOW TABLE STATUS 对视图返回 Engine=NULL；据此区分 VIEW 与 BASE TABLE
+            var currentType = table_type == "SYSTEM VIEW" ? table_type : engine.IsNullOrEmpty() ? "VIEW" : "BASE TABLE";
+            if (!typeRestriction.IsNullOrEmpty() && !currentType.EqualIgnoreCase(typeRestriction)) continue;
+
             var mySqlSchemaRow = schema.AddRow();
             mySqlSchemaRow["TABLE_CATALOG"] = null;
             mySqlSchemaRow["TABLE_SCHEMA"] = schemaName;
             mySqlSchemaRow["TABLE_NAME"] = reader.GetString(0);
-            mySqlSchemaRow["TABLE_TYPE"] = table_type;
-            mySqlSchemaRow["ENGINE"] = GetString(reader, 1);
+            mySqlSchemaRow["TABLE_TYPE"] = currentType;
+            mySqlSchemaRow["ENGINE"] = engine;
             mySqlSchemaRow["VERSION"] = reader.GetValue(2);
             mySqlSchemaRow["ROW_FORMAT"] = GetString(reader, 3);
             mySqlSchemaRow["TABLE_ROWS"] = reader.GetValue(4);

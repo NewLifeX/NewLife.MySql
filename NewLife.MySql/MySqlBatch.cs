@@ -93,7 +93,7 @@ public class MySqlBatch : DbBatch
         var command = CreateCommand(combinedSql);
         try
         {
-            var reader = (MySqlDataReader)await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+            var reader = (MySqlDataReader)await command.ExecuteReaderAsync(behavior, cancellationToken).ConfigureAwait(false);
             reader.CloseCommandOnClose = true;
             return reader;
         }
