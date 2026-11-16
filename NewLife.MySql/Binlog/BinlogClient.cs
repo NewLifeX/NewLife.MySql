@@ -130,9 +130,16 @@ public class BinlogClient : DisposeBase
             throw;
         }
 
-        // 启动期间已被 Stop 取消：不再置运行态，避免留下一个永远 Running 的壳
+        // 启动期间已被 Stop 取消：不再置运行态，避免留下一个永远 Running 的壳。
+        // 必须与异常路径一样清空 _cts 并复位闸门，否则后续 StartAsync 会静默 no-op、SubscribeAsync 永远报“已在运行”，
+        // Stop 还会对已释放的令牌调 Cancel 抛 ObjectDisposedException
         if (cts.IsCancellationRequested || !ReferenceEquals(_cts, cts))
         {
+            if (ReferenceEquals(_cts, cts))
+            {
+                _cts = null;
+                Interlocked.Exchange(ref _sessionGate, 0);
+            }
             cts.TryDispose();
             return;
         }
@@ -233,7 +240,7 @@ public class BinlogClient : DisposeBase
                 catch (OperationCanceledException) { break; }
                 catch (Exception ex)
                 {
-                    OnError?.Invoke(ex);
+                    RaiseError(ex);
                     if (!AutoReconnect) break;
 
                     Log.ErrorPrefixed(LogPrefix, "Binlog read error; reconnecting in {0}ms: {1}", ReconnectInterval, ex.Message);
@@ -375,75 +382,97 @@ public class BinlogClient : DisposeBase
     {
         var cancellationToken = cts.Token;
         var client = _client;
-        while (!cancellationToken.IsCancellationRequested)
+
+        // 清理必须放在 finally：OnError 处理器由用户提供，抛异常会让循环异常退出，
+        // 连接泄漏且 Running/闸门永久占住（此后 StartAsync 静默 no-op）
+        try
         {
-            // 会话已被 Stop 或新一次订阅替换：立即退出，避免旧连接的事件覆盖新会话的 Position/表映射
-            if (!ReferenceEquals(_cts, cts)) break;
-
-            BinlogEvent? ev;
-            try
+            while (!cancellationToken.IsCancellationRequested)
             {
-                ev = await ReadAndParseEventAsync(client, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) { break; }
-            catch (Exception ex)
-            {
-                OnError?.Invoke(ex);
-                if (!AutoReconnect) break;
+                // 会话已被 Stop 或新一次订阅替换：立即退出，避免旧连接的事件覆盖新会话的 Position/表映射
+                if (!ReferenceEquals(_cts, cts)) break;
 
-                Log.ErrorPrefixed(LogPrefix, "Binlog read error; reconnecting in {0}ms: {1}", ReconnectInterval, ex.Message);
+                BinlogEvent? ev;
                 try
                 {
-                    await Task.Delay(ReconnectInterval, cancellationToken).ConfigureAwait(false);
-                    await ReconnectAsync(client, cancellationToken).ConfigureAwait(false);
-                    client = _client;
+                    ev = await ReadAndParseEventAsync(client, cancellationToken).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) { break; }
-                catch (Exception ex2)
+                catch (Exception ex)
                 {
-                    OnError?.Invoke(ex2);
+                    RaiseError(ex);
+                    if (!AutoReconnect) break;
 
-                    // 重连本身失败时 _client 仍为空，立即 continue 会空转占满 CPU；退避后再重试
+                    Log.ErrorPrefixed(LogPrefix, "Binlog read error; reconnecting in {0}ms: {1}", ReconnectInterval, ex.Message);
                     try
                     {
                         await Task.Delay(ReconnectInterval, cancellationToken).ConfigureAwait(false);
+                        await ReconnectAsync(client, cancellationToken).ConfigureAwait(false);
+                        client = _client;
                     }
                     catch (OperationCanceledException) { break; }
+                    catch (Exception ex2)
+                    {
+                        RaiseError(ex2);
+
+                        // 重连本身失败时 _client 仍为空，立即 continue 会空转占满 CPU；退避后再重试
+                        try
+                        {
+                            await Task.Delay(ReconnectInterval, cancellationToken).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) { break; }
+                    }
+                    continue;
                 }
-                continue;
-            }
 
-            if (ev == null) continue;
-            if (!FilterEvent(ev)) continue;
+                if (ev == null) continue;
+                if (!FilterEvent(ev)) continue;
 
-            try
-            {
-                OnEvent?.Invoke(ev);
-            }
-            catch (Exception ex)
-            {
-                Log.ErrorPrefixed(LogPrefix, "Event handler error: {0}", ex.Message);
+                try
+                {
+                    OnEvent?.Invoke(ev);
+                }
+                catch (Exception ex)
+                {
+                    Log.ErrorPrefixed(LogPrefix, "Event handler error: {0}", ex.Message);
+                }
             }
         }
-
-        // 事件循环结束（取消、关闭重试或 AutoReconnect=false）时释放物理连接，
-        // 否则再次 Start 会覆盖 _client，旧连接泄漏。
-        // 只回收本轮持有的连接与令牌：Stop 后立即 Start 的新会话可能已替换 _client/_cts，
-        // 旧循环若无条件清理会把新连接和令牌一起释放，新订阅随后空转。
-        if (ReferenceEquals(_client, client))
+        finally
         {
-            _client.TryDispose();
-            _client = null;
-            lock (_tableMap) _tableMap.Clear();
-        }
+            // 事件循环结束（取消、关闭重试或 AutoReconnect=false）时释放物理连接，
+            // 否则再次 Start 会覆盖 _client，旧连接泄漏。
+            // 只回收本轮持有的连接与令牌：Stop 后立即 Start 的新会话可能已替换 _client/_cts，
+            // 旧循环若无条件清理会把新连接和令牌一起释放，新订阅随后空转。
+            if (ReferenceEquals(_client, client))
+            {
+                _client.TryDispose();
+                _client = null;
+                lock (_tableMap) _tableMap.Clear();
+            }
 
-        if (ReferenceEquals(_cts, cts))
-        {
-            _cts = null;
-            Running = false;
-            Interlocked.Exchange(ref _sessionGate, 0);
+            if (ReferenceEquals(_cts, cts))
+            {
+                _cts = null;
+                Running = false;
+                Interlocked.Exchange(ref _sessionGate, 0);
+            }
+            cts.TryDispose();
         }
-        cts.TryDispose();
+    }
+
+    /// <summary>触发错误事件。用户处理器抛出的异常只记日志，不能打断事件循环的清理流程</summary>
+    /// <param name="ex">错误异常</param>
+    private void RaiseError(Exception ex)
+    {
+        try
+        {
+            OnError?.Invoke(ex);
+        }
+        catch (Exception handlerError)
+        {
+            Log.ErrorPrefixed(LogPrefix, "Error handler error: {0}", handlerError.Message);
+        }
     }
 
     /// <summary>读取并解析下一个 Binlog 事件</summary>

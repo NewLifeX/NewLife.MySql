@@ -41,6 +41,7 @@
 "Binlog read error; reconnecting in {0}ms: {1}": "Binlog 読み取りエラー。{0}ms 後に再接続します: {1}"
 "Started subscribing to binlog: {0} ServerId={1}": "Binlog の購読を開始しました: {0} ServerId={1}"
 "Event handler error: {0}": "イベントハンドラーエラー: {0}"
+"Error handler error: {0}": "エラーハンドラーエラー: {0}"
 "Binlog reconnected: {0}": "Binlog に再接続しました: {0}"
 "A binlog subscription is already running.": "Binlog サブスクリプションは既に実行中です。"
 "MySQL network connection lost, reconnecting after {0}ms ({1}: {2})": "MySQL のネットワーク接続が切断されました。{0}ms 後に再接続します（{1}: {2}）"

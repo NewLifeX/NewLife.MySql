@@ -41,6 +41,7 @@
 "Binlog read error; reconnecting in {0}ms: {1}": "Binlog 읽기 오류. {0}ms 후 다시 연결합니다: {1}"
 "Started subscribing to binlog: {0} ServerId={1}": "Binlog 구독을 시작했습니다: {0} ServerId={1}"
 "Event handler error: {0}": "이벤트 처리기 오류: {0}"
+"Error handler error: {0}": "오류 처리기 오류: {0}"
 "Binlog reconnected: {0}": "Binlog에 다시 연결되었습니다: {0}"
 "A binlog subscription is already running.": "Binlog 구독이 이미 실행 중입니다."
 "MySQL network connection lost, reconnecting after {0}ms ({1}: {2})": "MySQL 네트워크 연결이 끊어졌습니다. {0}ms 후 다시 연결합니다({1}: {2})"

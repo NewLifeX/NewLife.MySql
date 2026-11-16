@@ -42,6 +42,7 @@
 "Binlog read error; reconnecting in {0}ms: {1}": "Binlog 读取异常，{0}ms 后重连：{1}"
 "Started subscribing to binlog: {0} ServerId={1}": "开始订阅 Binlog：{0} ServerId={1}"
 "Event handler error: {0}": "事件处理异常：{0}"
+"Error handler error: {0}": "错误处理异常：{0}"
 "Binlog reconnected: {0}": "Binlog 重连成功：{0}"
 "A binlog subscription is already running.": "已有 Binlog 订阅在运行。"
 "MySQL network connection lost, reconnecting after {0}ms ({1}: {2})": "MySQL 网络断线自动重连，已等待 {0}ms（{1}：{2}）"

@@ -41,6 +41,7 @@
 "Binlog read error; reconnecting in {0}ms: {1}": "Ошибка чтения binlog; повторное подключение через {0}ms: {1}"
 "Started subscribing to binlog: {0} ServerId={1}": "Подписка на binlog запущена: {0} ServerId={1}"
 "Event handler error: {0}": "Ошибка обработчика событий: {0}"
+"Error handler error: {0}": "Ошибка обработчика ошибок: {0}"
 "Binlog reconnected: {0}": "Binlog переподключён: {0}"
 "A binlog subscription is already running.": "Подписка на binlog уже запущена."
 "MySQL network connection lost, reconnecting after {0}ms ({1}: {2})": "Сетевое соединение MySQL потеряно; повторное подключение через {0}ms ({1}: {2})"

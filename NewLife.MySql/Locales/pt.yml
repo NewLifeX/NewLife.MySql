@@ -41,6 +41,7 @@
 "Binlog read error; reconnecting in {0}ms: {1}": "Erro de leitura do binlog; reconectando em {0}ms: {1}"
 "Started subscribing to binlog: {0} ServerId={1}": "Assinatura do binlog iniciada: {0} ServerId={1}"
 "Event handler error: {0}": "Erro no manipulador de eventos: {0}"
+"Error handler error: {0}": "Erro no manipulador de erros: {0}"
 "Binlog reconnected: {0}": "Binlog reconectado: {0}"
 "A binlog subscription is already running.": "Já existe uma assinatura de binlog em execução."
 "MySQL network connection lost, reconnecting after {0}ms ({1}: {2})": "Conexão de rede MySQL perdida; reconectando após {0}ms ({1}: {2})"
