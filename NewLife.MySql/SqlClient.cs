@@ -581,27 +581,32 @@ public class SqlClient : DisposeBase
     }
 
     /// <summary>服务器是否支持 COM_RESET_CONNECTION</summary>
-    private Boolean SupportsResetConnection
+    private Boolean SupportsResetConnection => !_resetUnsupported && IsResetConnectionSupported(Welcome?.ServerVersion);
+
+    /// <summary>判断服务器版本是否支持 COM_RESET_CONNECTION（MySQL 5.7.3+ / MariaDB 10.2.4+）</summary>
+    /// <param name="serverVersion">握手包中的服务器版本号</param>
+    /// <returns>支持时返回 true</returns>
+    internal static Boolean IsResetConnectionSupported(String? serverVersion)
     {
-        get
-        {
-            if (_resetUnsupported) return false;
+        if (serverVersion.IsNullOrEmpty()) return false;
 
-            var version = Welcome?.ServerVersion;
-            if (version.IsNullOrEmpty()) return false;
+        // MariaDB 握手包固定带 "5.5.5-" 兼容前缀（如 5.5.5-10.6.12-MariaDB），
+        // 直接按点号取主次版本会得到 5.5.5，把支持 COM_RESET_CONNECTION 的版本误判为不支持，
+        // 导致会话状态（用户变量、临时表、sql_mode）不重置就回池
+        var text = serverVersion!;
+        if (text.StartsWith("5.5.5-", StringComparison.Ordinal)) text = text[6..];
 
-            var parts = version.Split('.', '-');
-            if (parts.Length < 2) return false;
+        var parts = text.Split('.', '-');
+        if (parts.Length < 2) return false;
 
-            var major = parts[0].ToInt();
-            var minor = parts[1].ToInt();
-            var patch = parts.Length > 2 ? parts[2].ToInt() : 0;
+        var major = parts[0].ToInt();
+        var minor = parts[1].ToInt();
+        var patch = parts.Length > 2 ? parts[2].ToInt() : 0;
 
-            if (version.Contains("MariaDB", StringComparison.OrdinalIgnoreCase))
-                return major > 10 || (major == 10 && (minor > 2 || (minor == 2 && patch >= 4)));
+        if (text.Contains("MariaDB", StringComparison.OrdinalIgnoreCase))
+            return major > 10 || (major == 10 && (minor > 2 || (minor == 2 && patch >= 4)));
 
-            return major > 5 || (major == 5 && (minor > 7 || (minor == 7 && patch >= 3)));
-        }
+        return major > 5 || (major == 5 && (minor > 7 || (minor == 7 && patch >= 3)));
     }
 
     /// <summary>中止底层网络。旧框架（net45~netstandard2.1）的 NetworkStream 异步读写不响应取消令牌，
@@ -2390,7 +2395,10 @@ public class SqlClient : DisposeBase
 
         // 构建 COM_STMT_EXECUTE 数据包。原句柄必须释放：Slice 返回的共享句柄独立持有引用计数，
         // 漏释放会让 8KB 池化缓冲无法回池（Release 构建没有析构兜底）
-        using var pk = new OwnerPacket(8192);
+        // 参数值编码后可能远超 8KB（LONGTEXT/BLOB、长字符串），按上界预先申请容量，
+        // 否则 SpanWriter 会在写入大参数时抛“写入空间不足”，预编译执行直接失败
+        var capacity = 8192 + EstimateValuesSize(values, Encoding);
+        using var pk = new OwnerPacket(capacity);
         var writer = new SpanWriter(pk);
         writer.Advance(4); // 预留帧头
 
@@ -2445,6 +2453,35 @@ public class SqlClient : DisposeBase
         }
 
         return pk.Slice(4, writer.Position - 4);
+    }
+
+    /// <summary>估算参数值按二进制协议编码后的字节数上界</summary>
+    /// <param name="values">参数值数组</param>
+    /// <param name="encoding">字符串编码</param>
+    /// <returns>字节数上界，实际写入量不会超过该值</returns>
+    private static Int32 EstimateValuesSize(Object?[]? values, Encoding encoding)
+    {
+        if (values == null || values.Length == 0) return 0;
+
+        var size = 0;
+        foreach (var value in values)
+        {
+            // length-encoded 前缀最长 9 字节（0xFE + 8 字节长度），其余按各类型固定上界估算
+            size += value switch
+            {
+                null or DBNull => 0,
+                Byte[] buf => 9 + buf.Length,
+                String str => 9 + encoding.GetByteCount(str),
+                MySqlGeometry geom => 9 + geom.Value.Length,
+                Decimal => 64,
+                DateTime or DateTimeOffset => 12,
+                TimeSpan => 13,
+                Guid => 48,
+                _ => 48,
+            };
+        }
+
+        return size;
     }
 
     /// <summary>提取参数集合的值数组，按参数顺序排列。批量执行统一走值数组核心，避免每行 MySqlParameterCollection/MySqlParameter 分配</summary>

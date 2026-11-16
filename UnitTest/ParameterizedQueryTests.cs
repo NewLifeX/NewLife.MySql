@@ -1,3 +1,4 @@
+using System.ComponentModel;
 ﻿using NewLife;
 using NewLife.MySql;
 using NewLife.Security;
@@ -797,6 +798,35 @@ public class ParameterizedQueryTests : IDisposable
             (cmd.Parameters as MySqlParameterCollection)!.AddWithValue("name", name);
             var rs = cmd.ExecuteNonQuery();
             Assert.Equal(1, rs);
+        }
+    }
+
+    [Fact]
+    [DisplayName("服务端预编译模式下超大参数不再溢出 8KB 固定缓冲")]
+    public void ServerPrepare_LargeParameter()
+    {
+        using var conn = new MySqlConnection(GetServerPrepareConnStr());
+        conn.Open();
+
+        var table = "sp_large_" + Rand.Next(10000);
+        conn.ExecuteNonQuery($"CREATE TEMPORARY TABLE `{table}` (`id` INT PRIMARY KEY, `payload` LONGTEXT)");
+
+        // 100/20000/100000 字节分别覆盖单包、跨越 8KB 固定缓冲、大文本三种情况
+        foreach (var size in new[] { 100, 20000, 100000 })
+        {
+            using var cmd = new MySqlCommand(conn, $"INSERT INTO `{table}` (id, payload) VALUES (@id, @p)");
+            var ps = (cmd.Parameters as MySqlParameterCollection)!;
+            ps.AddWithValue("id", size);
+            ps.AddWithValue("p", new String('x', size));
+            Assert.Equal(1, cmd.ExecuteNonQuery());
+        }
+
+        using (var cmd = new MySqlCommand(conn, $"SELECT payload FROM `{table}` WHERE id=@id"))
+        {
+            (cmd.Parameters as MySqlParameterCollection)!.AddWithValue("id", 100000);
+            var value = cmd.ExecuteScalar() as String;
+            Assert.NotNull(value);
+            Assert.Equal(100000, value!.Length);
         }
     }
 

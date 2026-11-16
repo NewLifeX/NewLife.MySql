@@ -863,5 +863,22 @@ public class SqlClientTests
         Assert.True(SqlClient.CanCompressPayload(0xFF_FFFF - 4));
         Assert.False(SqlClient.CanCompressPayload(0xFF_FFFF - 3));
     }
+
+    [Theory]
+    [DisplayName("ResetSession 支持性判定兼容 MariaDB 5.5.5 前缀")]
+    [InlineData("8.0.39", true)]
+    [InlineData("5.7.2", false)]
+    [InlineData("5.7.3", true)]
+    [InlineData("5.5.62", false)]
+    [InlineData("10.6.12-MariaDB", true)]
+    [InlineData("5.5.5-10.6.12-MariaDB-1:10.6.12+maria~ubu2004", true)]
+    [InlineData("5.5.5-10.1.48-MariaDB", false)]
+    [InlineData("5.5.5-5.5.5-MariaDB", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void SupportsResetConnection_ParsesVersion(String? version, Boolean expected)
+    {
+        Assert.Equal(expected, SqlClient.IsResetConnectionSupported(version));
+    }
     #endregion
 }
