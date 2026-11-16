@@ -4,7 +4,7 @@
 > 复验：2026-10-15（驱动 1.4.2026.1015 + NewLife.Core 12.0.2026.1013-beta0732）场景扩展至 26 项（新增 S20 TLS 加密连接、S21 Unix Socket），win-x64 与 linux-x64 原生发布件均 **26/26 场景全通**、ILC 0 条告警（linux 侧为 WSL Ubuntu 24.04 + 用户态 MySQL 8.0.46），结论不变。
 > 复验：2026-10-16 CI 扩展至主流 RID 矩阵（对照 NewLife.Core 做法）：`aot.yml` 覆盖 win-x64 / linux-x64 / win-arm64 / linux-arm64 / osx-x64 / osx-arm64 / linux-musl-x64 / linux-musl-arm64 / **linux-la64（龙芯，QEMU 仿真）**；`test.yml` 单元测试覆盖 win-x64 / linux-x64 / linux-arm64 / linux-la64。必选平台（阻断）：win-x64 / linux-x64 / linux-arm64；win-arm64 / osx-x64 / osx-arm64 / musl / linux-la64 先观察期（continue-on-error）。
 > 复验：2026-11-09（驱动 1.5.2026.1109 + NewLife.Core 12.0.2026.1109-beta0553 + NewLife.XCode 12.3.2026.1108-beta1704）win-x64 原生发布件 **27/27 场景全通**（含 P5 本地化）、ILC 0 条告警，分析器 net8.0/net10.0 0 条 IL 告警；连接属性改为进程级静态拼接，去掉逐连接反射。
-> 复验：2026-11-15（第四轮审计后）win-x64 NativeAOT 发布件 **27/27 全通**、ILC 0 条告警；S18 改为 TLS 连接（RegisterSlave 非 TLS 带口令已被拒绝），`--no-db` 纯内存场景全通。
+> 复验：2026-11-16（第五轮复审后）win-x64 NativeAOT 发布件 **27/27 全通**、ILC 0 条告警；S18 改为 TLS 连接（RegisterSlave 非 TLS 带口令已被拒绝），`--no-db` 纯内存场景全通。
 
 ---
 
