@@ -1,6 +1,8 @@
 using System.ComponentModel;
+using NewLife;
 using NewLife.Data;
 using NewLife.MySql;
+using NewLife.Reflection;
 
 namespace UnitTest;
 
@@ -95,5 +97,107 @@ public class SqlClientFrameHeaderTests
 
         // 发送即消费：原包句柄已释放，链头与原包缓冲均归还
         Assert.Throws<ObjectDisposedException>(() => _ = pk.Buffer);
+    }
+
+    private const Int32 MaxPayload = 0xFF_FFFF;
+
+    [Fact]
+    [DisplayName("超过16MB的报文按0xFFFFFF切帧发送")]
+    public async Task SendPacketAsync_LargePayload_Chunked()
+    {
+        using var sql = new SqlClient { BaseStream = new MemoryStream(), Timeout = 0 };
+        sql.SetValue("_seq", 7);
+
+        // 非整倍数：满长帧 + 尾帧
+        var data1 = CreatePattern(MaxPayload + 1000, 7);
+        await sql.SendPacketAsync((ArrayPacket)data1);
+
+        // 恰好整倍数：满长帧 + 0 长度结束帧
+        var data2 = CreatePattern(MaxPayload, 11);
+        await sql.SendPacketAsync((ArrayPacket)data2);
+
+        var written = ((MemoryStream)sql.BaseStream!).ToArray();
+        var expected = (4 + MaxPayload) + (4 + 1000) + (4 + MaxPayload) + 4;
+        Assert.Equal(expected, written.Length);
+
+        // 第一帧：长度 0xFFFFFF、序列号 7，载荷为 data1 前 16MB
+        Assert.Equal(MaxPayload, written[0] | (written[1] << 8) | (written[2] << 16));
+        Assert.Equal(7, written[3]);
+        Assert.Equal(data1.AsSpan(0, MaxPayload).ToArray(), written.AsSpan(4, MaxPayload).ToArray());
+
+        // 第二帧：尾帧长度 1000、序列号 8
+        var pos = 4 + MaxPayload;
+        Assert.Equal(1000, written[pos] | (written[pos + 1] << 8) | (written[pos + 2] << 16));
+        Assert.Equal(8, written[pos + 3]);
+        Assert.Equal(data1.AsSpan(MaxPayload, 1000).ToArray(), written.AsSpan(pos + 4, 1000).ToArray());
+
+        // 第三条报文：满长帧 + 0 长度结束帧
+        pos += 4 + 1000;
+        Assert.Equal(MaxPayload, written[pos] | (written[pos + 1] << 8) | (written[pos + 2] << 16));
+        Assert.Equal(9, written[pos + 3]);
+        pos += 4 + MaxPayload;
+        Assert.Equal(0, written[pos] | (written[pos + 1] << 8) | (written[pos + 2] << 16));
+        Assert.Equal(10, written[pos + 3]);
+    }
+
+    [Fact]
+    [DisplayName("压缩协议载荷上限为16MB-4，超限明确拒绝")]
+    public async Task SendPacketAsync_Compressed_PayloadLimit()
+    {
+        using var sql = new SqlClient { BaseStream = new MemoryStream(), Timeout = 0, UseCompression = true };
+
+        // 最大可压缩载荷：普通帧头 4 字节 + 载荷 = 0xFFFFFF，压缩包的未压缩长度字段刚好写满
+        var data = new Byte[MaxPayload - 4];
+        await sql.SendPacketAsync((ArrayPacket)data);
+
+        var written = ((MemoryStream)sql.BaseStream!).ToArray();
+        Assert.True(written.Length >= 7);
+        var count = written[4] | (written[5] << 8) | (written[6] << 16);
+        Assert.Equal(MaxPayload, count);
+        var clen = written[0] | (written[1] << 8) | (written[2] << 16);
+        Assert.InRange(clen, 0, MaxPayload);
+
+        // 再多 1 字节即超出 3 字节长度字段，必须拒绝而不是发出回绕长度
+        await Assert.ThrowsAsync<NotSupportedException>(() => sql.SendPacketAsync((ArrayPacket)new Byte[MaxPayload - 3]));
+    }
+
+    [Fact]
+    [DisplayName("超过16MB的连续帧接收自动拼接")]
+    public async Task ReadPacketAsync_LargePayload_JoinsFrames()
+    {
+        var head = CreatePattern(MaxPayload, 3);
+        var tail = CreatePattern(1000, 5);
+
+        var ms = new MemoryStream(4 + MaxPayload + 4 + 1000);
+        WriteFrame(ms, head, 3);
+        WriteFrame(ms, tail, 4);
+        ms.Position = 0;
+
+        using var sql = new SqlClient { BaseStream = ms, Timeout = 0 };
+        var rs = await sql.ReadPacketAsync();
+
+        Assert.Equal(MaxPayload + 1000, rs.Length);
+        var data = rs.Data!.ReadBytes();
+        Assert.Equal(MaxPayload + 1000, data.Length);
+        Assert.Equal(head, data.AsSpan(0, MaxPayload).ToArray());
+        Assert.Equal(tail, data.AsSpan(MaxPayload, 1000).ToArray());
+        Assert.Equal(5, (Byte)sql.GetValue("_seq")!);
+    }
+
+    private static Byte[] CreatePattern(Int32 length, Int32 seed)
+    {
+        var data = new Byte[length];
+        for (var i = 0; i < length; i++) data[i] = (Byte)(i * 31 + seed);
+
+        return data;
+    }
+
+    private static void WriteFrame(Stream stream, Byte[] data, Byte sequence)
+    {
+        stream.WriteByte((Byte)(data.Length & 0xFF));
+        stream.WriteByte((Byte)((data.Length >> 8) & 0xFF));
+        stream.WriteByte((Byte)((data.Length >> 16) & 0xFF));
+        stream.WriteByte(sequence);
+        stream.Write(data, 0, data.Length);
     }
 }

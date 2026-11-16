@@ -74,4 +74,25 @@ public class MySqlCommandRetryTests
     {
         Assert.Equal(readOnly, MySqlCommand.IsReadOnlySql(sql, CommandType.Text, noBackslashEscapes));
     }
+
+    [Fact]
+    [DisplayName("ANSI_QUOTES下双引号标识符不吞后续语句")]
+    public void AnsiQuotes_BackslashDoesNotEscape()
+    {
+        const String sql = "SELECT 1 AS \"a\\\";INSERT INTO t VALUES(1); -- \"";
+
+        // 默认模式：\" 被当作转义，后面的 ;INSERT 仍在字符串字面量内
+        Assert.True(MySqlCommand.IsReadOnlySql(sql, CommandType.Text));
+
+        // ANSI_QUOTES：反斜杠不转义，标识符在第二个引号处结束，INSERT 成为第二条语句
+        Assert.False(MySqlCommand.IsReadOnlySql(sql, CommandType.Text, ansiQuotes: true));
+    }
+
+    [Fact]
+    [DisplayName("MariaDB可执行注释按多语句保守处理")]
+    public void MariaDbExecutableComment_NotRetryable()
+    {
+        // /*M! ... */ 内容会被 MariaDB 执行，无法静态判断只读
+        Assert.False(MySqlCommand.IsReadOnlySql("SELECT 1 /*M! ; INSERT INTO t VALUES(1) */", CommandType.Text));
+    }
 }

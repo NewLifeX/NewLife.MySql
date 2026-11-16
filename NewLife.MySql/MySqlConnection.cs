@@ -368,7 +368,9 @@ public sealed partial class MySqlConnection : DbConnection
                             }
                             catch
                             {
-                                // 忽略探测错误，保持原有类型判断
+                                // 探测失败本身不影响建连（如账号无权限查询版本注释），
+                                // 但连接已失效时必须让 Open 失败，避免把一条已断开的连接交给调用方
+                                if (!client.Active) throw;
                             }
                         }
                     }

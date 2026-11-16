@@ -296,7 +296,8 @@ public class MySqlCommand : DbCommand
         // 仅读语句支持断线重连重试：DML 在"服务端已执行、响应丢失"时重连重试会重复执行（非幂等），故不重试。
         // 事务内也不重试（避免 DML 重复执行）；即使用户没有把 Transaction 赋给命令，连接上的活动事务也必须识别。
         // 用户主动关闭重试则直接执行
-        if (DbTransaction != null || conn.HasTransaction || !conn.Setting.RetryOnNetworkFailure || !IsReadOnlySql(CommandText, CommandType, conn.Client?.NoBackslashEscapes == true))
+        if (DbTransaction != null || conn.HasTransaction || !conn.Setting.RetryOnNetworkFailure ||
+            !IsReadOnlySql(CommandText, CommandType, conn.Client?.NoBackslashEscapes == true, conn.Client?.AnsiQuotes == true))
             return await ExecuteDbDataReaderCoreAsync(behavior, cancellationToken).ConfigureAwait(false);
 
         var connTimeout = conn.Setting.ConnectionTimeout;
@@ -551,8 +552,9 @@ public class MySqlCommand : DbCommand
     /// <param name="sql">SQL 文本</param>
     /// <param name="commandType">命令类型</param>
     /// <param name="noBackslashEscapes">服务器是否启用 NO_BACKSLASH_ESCAPES</param>
+    /// <param name="ansiQuotes">服务器是否启用 ANSI_QUOTES（双引号为标识符）</param>
     /// <returns>只读且可安全重试时返回 true</returns>
-    internal static Boolean IsReadOnlySql(String? sql, CommandType commandType, Boolean noBackslashEscapes = false)
+    internal static Boolean IsReadOnlySql(String? sql, CommandType commandType, Boolean noBackslashEscapes = false, Boolean ansiQuotes = false)
     {
         // TableDirect 由驱动改写为 Select * From 表名，属只读
         if (commandType == CommandType.TableDirect) return true;
@@ -564,7 +566,7 @@ public class MySqlCommand : DbCommand
 
         // 多语句（SELECT ...;INSERT ...）只要后面还有语句就可能写库，不能按首条语句判定只读。
         // AllowMultiStatements 开启后 MySqlBatch 会用分号合并多条命令，断线重试会整段重放
-        if (HasMultipleStatements(head, noBackslashEscapes)) return false;
+        if (HasMultipleStatements(head, noBackslashEscapes, ansiQuotes)) return false;
 
         // EXPLAIN ANALYZE 会真实执行语句（MySQL 8.0.18+），不能按只读重试，否则断线重连可能重复执行 DML
         if (head.StartsWith("EXPLAIN", StringComparison.OrdinalIgnoreCase))
@@ -593,25 +595,33 @@ public class MySqlCommand : DbCommand
     /// <summary>判断 SQL 是否包含多条语句。分号出现在字符串、反引号标识符或注释内不算</summary>
     /// <param name="sql">待检查的 SQL</param>
     /// <param name="noBackslashEscapes">服务器是否启用 NO_BACKSLASH_ESCAPES</param>
+    /// <param name="ansiQuotes">服务器是否启用 ANSI_QUOTES</param>
     /// <returns>分号后仍有语句时返回 true</returns>
     /// <remarks>解析不确定（字符串/注释未闭合）时按多语句处理，宁可放弃自动重试，也不重复执行 DML</remarks>
-    private static Boolean HasMultipleStatements(String sql, Boolean noBackslashEscapes)
+    private static Boolean HasMultipleStatements(String sql, Boolean noBackslashEscapes, Boolean ansiQuotes)
     {
         var i = 0;
         while (i < sql.Length)
         {
             var ch = sql[i];
 
-            // 字符串与反引号标识符：支持反斜杠转义与双写引号
+            // 字符串与标识符：ANSI_QUOTES 下双引号是标识符；反引号标识符不做转义
             if (ch is '\'' or '"' or '`')
             {
                 var quote = ch;
+                // 单引号字符串默认反斜杠转义；双引号在非 ANSI_QUOTES 下是字符串，同样受 NO_BACKSLASH_ESCAPES 约束
+                var backslashEscapes = quote switch
+                {
+                    '\'' => !noBackslashEscapes,
+                    '"' => !ansiQuotes && !noBackslashEscapes,
+                    _ => false,
+                };
                 i++;
                 var closed = false;
                 while (i < sql.Length)
                 {
                     ch = sql[i];
-                    if (ch == '\\' && quote != '`' && !noBackslashEscapes)
+                    if (ch == '\\' && backslashEscapes)
                     {
                         i += 2;
                         continue;
@@ -648,10 +658,13 @@ public class MySqlCommand : DbCommand
                 continue;
             }
 
-            // 块注释。可执行注释 /*! ... */ 的内容会被服务端当作 SQL 执行，无法静态判断只读，保守放弃重试
+            // 块注释。可执行注释 /*! ... */ 与 MariaDB 的 /*M! ... */ 内容会被服务端执行，
+            // 无法静态判断只读，保守放弃重试
             if (ch == '/' && i + 1 < sql.Length && sql[i + 1] == '*')
             {
-                if (i + 2 < sql.Length && sql[i + 2] == '!') return true;
+                if (i + 2 < sql.Length &&
+                    (sql[i + 2] == '!' ||
+                     (sql[i + 2] is 'M' or 'm' && i + 3 < sql.Length && sql[i + 3] == '!'))) return true;
                 var end = sql.IndexOf("*/", i + 2, StringComparison.Ordinal);
                 if (end < 0) return true;
                 i = end + 2;

@@ -64,6 +64,17 @@ public class SqlClient : DisposeBase
         }
     }
 
+    /// <summary>服务器是否启用 ANSI_QUOTES。启用时双引号是标识符而不是字符串，反斜杠不转义；变量未加载时按未启用处理</summary>
+    public Boolean AnsiQuotes
+    {
+        get
+        {
+            if (Variables == null || !Variables.TryGetValue("sql_mode", out var mode) || mode.IsNullOrEmpty()) return false;
+
+            return mode.Contains("ANSI_QUOTES", StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     /// <summary>会话版本。会话被重置（COM_RESET_CONNECTION）时递增，用于识别预编译语句是否已失效</summary>
     internal Int32 SessionVersion { get; private set; }
 
