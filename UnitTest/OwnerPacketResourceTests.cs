@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using NewLife.Data;
 using NewLife.MySql;
+using NewLife.MySql.Messages;
 
 namespace UnitTest;
 
@@ -46,6 +47,30 @@ public class OwnerPacketResourceTests
 
         // 原句柄已在方法内释放；若漏释放，返回切片会与原句柄同时持有引用，RefCount 为 2
         Assert.Equal(1, pk.RefCount);
+    }
+
+    [Fact]
+    [DisplayName("CreateReader不增加数据包引用计数")]
+    public void CreateReader_DoesNotLeakSlice()
+    {
+        var data = new OwnerPacket(8);
+        data[0] = 0x00;
+
+        var rs = new ServerPacket(System.IO.Stream.Null) { Length = 8 };
+        rs.Set(data);
+        try
+        {
+            Assert.Equal(1, data.RefCount);
+
+            // 读取器直接复用数据包并按 offset 前进；若内部再 Slice，会出现第二份引用且无人释放
+            var reader = rs.CreateReader(1);
+            Assert.Equal(1, data.RefCount);
+            reader.Dispose();
+        }
+        finally
+        {
+            rs.Dispose();
+        }
     }
 
     [Fact]

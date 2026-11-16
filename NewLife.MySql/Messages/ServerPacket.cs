@@ -43,7 +43,14 @@ public class ServerPacket(Stream stream) : IDisposable
     }
 
     /// <summary>获取缓存读取器，数据不足时自动从网络流读取</summary>
-    public SpanReader CreateReader(Int32 offset) => new(_stream, Data.Slice(offset, -1), 8192) { MaxCapacity = Length, IsLittleEndian = true };
+    /// <remarks>直接复用当前数据包并按 offset 前进，不创建共享切片句柄，避免未释放的切片让池化缓冲无法回池</remarks>
+    public SpanReader CreateReader(Int32 offset)
+    {
+        var reader = new SpanReader(_stream, Data, 8192) { MaxCapacity = Length, IsLittleEndian = true };
+        if (offset > 0) reader.Advance(offset);
+
+        return reader;
+    }
     #endregion
 
     #region 释放资源

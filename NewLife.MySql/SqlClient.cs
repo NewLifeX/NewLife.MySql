@@ -754,7 +754,7 @@ public class SqlClient : DisposeBase
             // 错误包
             if (rs.IsError)
             {
-                var reader = new SpanReader(pk.Slice(1));
+                var reader = new SpanReader(pk.GetSpan()[1..]);
                 var code = reader.ReadUInt16();
                 var msg = reader.ReadZeroString();
 
@@ -1209,7 +1209,7 @@ public class SqlClient : DisposeBase
         // 错误包检测
         if (rs.IsError)
         {
-            var reader = new SpanReader(rs.Data.Slice(1));
+            var reader = new SpanReader(rs.Data.GetSpan()[1..]);
             var code = reader.ReadUInt16();
             var msg = reader.ReadZeroString();
             if (msg.Length >= 6 && msg[0] == '#')

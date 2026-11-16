@@ -86,7 +86,7 @@ class Authentication(SqlClient client)
 
     private async Task ToNativePasswordAsync(ServerPacket rs, String password, CancellationToken cancellationToken)
     {
-        var reader = new SpanReader(rs.Data.Slice(1));
+        var reader = new SpanReader(rs.Data.GetSpan()[1..]);
         var authMethod = reader.ReadZeroString();
         var authData = reader.ReadZero();
         if (authMethod == "mysql_native_password")
