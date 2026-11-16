@@ -296,7 +296,7 @@ public class MySqlCommand : DbCommand
         // 仅读语句支持断线重连重试：DML 在"服务端已执行、响应丢失"时重连重试会重复执行（非幂等），故不重试。
         // 事务内也不重试（避免 DML 重复执行）；即使用户没有把 Transaction 赋给命令，连接上的活动事务也必须识别。
         // 用户主动关闭重试则直接执行
-        if (DbTransaction != null || conn.HasTransaction || !conn.Setting.RetryOnNetworkFailure || !IsReadOnlySql(CommandText, CommandType))
+        if (DbTransaction != null || conn.HasTransaction || !conn.Setting.RetryOnNetworkFailure || !IsReadOnlySql(CommandText, CommandType, conn.Client?.NoBackslashEscapes == true))
             return await ExecuteDbDataReaderCoreAsync(behavior, cancellationToken).ConfigureAwait(false);
 
         var connTimeout = conn.Setting.ConnectionTimeout;
@@ -312,6 +312,11 @@ public class MySqlCommand : DbCommand
             }
             catch (Exception ex) when (IsNetworkException(ex))
             {
+                // 连接尚未完全打开时（Open 内部用只读探测语句查询版本注释/服务器变量）不重试：
+                // Open/OpenAsync 全程持有 _openLock，ReconnectAsync 再取同一把不可重入的锁会自锁挂死。
+                // 打开阶段的网络故障直接失败，交由调用方重试整个 Open
+                if (conn.State != ConnectionState.Open) throw;
+
                 // 超过最大等待时间，直接抛出让上层感知
                 if (Runtime.TickCount64 >= deadline) throw;
 
@@ -542,11 +547,12 @@ public class MySqlCommand : DbCommand
         return retryable;
     }
 
-    /// <summary>判断命令是否为只读语句。仅读语句支持断线重连重试，DML 重试可能重复执行</summary>
-    /// <param name="sql">命令文本</param>
+    /// <summary>判断是否为只读语句</summary>
+    /// <param name="sql">SQL 文本</param>
     /// <param name="commandType">命令类型</param>
-    /// <returns>true 表示只读语句（可安全重试）</returns>
-    internal static Boolean IsReadOnlySql(String? sql, CommandType commandType)
+    /// <param name="noBackslashEscapes">服务器是否启用 NO_BACKSLASH_ESCAPES</param>
+    /// <returns>只读且可安全重试时返回 true</returns>
+    internal static Boolean IsReadOnlySql(String? sql, CommandType commandType, Boolean noBackslashEscapes = false)
     {
         // TableDirect 由驱动改写为 Select * From 表名，属只读
         if (commandType == CommandType.TableDirect) return true;
@@ -555,6 +561,11 @@ public class MySqlCommand : DbCommand
         if (commandType != CommandType.Text || sql.IsNullOrEmpty()) return false;
 
         var head = sql.TrimStart();
+
+        // 多语句（SELECT ...;INSERT ...）只要后面还有语句就可能写库，不能按首条语句判定只读。
+        // AllowMultiStatements 开启后 MySqlBatch 会用分号合并多条命令，断线重试会整段重放
+        if (HasMultipleStatements(head, noBackslashEscapes)) return false;
+
         // EXPLAIN ANALYZE 会真实执行语句（MySQL 8.0.18+），不能按只读重试，否则断线重连可能重复执行 DML
         if (head.StartsWith("EXPLAIN", StringComparison.OrdinalIgnoreCase))
         {
@@ -577,6 +588,89 @@ public class MySqlCommand : DbCommand
         return head.StartsWith("SHOW", StringComparison.OrdinalIgnoreCase)
             || head.StartsWith("DESC", StringComparison.OrdinalIgnoreCase)
             || head.StartsWith("DESCRIBE", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>判断 SQL 是否包含多条语句。分号出现在字符串、反引号标识符或注释内不算</summary>
+    /// <param name="sql">待检查的 SQL</param>
+    /// <param name="noBackslashEscapes">服务器是否启用 NO_BACKSLASH_ESCAPES</param>
+    /// <returns>分号后仍有语句时返回 true</returns>
+    /// <remarks>解析不确定（字符串/注释未闭合）时按多语句处理，宁可放弃自动重试，也不重复执行 DML</remarks>
+    private static Boolean HasMultipleStatements(String sql, Boolean noBackslashEscapes)
+    {
+        var i = 0;
+        while (i < sql.Length)
+        {
+            var ch = sql[i];
+
+            // 字符串与反引号标识符：支持反斜杠转义与双写引号
+            if (ch is '\'' or '"' or '`')
+            {
+                var quote = ch;
+                i++;
+                var closed = false;
+                while (i < sql.Length)
+                {
+                    ch = sql[i];
+                    if (ch == '\\' && quote != '`' && !noBackslashEscapes)
+                    {
+                        i += 2;
+                        continue;
+                    }
+                    if (ch == quote)
+                    {
+                        if (i + 1 < sql.Length && sql[i + 1] == quote)
+                        {
+                            i += 2;
+                            continue;
+                        }
+                        i++;
+                        closed = true;
+                        break;
+                    }
+                    i++;
+                }
+                if (!closed) return true;
+                continue;
+            }
+
+            // -- 行注释（MySQL 要求 -- 后跟空白）
+            if (ch == '-' && i + 1 < sql.Length && sql[i + 1] == '-' &&
+                (i + 2 >= sql.Length || Char.IsWhiteSpace(sql[i + 2])))
+            {
+                while (i < sql.Length && sql[i] != '\n' && sql[i] != '\r') i++;
+                continue;
+            }
+
+            // # 行注释
+            if (ch == '#')
+            {
+                while (i < sql.Length && sql[i] != '\n' && sql[i] != '\r') i++;
+                continue;
+            }
+
+            // 块注释。可执行注释 /*! ... */ 的内容会被服务端当作 SQL 执行，无法静态判断只读，保守放弃重试
+            if (ch == '/' && i + 1 < sql.Length && sql[i + 1] == '*')
+            {
+                if (i + 2 < sql.Length && sql[i + 2] == '!') return true;
+                var end = sql.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                if (end < 0) return true;
+                i = end + 2;
+                continue;
+            }
+
+            if (ch == ';')
+            {
+                for (var j = i + 1; j < sql.Length; j++)
+                {
+                    if (!Char.IsWhiteSpace(sql[j])) return true;
+                }
+                return false;
+            }
+
+            i++;
+        }
+
+        return false;
     }
     #endregion
 
@@ -1227,7 +1321,7 @@ public class MySqlCommand : DbCommand
             DateOnly d => "'" + d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) + "'",
             TimeOnly t => "'" + t.ToString("HH:mm:ss.ffffff", CultureInfo.InvariantCulture).TrimEnd('0').TrimEnd('.') + "'",
 #endif
-            TimeSpan ts => "'" + ts.ToString("c", CultureInfo.InvariantCulture) + "'",
+            TimeSpan ts => "'" + FormatTimeLiteral(ts) + "'",
             Byte[] bytes => "X'" + bytes.ToHex() + "'",
             MySqlGeometry geom => "X'" + geom.Value.ToHex() + "'",
             Guid guid => "'" + guid.ToString() + "'",
@@ -1238,6 +1332,30 @@ public class MySqlCommand : DbCommand
             // 未知类型统一按字符串字面量加引号，避免裸拼接破坏 SQL 结构（也曾把 Char/TimeSpan 输出成裸值）
             _ => "'" + EscapeString(value.ToString() ?? String.Empty, noBackslashEscapes) + "'",
         };
+    }
+
+    /// <summary>把 TimeSpan 格式化为 MySQL TIME 字面量</summary>
+    /// <param name="ts">时长</param>
+    /// <returns>形如 <c>25:00:00</c> 的 TIME 文本，负值带前导减号</returns>
+    /// <remarks>MySQL TIME 不接受 .NET 的 "c" 格式中“天”分量（<c>1.01:00:00</c>），
+    /// 必须把天折算成小时；微秒截断到 6 位，与二进制协议保持一致</remarks>
+    internal static String FormatTimeLiteral(TimeSpan ts)
+    {
+        var negative = ts < TimeSpan.Zero;
+        if (negative) ts = ts.Negate();
+
+        var hours = (Int64)ts.TotalHours;
+        var sb = Pool.StringBuilder.Get();
+        if (negative) sb.Append('-');
+        sb.Append(hours.ToString("00", CultureInfo.InvariantCulture));
+        sb.Append(':').Append(ts.Minutes.ToString("00", CultureInfo.InvariantCulture));
+        sb.Append(':').Append(ts.Seconds.ToString("00", CultureInfo.InvariantCulture));
+
+        var micro = ts.Ticks % TimeSpan.TicksPerSecond / 10;
+        if (micro != 0)
+            sb.Append('.').Append(micro.ToString("000000", CultureInfo.InvariantCulture).TrimEnd('0'));
+
+        return sb.Return(true);
     }
 
     /// <summary>转义SQL字符串中的特殊字符</summary>

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 ﻿using NewLife;
 using NewLife.Buffers;
 using NewLife.Data;
@@ -852,6 +853,15 @@ public class SqlClientTests
     {
         ms.WriteByte((Byte)data.Length);
         ms.Write(data, 0, data.Length);
+    }
+
+    [Fact]
+    [DisplayName("压缩包长度字段为普通帧头预留4字节")]
+    public void CompressedPayloadLimit_ReservesFrameHeader()
+    {
+        // BuildPlainFrames 会在载荷外再写 4 字节普通帧头；0xFFFFFC 起总长度超 3 字节字段，必须拒绝
+        Assert.True(SqlClient.CanCompressPayload(0xFF_FFFF - 4));
+        Assert.False(SqlClient.CanCompressPayload(0xFF_FFFF - 3));
     }
     #endregion
 }

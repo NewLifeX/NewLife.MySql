@@ -102,6 +102,18 @@ public class MySqlCommandSerializeTests
     }
 
     [Fact]
+    [DisplayName("TimeSpan超过24小时折算总小时数且保留微秒")]
+    public void SerializeValue_TimeSpan_TimeLiteral()
+    {
+        // .NET "c" 格式会输出 1.01:00:00，MySQL TIME 不接受天分量
+        Assert.Equal("'25:00:00'", MySqlCommand.SerializeValue(TimeSpan.FromHours(25)));
+        Assert.Equal("'-25:30:00'", MySqlCommand.SerializeValue(TimeSpan.FromHours(-25.5)));
+        Assert.Equal("'838:59:59'", MySqlCommand.SerializeValue(new TimeSpan(838, 59, 59)));
+        // 微秒截断到 6 位，与二进制协议 WriteBinaryTime 一致
+        Assert.Equal("'00:00:00.000001'", MySqlCommand.SerializeValue(TimeSpan.FromTicks(10)));
+    }
+
+    [Fact]
     [DisplayName("未知类型按字符串字面量加引号，不裸拼接")]
     public void SerializeValue_UnknownType_Quoted()
     {

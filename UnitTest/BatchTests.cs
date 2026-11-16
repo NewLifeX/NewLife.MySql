@@ -1042,9 +1042,11 @@ public class BatchTests
         Assert.Equal(System.Data.ConnectionState.Closed, conn.State);
     }
 
-    [Fact(DisplayName = "MySqlBatch读取器在UseServerPrepare下不提前关闭语句")]
+    [Fact(DisplayName = "MySqlBatch在UseServerPrepare开关下读取后连接仍可复用")]
     public async Task BatchReader_WithServerPrepare()
     {
+        // MySqlBatch 会把命令参数拼成字面量，内层命令没有参数集合，因此不会真正走 COM_STMT_PREPARE；
+        // 这里验证的是开启 UseServerPrepare 后批量读取器关闭不会破坏后续协议（U14 的 COM_STMT_CLOSE 时序属防御性代码）
         var connStr = _ConnStr.TrimEnd(';') + ";UseServerPrepare=true;";
         using var conn = new MySqlConnection(connStr);
         conn.Open();

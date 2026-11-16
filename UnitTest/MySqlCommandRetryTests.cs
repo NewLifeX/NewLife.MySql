@@ -41,4 +41,37 @@ public class MySqlCommandRetryTests
     {
         Assert.False(MySqlCommand.IsReadOnlySql(sql, commandType));
     }
+
+    [Theory]
+    [DisplayName("分号后仍有语句的只读头不重试")]
+    [InlineData("SELECT 1; INSERT INTO t VALUES(1)")]
+    [InlineData("SELECT 1;\nUPDATE t SET a=1")]
+    [InlineData("SHOW VARIABLES; DELETE FROM t")]
+    [InlineData("SELECT ';'; INSERT INTO t VALUES(1)")]
+    [InlineData("SELECT 1 /* ; */; INSERT INTO t VALUES(1)")]
+    [InlineData("SELECT 1 /*! ; INSERT INTO t VALUES(1) */")]
+    public void MultiStatementSelect_NotRetryable(String sql)
+    {
+        Assert.False(MySqlCommand.IsReadOnlySql(sql, CommandType.Text));
+    }
+
+    [Theory]
+    [DisplayName("字符串与注释内的分号不影响只读判定")]
+    [InlineData("SELECT ';'")]
+    [InlineData("SELECT 1 /* ; */")]
+    [InlineData("SELECT 1 -- ;")]
+    [InlineData("SELECT 1;  ")]
+    public void SemicolonInsideLiteralOrComment_Retryable(String sql)
+    {
+        Assert.True(MySqlCommand.IsReadOnlySql(sql, CommandType.Text));
+    }
+
+    [Theory]
+    [DisplayName("NO_BACKSLASH_ESCAPES下反斜杠不吞引号，多语句不可重试")]
+    [InlineData("SELECT 'a\\'; INSERT INTO t VALUES(1)--'", true, false)]
+    [InlineData("SELECT 'a\\'; INSERT INTO t VALUES(1)--'", false, true)]
+    public void NoBackslashEscapes_MultiStatement(String sql, Boolean noBackslashEscapes, Boolean readOnly)
+    {
+        Assert.Equal(readOnly, MySqlCommand.IsReadOnlySql(sql, CommandType.Text, noBackslashEscapes));
+    }
 }

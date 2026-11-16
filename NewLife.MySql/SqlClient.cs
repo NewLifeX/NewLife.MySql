@@ -1217,9 +1217,9 @@ public class SqlClient : DisposeBase
 
         try
         {
-            // 普通包长度与压缩包长度字段都只有 3 字节，超过 16MB 需要压缩层分帧（各服务端实现差异大），
-            // 这里明确拒绝，避免发出长度回绕的包把协议流搞乱
-            if (len > MaxPayload)
+            // 普通包与压缩包头都只有 3 字节长度字段。BuildPlainFrames 还会额外加 4 字节普通帧头，
+            // 因此可用载荷上限是 MaxPayload-4；超过就必须拒绝，否则长度字段回绕把协议流搞乱
+            if (!CanCompressPayload(len))
                 throw new NotSupportedException(L.T("Packets larger than 16MB require UseCompression=false in the connection string."));
 
             // 链式数据（PrepareFrameHeader 可能生成 { 帧头, Next=原包 } 链，GetSpan 仅返回单段）合并到连续缓冲，
@@ -1262,6 +1262,11 @@ public class SqlClient : DisposeBase
             if (pk is IOwnerPacket pkOwner) pkOwner.Dispose();
         }
     }
+
+    /// <summary>压缩协议是否支持指定长度的载荷。压缩包头长度字段按“普通帧头 + 数据体”计算，需再留出 4 字节</summary>
+    /// <param name="payloadLength">载荷长度</param>
+    /// <returns>可写入压缩包长度字段时返回 true</returns>
+    internal static Boolean CanCompressPayload(Int32 payloadLength) => payloadLength >= 0 && payloadLength <= MaxPayload - 4;
 
     /// <summary>把数据体切成普通包序列（4 字节帧头 + 数据）</summary>
     /// <param name="body">数据体</param>
