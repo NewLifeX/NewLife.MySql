@@ -2383,13 +2383,14 @@ public class SqlClient : DisposeBase
     /// <param name="statementId">预编译语句 ID</param>
     /// <param name="values">参数值数组，按参数顺序排列，可为空</param>
     /// <returns>待发送的数据包（不含帧头）</returns>
-    private IPacket BuildExecutePacket(Int32 statementId, Object?[]? values)
+    internal IPacket BuildExecutePacket(Int32 statementId, Object?[]? values)
     {
         var numParams = values?.Length ?? 0;
         var hasQueryAttrs = Capability.Has(ClientFlags.CLIENT_QUERY_ATTRIBUTES);
 
-        // 构建 COM_STMT_EXECUTE 数据包
-        var pk = new OwnerPacket(8192);
+        // 构建 COM_STMT_EXECUTE 数据包。原句柄必须释放：Slice 返回的共享句柄独立持有引用计数，
+        // 漏释放会让 8KB 池化缓冲无法回池（Release 构建没有析构兜底）
+        using var pk = new OwnerPacket(8192);
         var writer = new SpanWriter(pk);
         writer.Advance(4); // 预留帧头
 

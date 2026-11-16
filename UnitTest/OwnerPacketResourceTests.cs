@@ -38,6 +38,17 @@ public class OwnerPacketResourceTests
     }
 
     [Fact]
+    [DisplayName("BuildExecutePacket不泄漏原句柄")]
+    public void BuildExecutePacket_ReleasesOriginalHandle()
+    {
+        using var sql = new SqlClient();
+        using var pk = (OwnerPacket)sql.BuildExecutePacket(1, [1, "x"]);
+
+        // 原句柄已在方法内释放；若漏释放，返回切片会与原句柄同时持有引用，RefCount 为 2
+        Assert.Equal(1, pk.RefCount);
+    }
+
+    [Fact]
     [DisplayName("SendPacketAsync输出正确的MySQL帧头")]
     public async Task SendPacketAsync_WritesCorrectFrame()
     {
