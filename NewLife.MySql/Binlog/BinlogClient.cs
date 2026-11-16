@@ -66,6 +66,9 @@ public class BinlogClient : DisposeBase
     private CancellationTokenSource? _cts;
     private readonly Random _rnd = new();
 
+    /// <summary>会话启动闸门。0 空闲，1 已有启动中/运行中的会话，保证 StartAsync 与 SubscribeAsync 并发首次调用也互斥</summary>
+    private Int32 _sessionGate;
+
     /// <summary>表映射缓存。tableId → BinlogEvent（TABLE_MAP 事件）</summary>
     private readonly Dictionary<UInt64, BinlogEvent> _tableMap = [];
     #endregion
@@ -104,6 +107,9 @@ public class BinlogClient : DisposeBase
     {
         if (Running) return;
 
+        // 并发首次调用时只有一个能拿到闸门；拿不到说明另一个 Start/Subscribe 正在启动
+        if (Interlocked.CompareExchange(ref _sessionGate, 1, 0) != 0) return;
+
         var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _cts = cts;
 
@@ -113,10 +119,22 @@ public class BinlogClient : DisposeBase
         }
         catch
         {
-            // 启动失败时释放令牌，否则再次 Start 会丢掉旧引用
-            if (ReferenceEquals(_cts, cts)) _cts = null;
+            // 启动失败时释放令牌，否则再次 Start 会丢掉旧引用。
+            // 只有仍持有当前会话时才复位闸门，避免清掉并发新会话的占用
+            if (ReferenceEquals(_cts, cts))
+            {
+                _cts = null;
+                Interlocked.Exchange(ref _sessionGate, 0);
+            }
             cts.TryDispose();
             throw;
+        }
+
+        // 启动期间已被 Stop 取消：不再置运行态，避免留下一个永远 Running 的壳
+        if (cts.IsCancellationRequested || !ReferenceEquals(_cts, cts))
+        {
+            cts.TryDispose();
+            return;
         }
 
         Running = true;
@@ -129,6 +147,7 @@ public class BinlogClient : DisposeBase
     public void Stop()
     {
         Running = false;
+        Interlocked.Exchange(ref _sessionGate, 0);
 
         _cts?.Cancel();
         _cts.TryDispose();
@@ -155,6 +174,7 @@ public class BinlogClient : DisposeBase
     public async Task StopAsync()
     {
         Running = false;
+        Interlocked.Exchange(ref _sessionGate, 0);
 
         _cts?.Cancel();
         _cts.TryDispose();
@@ -184,6 +204,8 @@ public class BinlogClient : DisposeBase
     {
         // StartAsync 与 SubscribeAsync 互斥：同时开会留下无人 Stop 的第二个会话，事件重复投递且连接泄漏
         if (Running) throw new InvalidOperationException(L.T("A binlog subscription is already running."));
+        if (Interlocked.CompareExchange(ref _sessionGate, 1, 0) != 0)
+            throw new InvalidOperationException(L.T("A binlog subscription is already running."));
 
         var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _cts = cts;
@@ -192,6 +214,9 @@ public class BinlogClient : DisposeBase
         try
         {
             await ConnectAndDumpAsync(cts.Token).ConfigureAwait(false);
+            // 启动期间已被 Stop 取消：直接结束，finally 负责释放令牌
+            if (!ReferenceEquals(_cts, cts)) yield break;
+
             Running = true;
             client = _client;
 
@@ -239,6 +264,7 @@ public class BinlogClient : DisposeBase
             {
                 _cts = null;
                 Running = false;
+                Interlocked.Exchange(ref _sessionGate, 0);
             }
             cts.TryDispose();
         }
@@ -415,6 +441,7 @@ public class BinlogClient : DisposeBase
         {
             _cts = null;
             Running = false;
+            Interlocked.Exchange(ref _sessionGate, 0);
         }
         cts.TryDispose();
     }
