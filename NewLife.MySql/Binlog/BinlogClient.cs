@@ -430,6 +430,10 @@ public class BinlogClient : DisposeBase
         var ev = await client.ReadBinlogEventAsync(cancellationToken).ConfigureAwait(false);
         if (ev == null) return null;
 
+        // 连接已被 Stop 或新会话替换：不再更新共享 Position/表映射，也不投递事件，
+        // 避免旧会话在停止瞬间覆盖新会话的续传位点
+        if (!ReferenceEquals(_client, client)) return null;
+
         // 更新位置
         if (ev.NextPosition > 0)
             Position = new BinlogPosition(Position?.FileName ?? "", ev.NextPosition);
