@@ -205,25 +205,26 @@ public class MySqlBatch : DbBatch
         return cmd;
     }
 
-    /// <summary>取单条命令的 SQL，并把参数替换为字面量</summary>
+    /// <summary>取单条命令的 SQL，并替换参数为字面量</summary>
     /// <param name="cmd">批量命令</param>
     /// <returns></returns>
     private String BuildCommandSql(MySqlBatchCommand cmd)
-        => BuildCommandSql(cmd, _connection?.Client?.NoBackslashEscapes == true);
+        => BuildCommandSql(cmd, _connection?.Client?.NoBackslashEscapes == true, _connection?.Client?.AnsiQuotes == true);
 
     /// <summary>取单条命令的 SQL，并按指定 sql_mode 转义参数</summary>
     /// <param name="cmd">批量命令</param>
     /// <param name="noBackslashEscapes">服务器是否启用 NO_BACKSLASH_ESCAPES</param>
+    /// <param name="ansiQuotes">服务器是否启用 ANSI_QUOTES</param>
     /// <returns></returns>
-    internal static String BuildCommandSql(MySqlBatchCommand cmd, Boolean noBackslashEscapes)
+    internal static String BuildCommandSql(MySqlBatchCommand cmd, Boolean noBackslashEscapes, Boolean ansiQuotes = false)
     {
         var sql = cmd.CommandText;
         if (sql.IsNullOrEmpty()) return sql;
 
         // 替换参数。必须与服务端 sql_mode 保持一致：NO_BACKSLASH_ESCAPES 下反斜杠不转义，
-        // 继续用 \' 会让单引号裸露，形成注入面
+        // 继续用 \' 会让单引号裸露，形成注入面；ANSI_QUOTES 下双引号是标识符，反斜杠不转义
         if (cmd.Parameters.Count > 0)
-            sql = MySqlCommand.SubstituteParameters(sql, cmd.Parameters, noBackslashEscapes);
+            sql = MySqlCommand.SubstituteParameters(sql, cmd.Parameters, noBackslashEscapes, ansiQuotes);
 
         return sql;
     }

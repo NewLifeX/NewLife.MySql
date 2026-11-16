@@ -183,6 +183,34 @@ public class MySqlCommandSerializeTests
     }
 
     [Fact]
+    [DisplayName("ANSI_QUOTES下双引号标识符不吞参数，反斜杠不转义")]
+    public void SubstituteParameters_AnsiQuotes_EndsIdentifierAtQuote()
+    {
+        var parameters = new MySqlParameterCollection();
+        parameters.AddWithValue("@p", "x");
+
+        const String sql = "SELECT \"a\\\" , @p";
+        // 默认模式：\" 当作转义，字符串延续到结尾，@p 不替换
+        Assert.Equal(sql, MySqlCommand.SubstituteParameters(sql, parameters));
+        // ANSI_QUOTES：反斜杠是普通字符，标识符在引号处结束，后面的 @p 必须替换
+        Assert.Equal("SELECT \"a\\\" , 'x'", MySqlCommand.SubstituteParameters(sql, parameters, ansiQuotes: true));
+    }
+
+    [Fact]
+    [DisplayName("ANSI_QUOTES下预编译占位符不被标识符吞掉")]
+    public void ConvertToPositionalParameters_AnsiQuotes()
+    {
+        var parameters = new MySqlParameterCollection();
+        parameters.AddWithValue("@p", "x");
+
+        const String sql = "SELECT \"a\\\" , @p";
+        // 默认模式整段被当作未闭合字符串，不做占位符替换
+        Assert.Equal(sql, MySqlCommand.ConvertToPositionalParameters(sql, parameters));
+        // ANSI_QUOTES 下标识符提前结束，@p 必须变成 ?
+        Assert.Equal("SELECT \"a\\\" , ?", MySqlCommand.ConvertToPositionalParameters(sql, parameters, ansiQuotes: true));
+    }
+
+    [Fact]
     [DisplayName("ToString只展示参数名，不泄露参数值")]
     public void ToString_DoesNotLeakParameterValues()
     {

@@ -205,7 +205,7 @@ public class MySqlCommand : DbCommand
 
         // 将 @param 替换为 ? 占位符，同时记录参数在 SQL 中的出现顺序
         var paramOrder = new List<Int32>();
-        var prepSql = ConvertToPositionalParameters(sql, _parameters, paramOrder, _positionalAt, NoBackslashEscapes);
+        var prepSql = ConvertToPositionalParameters(sql, _parameters, paramOrder, _positionalAt, NoBackslashEscapes, AnsiQuotes);
 
         var result = await client.PrepareStatementAsync(prepSql, cancellationToken).ConfigureAwait(false);
         _statementId = result.StatementId;
@@ -977,6 +977,9 @@ public class MySqlCommand : DbCommand
     /// <summary>服务器是否启用 NO_BACKSLASH_ESCAPES。该模式下反斜杠不再是转义符，字符串字面量必须改用双写单引号</summary>
     private Boolean NoBackslashEscapes => _DbConnection?.Client?.NoBackslashEscapes == true;
 
+    /// <summary>服务器是否启用 ANSI_QUOTES。该模式下双引号是标识符，反斜杠不转义</summary>
+    private Boolean AnsiQuotes => _DbConnection?.Client?.AnsiQuotes == true;
+
     /// <summary>连接是否开启多语句能力</summary>
     private Boolean AllowMultiStatements => _DbConnection?.Setting.AllowMultiStatements == true;
     #endregion
@@ -1053,7 +1056,7 @@ public class MySqlCommand : DbCommand
         if (CommandType == CommandType.StoredProcedure)
             sql = BuildStoredProcedureCall();
         else
-            sql = SubstituteParameters(CommandText, _parameters, NoBackslashEscapes);
+            sql = SubstituteParameters(CommandText, _parameters, NoBackslashEscapes, AnsiQuotes);
 
         ms.Write(sql.GetBytes());
     }
@@ -1203,8 +1206,9 @@ public class MySqlCommand : DbCommand
     /// <param name="sql">原始SQL</param>
     /// <param name="parameters">参数集合</param>
     /// <param name="noBackslashEscapes">服务器是否启用 NO_BACKSLASH_ESCAPES</param>
+    /// <param name="ansiQuotes">服务器是否启用 ANSI_QUOTES（双引号为标识符）</param>
     /// <returns></returns>
-    internal static String SubstituteParameters(String sql, MySqlParameterCollection parameters, Boolean noBackslashEscapes = false)
+    internal static String SubstituteParameters(String sql, MySqlParameterCollection parameters, Boolean noBackslashEscapes = false, Boolean ansiQuotes = false)
     {
         if (parameters.Count <= 0) return sql;
 
@@ -1215,10 +1219,10 @@ public class MySqlCommand : DbCommand
         {
             var ch = sql[i];
 
-            // 跳过字符串字面量，避免替换字符串内的 @
+            // 跳过字符串字面量与双引号标识符，避免替换其中的 @
             if (ch == '\'' || ch == '"')
             {
-                SkipStringLiteral(sql, ref i, sb, noBackslashEscapes);
+                SkipStringLiteral(sql, ref i, sb, noBackslashEscapes, ansiQuotes);
                 continue;
             }
 
@@ -1421,8 +1425,9 @@ public class MySqlCommand : DbCommand
     /// <param name="paramOrder">输出参数顺序映射。记录 ? 占位符对应的参数索引，按 SQL 中出现顺序排列</param>
     /// <param name="positionalAt">无参数集合时是否把裸 @name 当作占位符。仅值数组批量按位置绑定才需要，其余场景保留用户变量</param>
     /// <param name="noBackslashEscapes">服务器是否启用 NO_BACKSLASH_ESCAPES</param>
+    /// <param name="ansiQuotes">服务器是否启用 ANSI_QUOTES（双引号为标识符）</param>
     /// <returns>替换后的 SQL</returns>
-    internal static String ConvertToPositionalParameters(String sql, MySqlParameterCollection parameters, List<Int32>? paramOrder = null, Boolean positionalAt = false, Boolean noBackslashEscapes = false)
+    internal static String ConvertToPositionalParameters(String sql, MySqlParameterCollection parameters, List<Int32>? paramOrder = null, Boolean positionalAt = false, Boolean noBackslashEscapes = false, Boolean ansiQuotes = false)
     {
         // 值数组批量执行时参数集合为空，但 SQL 仍是参数化的，需要把 @name 当作位置占位符；
         // 普通命令没有参数时，@name 是 MySQL 用户变量（如 SET @x = 1），替换成 ? 会直接语法错误
@@ -1436,10 +1441,10 @@ public class MySqlCommand : DbCommand
         {
             var ch = sql[i];
 
-            // 跳过字符串字面量
+            // 跳过字符串字面量与双引号标识符
             if (ch == '\'' || ch == '"')
             {
-                SkipStringLiteral(sql, ref i, sb, noBackslashEscapes);
+                SkipStringLiteral(sql, ref i, sb, noBackslashEscapes, ansiQuotes);
                 continue;
             }
 
@@ -1553,9 +1558,11 @@ public class MySqlCommand : DbCommand
     /// <param name="i">当前索引，方法结束后指向字面量之后</param>
     /// <param name="sb">输出缓冲区</param>
     /// <param name="noBackslashEscapes">服务器是否启用 NO_BACKSLASH_ESCAPES</param>
-    private static void SkipStringLiteral(String sql, ref Int32 i, StringBuilder sb, Boolean noBackslashEscapes)
+    private static void SkipStringLiteral(String sql, ref Int32 i, StringBuilder sb, Boolean noBackslashEscapes, Boolean ansiQuotes = false)
     {
         var quote = sql[i];
+        // 单引号字符串默认反斜杠转义；双引号在非 ANSI_QUOTES 下是字符串，同样受 NO_BACKSLASH_ESCAPES 约束
+        var backslashEscapes = quote == '\'' ? !noBackslashEscapes : quote == '"' && !ansiQuotes && !noBackslashEscapes;
         sb.Append(quote);
         i++;
         while (i < sql.Length)
@@ -1563,7 +1570,7 @@ public class MySqlCommand : DbCommand
             var ch = sql[i];
             sb.Append(ch);
             i++;
-            if (ch == '\\' && !noBackslashEscapes && i < sql.Length)
+            if (ch == '\\' && backslashEscapes && i < sql.Length)
             {
                 // 反斜杠转义，跳过下一个字符；NO_BACKSLASH_ESCAPES 下反斜杠是普通字符
                 sb.Append(sql[i]);
