@@ -383,6 +383,11 @@ public class MySqlCommand : DbCommand
 
         var span = SuppressTracing ? default : MySqlDiagnostics.StartExecute(conn, sql, CommandType);
 
+        // 发送阶段同样使用命令超时：连接打开时 client.Timeout 是建连超时（默认 15 秒），
+        // 用它罩住大报文/批量写入会让慢链路上的正常发送被误判超时并销毁连接。
+        // CommandTimeout=0 表示整条命令不限时，与读取阶段语义保持一致
+        if (client.Timeout != CommandTimeout) client.Timeout = CommandTimeout;
+
         // 执行读取器，多语句由服务端拆分，通过NextResult()遍历
         try
         {
