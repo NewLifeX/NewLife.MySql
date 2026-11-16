@@ -145,7 +145,7 @@ var total = cmd.ExecuteArrayBatch(10000);           // 一次网络往返！
 ### 移除项
 
 - `MySqlHelper` 类：NewLife.MySql 未提供此辅助类
-- `MySqlBulkLoader`：NewLife.MySql 使用管道化批量或 DbBatch 替代
+- `MySqlBulkLoader`：NewLife.MySql 提供 `MySqlBulkCopy`，也可用管道化批量或 DbBatch 替代
 - `MySqlCommandBuilder`：NewLife.MySql 未内置，XCode ORM 可自动生成 CRUD
 
 ### 行为差异

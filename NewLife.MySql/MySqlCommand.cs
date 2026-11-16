@@ -1553,11 +1553,12 @@ public class MySqlCommand : DbCommand
         return reordered;
     }
 
-    /// <summary>跳过 SQL 中的字符串字面量（单引号或双引号），处理转义和引号重复</summary>
+    /// <summary>跳过 SQL 中的字符串字面量与双引号标识符，处理转义和引号重复</summary>
     /// <param name="sql">SQL 字符串</param>
     /// <param name="i">当前索引，方法结束后指向字面量之后</param>
     /// <param name="sb">输出缓冲区</param>
     /// <param name="noBackslashEscapes">服务器是否启用 NO_BACKSLASH_ESCAPES</param>
+    /// <param name="ansiQuotes">服务器是否启用 ANSI_QUOTES（双引号为标识符）</param>
     private static void SkipStringLiteral(String sql, ref Int32 i, StringBuilder sb, Boolean noBackslashEscapes, Boolean ansiQuotes = false)
     {
         var quote = sql[i];

@@ -127,12 +127,12 @@ var total = cmd.ExecuteArrayBatch(3);
 
 #### 移除/替代项
 
-| MySqlConnector 特性 | NewLife.MySql 替代方案 |
+| MySqlConnector 特性 | NewLife.MySql 现状 |
 |-------------------|---------------------|
-| `MySqlBulkCopy` | 管道化批量 / 多行 VALUES 拼接 |
-| `MySqlDataSource` (.NET 7+) | XCode DAL 或原生连接池 |
-| 压缩协议 | 暂不支持（内网部署为主） |
-| Unix Socket | 暂不支持 |
+| `MySqlBulkCopy` | 已支持同名 `MySqlBulkCopy`；大批量 DML 也可用管道化批量/值数组 |
+| `MySqlDataSource` (.NET 7+) | 已支持 `MySqlDataSource`（DbDataSource，net7.0+） |
+| 压缩协议 | 支持 zlib（`UseCompression=true`）；压缩下单包载荷上限 16MB-4 字节 |
+| Unix Socket | 支持连接串 `Socket` 参数（.NET 5+，Linux/macOS） |
 | `MySqlDecimal` | `Decimal` |
 | `MySqlDateTime` | `DateTime` |
 
