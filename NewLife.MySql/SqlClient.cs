@@ -1375,6 +1375,7 @@ public class SqlClient : DisposeBase
     private static Boolean WritePayloadToStream(Stream stream, PooledWriteStream output, IPacket pk, Int32 skip, Int32 len, Int32 limit, UInt32 adler, Boolean updateAdler, out UInt32 newAdler)
     {
         newAdler = adler;
+        if (len <= 0) return true;
 
         // 按 64KB 分段写入并在段间检查压缩收益，避免对不可压缩的大包做完整压缩
         var buffer = ArrayPool<Byte>.Shared.Rent(Math.Min(len, 64 * 1024));
@@ -1445,6 +1446,8 @@ public class SqlClient : DisposeBase
     /// <returns></returns>
     private static async Task WritePayloadAsync(Stream ms, IPacket pk, Int32 skip, Int32 len, CancellationToken cancellationToken)
     {
+        if (len <= 0) return;
+
         var buffer = ArrayPool<Byte>.Shared.Rent(Math.Min(len, 64 * 1024));
         try
         {

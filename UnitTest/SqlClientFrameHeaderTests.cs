@@ -99,6 +99,23 @@ public class SqlClientFrameHeaderTests
         Assert.Throws<ObjectDisposedException>(() => _ = pk.Buffer);
     }
 
+    [Fact]
+    [DisplayName("压缩协议发送空载荷回退明文")]
+    public async Task SendPacketAsync_Compressed_EmptyPayload()
+    {
+        using var sql = new SqlClient { BaseStream = new MemoryStream(), Timeout = 0, UseCompression = true };
+
+        await sql.SendPacketAsync(new ArrayPacket([], 0, 0));
+
+        var written = ((MemoryStream)sql.BaseStream!).ToArray();
+
+        // 7 字节压缩头（clen=4 未压缩） + 4 字节普通帧头（长度 0）
+        Assert.Equal(11, written.Length);
+        Assert.Equal(4, written[0] | (written[1] << 8) | (written[2] << 16));
+        Assert.Equal(0, written[4] | written[5] | written[6]);
+        Assert.Equal(0, written[7] | written[8] | written[9]);
+    }
+
     private const Int32 MaxPayload = 0xFF_FFFF;
 
     [Fact]
