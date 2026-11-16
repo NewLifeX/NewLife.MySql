@@ -42,6 +42,7 @@
 "Started subscribing to binlog: {0} ServerId={1}": "Binlog-Abonnement gestartet: {0} ServerId={1}"
 "Event handler error: {0}": "Fehler im Ereignishandler: {0}"
 "Binlog reconnected: {0}": "Binlog erneut verbunden: {0}"
+"A binlog subscription is already running.": "Es läuft bereits ein Binlog-Abonnement."
 "MySQL network connection lost, reconnecting after {0}ms ({1}: {2})": "MySQL-Netzwerkverbindung unterbrochen; erneute Verbindung nach {0}ms ({1}: {2})"
 "[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred fallback to plain text: {3}: {4}": "[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred Fallback auf Klartext: {3}: {4}"
 "SQL: {0}": "SQL: {0}"

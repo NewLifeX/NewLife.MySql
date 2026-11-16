@@ -182,6 +182,9 @@ public class BinlogClient : DisposeBase
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
     public async IAsyncEnumerable<BinlogEvent> SubscribeAsync([System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        // StartAsync 与 SubscribeAsync 互斥：同时开会留下无人 Stop 的第二个会话，事件重复投递且连接泄漏
+        if (Running) throw new InvalidOperationException(L.T("A binlog subscription is already running."));
+
         var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         _cts = cts;
         var client = _client;
@@ -194,6 +197,9 @@ public class BinlogClient : DisposeBase
 
             while (!cts.Token.IsCancellationRequested)
             {
+                // 会话已被 Stop 或新一次订阅替换：立即退出，避免旧连接的事件覆盖新会话的 Position/表映射
+                if (!ReferenceEquals(_cts, cts)) break;
+
                 BinlogEvent? ev;
                 try
                 {
@@ -207,7 +213,7 @@ public class BinlogClient : DisposeBase
 
                     Log.ErrorPrefixed(LogPrefix, "Binlog read error; reconnecting in {0}ms: {1}", ReconnectInterval, ex.Message);
                     await Task.Delay(ReconnectInterval, cts.Token).ConfigureAwait(false);
-                    await ReconnectAsync(cts.Token).ConfigureAwait(false);
+                    await ReconnectAsync(client, cts.Token).ConfigureAwait(false);
                     client = _client;
                     continue;
                 }
@@ -258,13 +264,18 @@ public class BinlogClient : DisposeBase
             _client = client;
 
             // 设置 binlog 校验和为 NONE，避免 CRC32 校验影响解析
-            await ExecuteSimpleAsync("SET @master_binlog_checksum = 'NONE'", cancellationToken).ConfigureAwait(false);
+            await ExecuteSimpleAsync(client, "SET @master_binlog_checksum = 'NONE'", cancellationToken).ConfigureAwait(false);
 
-            // 如果没有指定起始位置，查询当前 binlog 位置
-            if (Position == null || Position.FileName.IsNullOrEmpty())
-                Position = await GetCurrentPositionAsync(cancellationToken).ConfigureAwait(false);
+            // 如果没有指定起始位置，查询当前 binlog 位置。先放局部变量，取消检查通过后再写回共享 Position，
+            // 避免已停止的旧会话把新会话的续传位点覆盖成旧值
+            var position = Position;
+            if (position == null || position.FileName.IsNullOrEmpty())
+                position = await GetCurrentPositionAsync(client, cancellationToken).ConfigureAwait(false);
 
-            Log.InfoPrefixed(LogPrefix, "Started subscribing to binlog: {0} ServerId={1}", Position, ServerId);
+            cancellationToken.ThrowIfCancellationRequested();
+            Position = position;
+
+            Log.InfoPrefixed(LogPrefix, "Started subscribing to binlog: {0} ServerId={1}", position, ServerId);
 
             // 注册从属服务器
             var host = setting.Server ?? "";
@@ -273,7 +284,7 @@ public class BinlogClient : DisposeBase
             await client.RegisterSlaveAsync(ServerId, host, setting.UserID ?? "", setting.Password ?? "", (Int16)port, cancellationToken).ConfigureAwait(false);
 
             // 发送 BINLOG_DUMP 请求
-            await client.BinlogDumpAsync(Position, ServerId, 0, cancellationToken).ConfigureAwait(false);
+            await client.BinlogDumpAsync(position, ServerId, 0, cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -285,9 +296,12 @@ public class BinlogClient : DisposeBase
     }
 
     /// <summary>查询当前 binlog 文件和位置</summary>
-    private async Task<BinlogPosition> GetCurrentPositionAsync(CancellationToken cancellationToken)
+    /// <param name="client">本轮会话的物理连接</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    private static async Task<BinlogPosition> GetCurrentPositionAsync(SqlClient client, CancellationToken cancellationToken)
     {
-        var conn = new MySqlConnection { Client = _client };
+        var conn = new MySqlConnection { Client = client };
 
         // MySQL 8.4 移除了 SHOW MASTER STATUS，改用 SHOW BINARY LOG STATUS；
         // 8.0 及更早版本只认旧语句，因此先试新语句，仅当服务端报“语句不存在/语法错误”时回退。
@@ -318,9 +332,13 @@ public class BinlogClient : DisposeBase
     }
 
     /// <summary>执行简单 SQL 语句</summary>
-    private async Task ExecuteSimpleAsync(String sql, CancellationToken cancellationToken)
+    /// <param name="client">本轮会话的物理连接</param>
+    /// <param name="sql">SQL 语句</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    private static async Task ExecuteSimpleAsync(SqlClient client, String sql, CancellationToken cancellationToken)
     {
-        var conn = new MySqlConnection { Client = _client };
+        var conn = new MySqlConnection { Client = client };
         using var cmd = conn.CreateCommand();
         cmd.CommandText = sql;
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
@@ -333,6 +351,9 @@ public class BinlogClient : DisposeBase
         var client = _client;
         while (!cancellationToken.IsCancellationRequested)
         {
+            // 会话已被 Stop 或新一次订阅替换：立即退出，避免旧连接的事件覆盖新会话的 Position/表映射
+            if (!ReferenceEquals(_cts, cts)) break;
+
             BinlogEvent? ev;
             try
             {
@@ -348,7 +369,7 @@ public class BinlogClient : DisposeBase
                 try
                 {
                     await Task.Delay(ReconnectInterval, cancellationToken).ConfigureAwait(false);
-                    await ReconnectAsync(cancellationToken).ConfigureAwait(false);
+                    await ReconnectAsync(client, cancellationToken).ConfigureAwait(false);
                     client = _client;
                 }
                 catch (OperationCanceledException) { break; }
@@ -420,9 +441,11 @@ public class BinlogClient : DisposeBase
     }
 
     /// <summary>重连</summary>
-    private async Task ReconnectAsync(CancellationToken cancellationToken)
+    /// <param name="client">本轮会话持有的连接。不能读取 _client，Stop 后立即 Start 时它可能已属于新会话</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    private async Task ReconnectAsync(SqlClient? client, CancellationToken cancellationToken)
     {
-        var client = _client;
         if (client != null)
         {
             try
@@ -431,10 +454,15 @@ public class BinlogClient : DisposeBase
             }
             catch { /* 忽略关闭异常 */ }
         }
-        _client.TryDispose();
-        _client = null;
-        lock (_tableMap) _tableMap.Clear();
+        client.TryDispose();
+        if (ReferenceEquals(_client, client))
+        {
+            _client = null;
+            lock (_tableMap) _tableMap.Clear();
+        }
 
+        // 会话已被 Stop 取消时不再重连，避免旧循环给新会话建出第二条连接
+        cancellationToken.ThrowIfCancellationRequested();
         await ConnectAndDumpAsync(cancellationToken).ConfigureAwait(false);
 
         Log.InfoPrefixed(LogPrefix, "Binlog reconnected: {0}", Position);

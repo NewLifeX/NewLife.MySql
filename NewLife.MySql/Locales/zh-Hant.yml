@@ -43,6 +43,7 @@
 "Started subscribing to binlog: {0} ServerId={1}": "開始訂閱 Binlog：{0} ServerId={1}"
 "Event handler error: {0}": "事件處理異常：{0}"
 "Binlog reconnected: {0}": "Binlog 重連成功：{0}"
+"A binlog subscription is already running.": "已有 Binlog 訂閱在執行。"
 "MySQL network connection lost, reconnecting after {0}ms ({1}: {2})": "MySQL 網路斷線自動重連，已等待 {0}ms（{1}：{2}）"
 "[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred fallback to plain text: {3}: {4}": "[MySqlSsl] db={0} server={1}:{2} SslMode=Preferred 回退到純文字：{3}：{4}"
 "SQL: {0}": "SQL：{0}"
