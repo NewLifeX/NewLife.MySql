@@ -181,7 +181,7 @@ Server=localhost;Port=3306;Database=mydb;User Id=root;******;
 | Password | Pass, Pwd | - | Contraseña |
 | ConnectionTimeout | Connection Timeout | 15 | Tiempo de espera de conexión (segundos) |
 | CommandTimeout | Default Command Timeout | 30 | Tiempo de espera de comando (segundos) |
-| SslMode | Ssl Mode | Preferred | Modo SSL (None/Preferred/Required) |
+| SslMode | Ssl Mode | Preferred | Modo SSL (None/Preferred/Required/VerifyCA/VerifyFull/VerifyIdentity) |
 | UseServerPrepare | Use Server Prepare | false | Interruptor global de preparación en el servidor |
 | Pipeline | Pipelining | false | Interruptor de ejecución en pipeline |
 
@@ -481,6 +481,7 @@ var connStr2 = "Server=localhost;Database=mydb;User Id=root;******;SslMode=Requi
 | `None` / `Disabled` | No usar SSL |
 | `Preferred` | Preferir cifrado y volver a texto plano si no es compatible (predeterminado) |
 | `Required` | Forzar cifrado |
+| `VerifyCA` / `VerifyFull` / `VerifyIdentity` | Verifica la cadena de certificados y el nombre del host; lanza si no coinciden |
 
 ---
 

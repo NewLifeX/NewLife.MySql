@@ -183,7 +183,7 @@ Server=localhost;Port=3306;Database=mydb;User Id=root;******;
 | Password | Pass, Pwd | - | パスワード |
 | ConnectionTimeout | Connection Timeout | 15 | 接続タイムアウト（秒） |
 | CommandTimeout | Default Command Timeout | 30 | コマンドタイムアウト（秒） |
-| SslMode | Ssl Mode | Preferred | SSL モード（None/Preferred/Required） |
+| SslMode | Ssl Mode | Preferred | SSL モード（None/Preferred/Required/VerifyCA/VerifyFull/VerifyIdentity） |
 | UseServerPrepare | Use Server Prepare | false | サーバー側プリペアの全体スイッチ |
 | Pipeline | Pipelining | false | パイプライン実行スイッチ |
 
@@ -483,6 +483,7 @@ var connStr2 = "Server=localhost;Database=mydb;User Id=root;******;SslMode=Requi
 | `None` / `Disabled` | SSL を使用しない |
 | `Preferred` | 暗号化を優先し、未対応なら平文にフォールバック（既定） |
 | `Required` | 暗号化を強制 |
+| `VerifyCA` / `VerifyFull` / `VerifyIdentity` | 証明書チェーンとホスト名を検証し、不一致時は例外をスロー |
 
 ---
 

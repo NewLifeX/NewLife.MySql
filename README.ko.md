@@ -181,7 +181,7 @@ Server=localhost;Port=3306;Database=mydb;User Id=root;******;
 | Password | Pass, Pwd | - | 비밀번호 |
 | ConnectionTimeout | Connection Timeout | 15 | 연결 제한 시간(초) |
 | CommandTimeout | Default Command Timeout | 30 | 명령 제한 시간(초) |
-| SslMode | Ssl Mode | Preferred | SSL 모드(None/Preferred/Required) |
+| SslMode | Ssl Mode | Preferred | SSL 모드(None/Preferred/Required/VerifyCA/VerifyFull/VerifyIdentity) |
 | UseServerPrepare | Use Server Prepare | false | 전역 서버 측 준비 스위치 |
 | Pipeline | Pipelining | false | 파이프라인 실행 스위치 |
 
@@ -481,6 +481,7 @@ var connStr2 = "Server=localhost;Database=mydb;User Id=root;******;SslMode=Requi
 | `None` / `Disabled` | SSL을 사용하지 않음 |
 | `Preferred` | 암호화를 우선하고, 지원하지 않으면 평문으로 폴백(기본값) |
 | `Required` | 암호화를 강제 |
+| `VerifyCA` / `VerifyFull` / `VerifyIdentity` | 인증서 체인과 호스트 이름을 검증하고 불일치 시 예외를 발생시킵니다 |
 
 ---
 
