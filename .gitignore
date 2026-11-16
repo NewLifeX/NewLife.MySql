@@ -23,3 +23,6 @@ bld/
 *.nupkg
 /Config
 /.tmp
+
+# BenchmarkDotNet 运行产物（报告与日志，不入库）
+/BenchmarkDotNet.Artifacts/

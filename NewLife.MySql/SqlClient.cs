@@ -1,4 +1,5 @@
-﻿using System.IO.Compression;
+﻿using System.Buffers;
+using System.IO.Compression;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
@@ -1220,6 +1221,10 @@ public class SqlClient : DisposeBase
         return rs;
     }
 
+    private PooledWriteStream? _compressStream;
+    private readonly Byte[] _sendHeaderBuf = new Byte[CompressedHeaderSize];
+    private readonly Byte[] _plainHeaderBuf = new Byte[4];
+
     /// <summary>发送压缩协议数据包</summary>
     private async Task SendCompressedPacketAsync(IPacket pk, Stream ms, Boolean flush, CancellationToken cancellationToken)
     {
@@ -1228,39 +1233,55 @@ public class SqlClient : DisposeBase
 
         try
         {
-            // 普通包与压缩包头都只有 3 字节长度字段。BuildPlainFrames 还会额外加 4 字节普通帧头，
+            // 普通包与压缩包头都只有 3 字节长度字段。普通帧头还要占 4 字节，
             // 因此可用载荷上限是 MaxPayload-4；超过就必须拒绝，否则长度字段回绕把协议流搞乱
             if (!CanCompressPayload(len))
                 throw new NotSupportedException(L.T("Packets larger than 16MB require UseCompression=false in the connection string."));
 
-            // 链式数据（PrepareFrameHeader 可能生成 { 帧头, Next=原包 } 链，GetSpan 仅返回单段）合并到连续缓冲，
-            // 跳过预留的 4 字节帧头，帧头由普通包自行补齐
-            var body = new Byte[len];
-            var pos = 0;
-            var skip = 4;
-            for (var node = (IPacket?)pk2; node != null; node = node.Next)
-            {
-                var span = node.GetSpan();
-                if (skip > 0)
-                {
-                    if (span.Length <= skip)
-                    {
-                        skip -= span.Length;
-                        continue;
-                    }
+            var count = len + 4;
+            var plainHeader = _plainHeaderBuf;
+            WriteFrameHeader(plainHeader, len, 0);
 
-                    span = span[skip..];
-                    skip = 0;
+            // 复用压缩输出缓冲，避免每包新建 MemoryStream 及其内部缓冲
+            var output = RentCompressStream();
+            try
+            {
+                CompressPlainFrame(output, plainHeader, pk2, 4, len, count);
+
+                var compressedLength = (Int32)output.Length;
+                // 压缩后更大（或达到上限后提前放弃）则直接发原文（未压缩长度字段填 0）
+                var sendUncompressed = compressedLength >= count;
+                var clen = sendUncompressed ? count : compressedLength;
+
+                // 7 字节压缩包头
+                var header = _sendHeaderBuf;
+                header[0] = (Byte)(clen & 0xFF);
+                header[1] = (Byte)((clen >> 8) & 0xFF);
+                header[2] = (Byte)((clen >> 16) & 0xFF);
+                header[3] = _seq++;
+                header[4] = (Byte)(sendUncompressed ? 0 : (count & 0xFF));
+                header[5] = (Byte)(sendUncompressed ? 0 : ((count >> 8) & 0xFF));
+                header[6] = (Byte)(sendUncompressed ? 0 : ((count >> 16) & 0xFF));
+
+                await ms.WriteAsync(header, 0, CompressedHeaderSize, cancellationToken).ConfigureAwait(false);
+
+                if (sendUncompressed)
+                {
+                    // 回退未压缩：普通帧头 + 载荷分片直接写网络流，不再拼接整块副本
+                    await ms.WriteAsync(plainHeader, 0, plainHeader.Length, cancellationToken).ConfigureAwait(false);
+                    await WritePayloadAsync(ms, pk2, 4, len, cancellationToken).ConfigureAwait(false);
                 }
-                if (pos + span.Length > len) span = span[..(len - pos)];
-                span.CopyTo(new Span<Byte>(body, pos, span.Length));
-                pos += span.Length;
+                else
+                {
+                    await ms.WriteAsync(output.Buffer, 0, clen, cancellationToken).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                ReturnCompressStream(output);
             }
 
-            var raw = BuildPlainFrames(body);
-            await WriteCompressedChunkAsync(ms, raw, 0, raw.Length, cancellationToken).ConfigureAwait(false);
-
-            WritePacketLog("=>", _seq, pk.GetSpan(), len);
+            WritePacketLog("=>", (Byte)(_seq - 1), pk.GetSpan(), len);
 
             if (flush) await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
 
@@ -1279,63 +1300,203 @@ public class SqlClient : DisposeBase
     /// <returns>可写入压缩包长度字段时返回 true</returns>
     internal static Boolean CanCompressPayload(Int32 payloadLength) => payloadLength >= 0 && payloadLength <= MaxPayload - 4;
 
-    /// <summary>把数据体切成普通包序列（4 字节帧头 + 数据）</summary>
-    /// <param name="body">数据体</param>
-    /// <returns>普通包序列字节</returns>
-    /// <remarks>数据体不超过 16MB 时只产生一个普通包；数据体为空时产生一个 0 长度普通包</remarks>
-    private static Byte[] BuildPlainFrames(Byte[] body)
+    /// <summary>租用压缩输出缓冲。同一连接串行发送，可安全复用</summary>
+    private PooledWriteStream RentCompressStream()
     {
-        var len = body.Length;
-        var frames = new Byte[4 + len];
-        frames[0] = (Byte)(len & 0xFF);
-        frames[1] = (Byte)((len >> 8) & 0xFF);
-        frames[2] = (Byte)((len >> 16) & 0xFF);
-        frames[3] = 0;
-        if (len > 0) Buffer.BlockCopy(body, 0, frames, 4, len);
+        var ms = _compressStream;
+        if (ms == null) return new PooledWriteStream();
 
-        return frames;
+        ms.Reset();
+        return ms;
     }
 
-    /// <summary>发送一个压缩包。数据体可能落在普通帧中间，读取端会跨包拼接</summary>
-    /// <param name="ms">网络流</param>
-    /// <param name="buffer">普通包序列缓冲</param>
-    /// <param name="offset">本压缩包起始位置</param>
-    /// <param name="count">本压缩包长度</param>
-    /// <param name="cancellationToken">取消令牌</param>
-    private async Task WriteCompressedChunkAsync(Stream ms, Byte[] buffer, Int32 offset, Int32 count, CancellationToken cancellationToken)
+    /// <summary>归还压缩输出缓冲。大包压缩后不保留大缓冲，避免连接池长期占用数 MB</summary>
+    private void ReturnCompressStream(PooledWriteStream ms)
     {
-        var seq = _seq++;
-
-        // zlib 压缩：MySQL 压缩协议使用 zlib 格式（带 2 字节头 + adler32），与 .NET DeflateStream 的 DEFLATE 格式不兼容
-        var compressed = ZlibCompress(new ReadOnlySpan<Byte>(buffer, offset, count));
-
-        // 压缩后更大则直接发原文（未压缩长度字段填 0），两者都保证长度字段不溢出
-        var sendUncompressed = compressed.Length >= count;
-        var clen = sendUncompressed ? count : compressed.Length;
-
-        using var pk = new OwnerPacket(CompressedHeaderSize + clen);
-        var dst = pk.GetSpan();
-        dst[0] = (Byte)(clen & 0xFF);
-        dst[1] = (Byte)((clen >> 8) & 0xFF);
-        dst[2] = (Byte)((clen >> 16) & 0xFF);
-        dst[3] = seq;
-        dst[4] = (Byte)(sendUncompressed ? 0 : (count & 0xFF));
-        dst[5] = (Byte)(sendUncompressed ? 0 : ((count >> 8) & 0xFF));
-        dst[6] = (Byte)(sendUncompressed ? 0 : ((count >> 16) & 0xFF));
-
-        if (sendUncompressed)
-            new ReadOnlySpan<Byte>(buffer, offset, count).CopyTo(dst[CompressedHeaderSize..]);
+        if (ms.Capacity > 64 * 1024)
+        {
+            ms.Release();
+            _compressStream = null;
+        }
         else
-            compressed.AsSpan(0, clen).CopyTo(dst[CompressedHeaderSize..]);
+        {
+            ms.Reset();
+            _compressStream = ms;
+        }
+    }
 
+    /// <summary>把普通帧（4 字节帧头 + 载荷）压缩进 zlib 流</summary>
+    /// <param name="output">压缩输出</param>
+    /// <param name="header">普通帧头</param>
+    /// <param name="pk">待发送数据包（已预留 4 字节普通帧头）</param>
+    /// <param name="skip">跳过数据包头部字节数</param>
+    /// <param name="len">载荷长度</param>
+    /// <param name="limit">压缩输出上限。达到上限说明压缩无收益，提前放弃</param>
+    private static void CompressPlainFrame(PooledWriteStream output, Byte[] header, IPacket pk, Int32 skip, Int32 len, Int32 limit)
+    {
+#if NET6_0_OR_GREATER
+        using var zlib = new ZLibStream(output, CompressionLevel.Optimal, leaveOpen: true);
+        zlib.Write(header, 0, header.Length);
+        WritePayloadToStream(zlib, output, pk, skip, len, limit, 1, false, out _);
+#else
+        // 旧框架无 ZLibStream：2 字节 zlib 头 + DEFLATE 数据 + adler32（大端）
+        output.WriteByte(0x78);
+        output.WriteByte(0x9C);
+
+        var adler = Adler32(header);
+        var ok = true;
+        using (var deflate = new DeflateStream(output, CompressionLevel.Optimal, leaveOpen: true))
+        {
+            deflate.Write(header, 0, header.Length);
+            ok = WritePayloadToStream(deflate, output, pk, skip, len, limit, adler, true, out adler);
+        }
+
+        // 达到上限后已放弃压缩，调用方会回退未压缩，无需再写尾部校验
+        if (!ok) return;
+
+        output.WriteByte((Byte)((adler >> 24) & 0xFF));
+        output.WriteByte((Byte)((adler >> 16) & 0xFF));
+        output.WriteByte((Byte)((adler >> 8) & 0xFF));
+        output.WriteByte((Byte)(adler & 0xFF));
+#endif
+    }
+
+    /// <summary>把数据包载荷分段写入压缩流；输出达到上限时提前返回 false</summary>
+    /// <param name="stream">压缩流</param>
+    /// <param name="output">压缩输出，用于判断是否还有收益</param>
+    /// <param name="pk">数据包链</param>
+    /// <param name="skip">跳过头部字节数</param>
+    /// <param name="len">载荷长度</param>
+    /// <param name="limit">压缩输出上限</param>
+    /// <param name="adler">当前 Adler-32 值</param>
+    /// <param name="updateAdler">是否更新 Adler-32</param>
+    /// <param name="newAdler">更新后的 Adler-32 值</param>
+    /// <returns>压缩仍有收益时返回 true</returns>
+    private static Boolean WritePayloadToStream(Stream stream, PooledWriteStream output, IPacket pk, Int32 skip, Int32 len, Int32 limit, UInt32 adler, Boolean updateAdler, out UInt32 newAdler)
+    {
+        newAdler = adler;
+
+        // 按 64KB 分段写入并在段间检查压缩收益，避免对不可压缩的大包做完整压缩
+        var buffer = ArrayPool<Byte>.Shared.Rent(Math.Min(len, 64 * 1024));
         try
         {
-            await pk.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+            var remaining = len;
+            for (var node = (IPacket?)pk; node != null && remaining > 0; node = node.Next)
+            {
+                Byte[] source;
+                Int32 offset, count;
+                if (node.TryGetArray(out var seg))
+                {
+                    source = seg.Array!;
+                    offset = seg.Offset;
+                    count = seg.Count;
+                }
+                else
+                {
+                    var span = node.GetSpan();
+                    source = span.ToArray();
+                    offset = 0;
+                    count = source.Length;
+                }
+
+                if (skip > 0)
+                {
+                    if (count <= skip)
+                    {
+                        skip -= count;
+                        continue;
+                    }
+
+                    offset += skip;
+                    count -= skip;
+                    skip = 0;
+                }
+                if (count > remaining) count = remaining;
+
+                while (count > 0)
+                {
+                    var n = Math.Min(count, buffer.Length);
+                    Buffer.BlockCopy(source, offset, buffer, 0, n);
+                    stream.Write(buffer, 0, n);
+                    if (updateAdler) newAdler = Adler32Update(newAdler, new ReadOnlySpan<Byte>(buffer, 0, n));
+
+                    offset += n;
+                    count -= n;
+                    remaining -= n;
+
+                    if (output.Length >= limit) return false;
+                }
+            }
         }
-        catch
+        finally
         {
-            Active = false;
-            throw;
+            ArrayPool<Byte>.Shared.Return(buffer);
+        }
+
+        return true;
+    }
+
+    /// <summary>把数据包载荷分段写入网络流（未压缩回退路径），使用池化缓冲避免整块副本</summary>
+    /// <param name="ms">网络流</param>
+    /// <param name="pk">数据包链</param>
+    /// <param name="skip">跳过头部字节数</param>
+    /// <param name="len">载荷长度</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns></returns>
+    private static async Task WritePayloadAsync(Stream ms, IPacket pk, Int32 skip, Int32 len, CancellationToken cancellationToken)
+    {
+        var buffer = ArrayPool<Byte>.Shared.Rent(Math.Min(len, 64 * 1024));
+        try
+        {
+            var remaining = len;
+            for (var node = (IPacket?)pk; node != null && remaining > 0; node = node.Next)
+            {
+                Byte[] source;
+                Int32 offset, count;
+                Byte[]? temp = null;
+                if (node.TryGetArray(out var seg))
+                {
+                    source = seg.Array!;
+                    offset = seg.Offset;
+                    count = seg.Count;
+                }
+                else
+                {
+                    var span = node.GetSpan();
+                    temp = span.ToArray();
+                    source = temp;
+                    offset = 0;
+                    count = temp.Length;
+                }
+
+                if (skip > 0)
+                {
+                    if (count <= skip)
+                    {
+                        skip -= count;
+                        continue;
+                    }
+
+                    offset += skip;
+                    count -= skip;
+                    skip = 0;
+                }
+                if (count > remaining) count = remaining;
+
+                while (count > 0)
+                {
+                    var n = Math.Min(count, buffer.Length);
+                    Buffer.BlockCopy(source, offset, buffer, 0, n);
+                    await ms.WriteAsync(buffer, 0, n, cancellationToken).ConfigureAwait(false);
+                    offset += n;
+                    count -= n;
+                    remaining -= n;
+                }
+            }
+        }
+        finally
+        {
+            ArrayPool<Byte>.Shared.Return(buffer);
         }
     }
     #endregion
@@ -1418,17 +1579,130 @@ public class SqlClient : DisposeBase
     /// <summary>计算 Adler-32 校验（zlib 格式尾部校验，旧框架手动构造时需要）</summary>
     /// <param name="data">数据</param>
     /// <returns>Adler-32 值</returns>
-    private static UInt32 Adler32(ReadOnlySpan<Byte> data)
+    private static UInt32 Adler32(ReadOnlySpan<Byte> data) => Adler32Update(1, data);
+
+    /// <summary>增量计算 Adler-32。zlib 尾部校验按数据分片写入时使用</summary>
+    /// <param name="adler">当前校验值，首次传入 1</param>
+    /// <param name="data">新增数据</param>
+    /// <returns>更新后的 Adler-32 值</returns>
+    private static UInt32 Adler32Update(UInt32 adler, ReadOnlySpan<Byte> data)
     {
-        UInt32 a = 1, b = 0;
+        UInt32 a = adler & 0xFFFF, b = adler >> 16;
         for (var i = 0; i < data.Length; i++)
         {
-            a = (a + data[i]) % 65521;
-            b = (b + a) % 65521;
+            a += data[i];
+            if (a >= 65521) a -= 65521;
+            b += a;
+            if (b >= 65521) b -= 65521;
         }
         return (b << 16) | a;
     }
     #endregion
+
+    /// <summary>池化压缩输出流。按需从 ArrayPool 扩容，避免每包新建 MemoryStream 及其内部缓冲</summary>
+    private sealed class PooledWriteStream : Stream
+    {
+        private Byte[] _buffer = [];
+        private Int32 _length;
+
+        /// <summary>当前可读数据长度</summary>
+        public override Int64 Length => _length;
+
+        /// <summary>当前缓冲容量</summary>
+        public Int32 Capacity => _buffer.Length;
+
+        /// <summary>底层缓冲</summary>
+        public Byte[] Buffer => _buffer;
+
+        /// <summary>位置。只读流仅支持读取当前长度</summary>
+        public override Int64 Position { get => _length; set => throw new NotSupportedException(); }
+
+        /// <summary>是否可读</summary>
+        public override Boolean CanRead => false;
+
+        /// <summary>是否可写</summary>
+        public override Boolean CanWrite => true;
+
+        /// <summary>是否可定位</summary>
+        public override Boolean CanSeek => false;
+
+        /// <summary>重置写入位置，保留缓冲容量</summary>
+        public void Reset() => _length = 0;
+
+        /// <summary>归还池化缓冲</summary>
+        public void Release()
+        {
+            if (_buffer.Length > 0) ArrayPool<Byte>.Shared.Return(_buffer);
+            _buffer = [];
+            _length = 0;
+        }
+
+        /// <summary>写入数据。缓冲不足时按倍数扩容并归还旧缓冲</summary>
+        /// <param name="buffer">源数据</param>
+        /// <param name="offset">源偏移</param>
+        /// <param name="count">写入长度</param>
+        public override void Write(Byte[] buffer, Int32 offset, Int32 count)
+        {
+            if (count <= 0) return;
+
+            EnsureCapacity(_length + count);
+            System.Buffer.BlockCopy(buffer, offset, _buffer, _length, count);
+            _length += count;
+        }
+
+#if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
+        /// <summary>写入数据。缓冲不足时按倍数扩容并归还旧缓冲</summary>
+        /// <param name="buffer">源数据</param>
+        public override void Write(ReadOnlySpan<Byte> buffer)
+        {
+            if (buffer.Length == 0) return;
+
+            EnsureCapacity(_length + buffer.Length);
+            buffer.CopyTo(_buffer.AsSpan(_length));
+            _length += buffer.Length;
+        }
+#endif
+
+        /// <summary>写入单字节</summary>
+        /// <param name="value">字节值</param>
+        public override void WriteByte(Byte value)
+        {
+            EnsureCapacity(_length + 1);
+            _buffer[_length++] = value;
+        }
+
+        /// <summary>刷新。池化流无内部缓冲</summary>
+        public override void Flush() { }
+
+        /// <summary>不支持读取</summary>
+        public override Int32 Read(Byte[] buffer, Int32 offset, Int32 count) => throw new NotSupportedException();
+
+        /// <summary>不支持定位</summary>
+        public override Int64 Seek(Int64 offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        /// <summary>不支持设置长度</summary>
+        public override void SetLength(Int64 value) => throw new NotSupportedException();
+
+        /// <summary>释放并归还缓冲</summary>
+        /// <param name="disposing">是否释放托管资源</param>
+        protected override void Dispose(Boolean disposing)
+        {
+            if (disposing) Release();
+
+            base.Dispose(disposing);
+        }
+
+        private void EnsureCapacity(Int32 required)
+        {
+            if (_buffer.Length >= required) return;
+
+            var size = Math.Max(required, Math.Max(1024, _buffer.Length * 2));
+            var next = ArrayPool<Byte>.Shared.Rent(size);
+            if (_length > 0) System.Buffer.BlockCopy(_buffer, 0, next, 0, _length);
+            if (_buffer.Length > 0) ArrayPool<Byte>.Shared.Return(_buffer);
+            _buffer = next;
+        }
+    }
 
     /// <summary>异步刷新网络流，确保所有缓冲数据发送到服务器</summary>
     /// <param name="cancellationToken">取消令牌</param>

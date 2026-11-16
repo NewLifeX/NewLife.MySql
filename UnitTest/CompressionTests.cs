@@ -84,6 +84,23 @@ public class CompressionTests : IDisposable
     }
 
     [Fact]
+    [DisplayName("压缩协议下不可压缩数据回退明文且往返一致")]
+    public void Compressed_IncompressiblePayload()
+    {
+        // Base64 后的随机字节近似不可压缩，覆盖“压缩后更大则回退未压缩”发送分支
+        var text = Convert.ToBase64String(Rand.NextBytes(256 * 1024));
+
+        using (var insert = new MySqlCommand(_conn, $"REPLACE INTO `{_table}` (id, name, payload) VALUES (98, 'random', @d)"))
+        {
+            insert.Parameters.AddWithValue("@d", text);
+            insert.ExecuteNonQuery();
+        }
+
+        using var select = new MySqlCommand(_conn, $"SELECT payload FROM `{_table}` WHERE id=98");
+        Assert.Equal(text, select.ExecuteScalar());
+    }
+
+    [Fact]
     [DisplayName("压缩协议下超过16MB的报文给出明确提示")]
     public void Compressed_HugePayload()
     {
