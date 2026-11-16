@@ -15,8 +15,8 @@ public class AuthenticationTests
     private static Authentication CreateAuth() => new(new SqlClient());
 
     [Fact]
-    [DisplayName("Get411Password空密码返回单字节数组")]
-    public void WhenEmptyPasswordThenReturnsSingleByteArray()
+    [DisplayName("Get411Password空密码返回零长度")]
+    public void WhenEmptyPasswordThenReturnsEmptyArray()
     {
         var auth = CreateAuth();
         var seed = new Byte[20];
@@ -24,12 +24,12 @@ public class AuthenticationTests
         var result = auth.Get411Password("", seed);
 
         Assert.NotNull(result);
-        Assert.Single(result);
+        Assert.Empty(result);
     }
 
     [Fact]
-    [DisplayName("Get411Password密码为null不抛出异常并返回单字节数组")]
-    public void WhenNullPasswordThenReturnsSingleByteArray()
+    [DisplayName("Get411Password密码为null不抛出异常并返回零长度")]
+    public void WhenNullPasswordThenReturnsEmptyArray()
     {
         var auth = CreateAuth();
         var seed = new Byte[20];
@@ -37,7 +37,7 @@ public class AuthenticationTests
         var result = auth.Get411Password(null!, seed);
 
         Assert.NotNull(result);
-        Assert.Single(result);
+        Assert.Empty(result);
     }
 
     [Fact]
@@ -52,6 +52,20 @@ public class AuthenticationTests
 
         Assert.NotNull(result);
         Assert.Equal(20, result.Length);
+    }
+
+    [Fact]
+    [DisplayName("Get411Password与 MySQL 原生口令算法已知向量一致")]
+    public void WhenGet411PasswordThenMatchesKnownVector()
+    {
+        var auth = CreateAuth();
+        var seed = new Byte[20];
+        for (var i = 0; i < seed.Length; i++) seed[i] = (Byte)(i + 1);
+
+        var result = auth.Get411Password("root", seed);
+
+        // SHA1(nonce + SHA1(SHA1(pwd))) XOR SHA1(pwd)，由 MySQL 协议独立实现计算
+        Assert.Equal("7762ABF3FD9818D9F63E079F850167CB142A0965", result.ToHex());
     }
 
     [Fact]
@@ -102,8 +116,8 @@ public class AuthenticationTests
     }
 
     [Fact]
-    [DisplayName("GetSha256Password空密码返回单元素数组")]
-    public void WhenEmptySha256PasswordThenReturnsSingleElementArray()
+    [DisplayName("GetSha256Password空密码返回零长度")]
+    public void WhenEmptySha256PasswordThenReturnsEmptyArray()
     {
         var auth = CreateAuth();
         var seed = new Byte[20];
@@ -111,8 +125,7 @@ public class AuthenticationTests
         var result = auth.GetSha256Password("", seed);
 
         Assert.NotNull(result);
-        Assert.Single(result);
-        Assert.Equal(1, result[0]);
+        Assert.Empty(result);
     }
 
     [Fact]
@@ -127,6 +140,20 @@ public class AuthenticationTests
 
         Assert.NotNull(result);
         Assert.Equal(32, result.Length);
+    }
+
+    [Fact]
+    [DisplayName("GetSha256Password与 caching_sha2_password 已知向量一致")]
+    public void WhenGetSha256PasswordThenMatchesKnownVector()
+    {
+        var auth = CreateAuth();
+        var seed = new Byte[20];
+        for (var i = 0; i < seed.Length; i++) seed[i] = (Byte)(i + 1);
+
+        var result = auth.GetSha256Password("root", seed);
+
+        // SHA256(SHA256(SHA256(pwd)) + nonce) XOR SHA256(pwd)，与 mysql_native_password 的拼接顺序相反
+        Assert.Equal("4C37B7A3D2D053B04847435E71B109A0B82A2658577CBBCFEAF0D75CDBF9F5C8", result.ToHex());
     }
 
     [Fact]

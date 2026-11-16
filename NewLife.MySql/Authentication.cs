@@ -76,9 +76,26 @@ class Authentication(SqlClient client)
             await ToNativePasswordAsync(rs, set.Password!, cancellationToken).ConfigureAwait(false);
         else if (rs.Data.Length >= 2 && rs.Data[0] == 0x01 && rs.Data[1] == 0x04)
             await PerformFullAuthenticationAsync(set.Password!, seed, cancellationToken).ConfigureAwait(false);
+        else if (rs.Data.Length >= 2 && rs.Data[0] == 0x01 && rs.Data[1] == 0x03)
+            await ReadFastAuthResultAsync(cancellationToken).ConfigureAwait(false);
         else if (!rs.IsOK)
         {
             // 既不是 OK 也不是已知的继续认证包（如空包），不能静默当作成功
+            client.Active = false;
+            throw new InvalidOperationException(L.T("Authentication failed."));
+        }
+    }
+
+    /// <summary>读取 caching_sha2_password 快速认证成功后的最终 OK 包</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>异步任务</returns>
+    /// <remarks>服务端在 0x01 0x03（fast_auth_success）之后会单独发送 OK 包，必须读走，
+    /// 否则后续命令会把 OK 包当成自己的响应，协议错位</remarks>
+    private async Task ReadFastAuthResultAsync(CancellationToken cancellationToken)
+    {
+        using var rs = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        if (!rs.IsOK)
+        {
             client.Active = false;
             throw new InvalidOperationException(L.T("Authentication failed."));
         }
@@ -211,9 +228,10 @@ class Authentication(SqlClient client)
     /// <param name="password">明文密码</param>
     /// <param name="seed">服务器握手随机数</param>
     /// <returns>哈希后的密码字节数组</returns>
+    /// <remarks>空口令必须返回零长度，协议里长度 0 才表示“无口令”</remarks>
     public Byte[] Get411Password(String password, Byte[] seed)
     {
-        if (password.IsNullOrEmpty()) return new Byte[1];
+        if (password.IsNullOrEmpty()) return [];
 
         //return password.GetBytes().SHA1(seed);
         using var sha = SHA1.Create();
@@ -237,11 +255,29 @@ class Authentication(SqlClient client)
     /// <param name="password">明文密码</param>
     /// <param name="seed">服务器握手随机数</param>
     /// <returns>哈希后的密码字节数组</returns>
+    /// <remarks>算法为 XOR(SHA256(pwd), SHA256(SHA256(SHA256(pwd)) + nonce))，
+    /// 旧实现把 nonce 当 HMAC 密钥使用，永远匹配不上服务端缓存，每次连接都会退化为 RSA 全量认证；
+    /// 空口令必须返回零长度</remarks>
     public Byte[] GetSha256Password(String password, Byte[] seed)
     {
-        if (password.IsNullOrEmpty()) return [1];
+        if (password.IsNullOrEmpty()) return [];
 
-        return password.GetBytes().SHA256(seed);
+        using var sha = SHA256.Create();
+
+        var firstHash = sha.ComputeHash(password.GetBytes());
+        var secondHash = sha.ComputeHash(firstHash);
+
+        // 与 mysql_native_password 相反：caching_sha2_password 是 SHA256(第二层哈希 + nonce)
+        var input = new Byte[secondHash.Length + seed.Length];
+        Array.Copy(secondHash, 0, input, 0, secondHash.Length);
+        Array.Copy(seed, 0, input, secondHash.Length, seed.Length);
+        var thirdHash = sha.ComputeHash(input);
+
+        var buf = thirdHash;
+        for (var i = 0; i < buf.Length; i++)
+            buf[i] = (Byte)(buf[i] ^ firstHash[i]);
+
+        return buf;
     }
 
     /// <summary>将源数据追加0字节后与模式循环异或，用于密码混淆</summary>
