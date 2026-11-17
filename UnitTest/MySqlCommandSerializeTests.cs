@@ -1,6 +1,9 @@
 using System.ComponentModel;
 using System.Globalization;
+using System.Text;
+using NewLife.Buffers;
 using NewLife.MySql;
+using NewLife.MySql.Common;
 
 namespace UnitTest;
 
@@ -208,6 +211,22 @@ public class MySqlCommandSerializeTests
         Assert.Equal(sql, MySqlCommand.ConvertToPositionalParameters(sql, parameters));
         // ANSI_QUOTES 下标识符提前结束，@p 必须变成 ?
         Assert.Equal("SELECT \"a\\\" , ?", MySqlCommand.ConvertToPositionalParameters(sql, parameters, ansiQuotes: true));
+    }
+
+    [Fact]
+    [DisplayName("TimeSpan超出MySQL TIME范围时给出明确异常")]
+    public void SerializeValue_TimeSpan_OutOfRange()
+    {
+        // MySQL TIME 上限 838:59:59；TimeSpan.MinValue 取负还会溢出
+        Assert.Throws<ArgumentOutOfRangeException>(() => MySqlCommand.SerializeValue(TimeSpan.FromHours(839)));
+        Assert.Throws<ArgumentOutOfRangeException>(() => MySqlCommand.SerializeValue(TimeSpan.MinValue));
+
+        var buffer = new Byte[256];
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+        {
+            var writer = new SpanWriter(buffer);
+            MySqlFieldCodec.WriteBinaryValue(ref writer, TimeSpan.FromHours(839), Encoding.UTF8);
+        });
     }
 
     [Fact]

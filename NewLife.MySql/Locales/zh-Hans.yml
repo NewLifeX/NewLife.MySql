@@ -67,3 +67,4 @@
 "Invalid parameter name: {0}.": "参数名无效：{0}。"
 "The column name '{0}' was not found.": "未找到列名“{0}”。"
 "Unsupported character set: {0}.": "不支持的字符集：{0}。"
+"TimeSpan value is outside the MySQL TIME range.": "TimeSpan 超出 MySQL TIME 取值范围。"

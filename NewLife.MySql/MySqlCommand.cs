@@ -1363,6 +1363,8 @@ public class MySqlCommand : DbCommand
     /// 必须把天折算成小时；微秒截断到 6 位，与二进制协议保持一致</remarks>
     internal static String FormatTimeLiteral(TimeSpan ts)
     {
+        MySqlFieldCodec.ValidateTime(ts);
+
         var negative = ts < TimeSpan.Zero;
         if (negative) ts = ts.Negate();
 

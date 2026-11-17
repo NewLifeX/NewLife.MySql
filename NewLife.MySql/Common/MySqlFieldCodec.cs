@@ -18,6 +18,9 @@ public static class MySqlFieldCodec
     /// 防止恶意超大 BLOB/TEXT 字段导致 OOM，可在应用启动时按需调整</summary>
     public static Int32 MaxFieldSize { get; set; } = 64 * 1024 * 1024;
 
+    /// <summary>MySQL TIME 最大值 838:59:59</summary>
+    private static readonly TimeSpan MaxTime = new(838, 59, 59);
+
     #region 文本协议读取
     /// <summary>从文本协议数据中解析字段值。文本协议中所有值以 UTF-8 字符串传输</summary>
     /// <remarks>
@@ -471,6 +474,8 @@ public static class MySqlFieldCodec
     /// <param name="ts">时间值</param>
     private static void WriteBinaryTime(ref SpanWriter writer, TimeSpan ts)
     {
+        ValidateTime(ts);
+
         var isNegative = ts < TimeSpan.Zero;
         if (isNegative) ts = ts.Negate();
 
@@ -497,6 +502,15 @@ public static class MySqlFieldCodec
             writer.Write((Byte)ts.Seconds);
             writer.Write((Int32)(ts.Ticks % TimeSpan.TicksPerSecond / 10));
         }
+    }
+
+    /// <summary>校验 TimeSpan 是否在 MySQL TIME 取值范围内</summary>
+    /// <param name="ts">时间值</param>
+    /// <remarks>MySQL TIME 范围为 -838:59:59 到 838:59:59；TimeSpan.MinValue 取负会溢出，统一提前给出明确异常</remarks>
+    internal static void ValidateTime(TimeSpan ts)
+    {
+        if (ts < -MaxTime || ts > MaxTime)
+            throw new ArgumentOutOfRangeException(nameof(ts), L.T("TimeSpan value is outside the MySQL TIME range."));
     }
     #endregion
 
