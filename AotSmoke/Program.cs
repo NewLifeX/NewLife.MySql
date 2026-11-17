@@ -60,7 +60,7 @@ static class Program
 
         _connBase = cfg ?? Environment.GetEnvironmentVariable("MYSQL_CONN")
             ?? "Server=127.0.0.1;Port=3306;Database=mysql;User Id=root;Password=root;";
-        // 存储过程 OUT/INOUT 参数需要多语句能力（SET 用户变量 + CALL + SELECT），默认关闭时显式为本冒烟库开启
+        // 存储过程 OUT/INOUT 参数需要多语句能力（SET 用户变量 + CALL + SELECT），显式声明以兼容可能关闭该能力的部署环境
         _conn = new MySqlConnectionStringBuilder(_connBase) { Database = "aotsmoke", AllowMultiStatements = true }.ConnectionString;
 
         // 清理模式：删除冒烟库

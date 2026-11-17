@@ -26,8 +26,8 @@ public class MySqlCommand : DbCommand
     /// <summary>命令语句</summary>
     public override String CommandText { get; set; } = null!;
 
-    /// <summary>命令类型</summary>
-    public override CommandType CommandType { get; set; }
+    /// <summary>命令类型。默认 Text，与 ADO.NET 约定一致</summary>
+    public override CommandType CommandType { get; set; } = CommandType.Text;
 
     /// <summary>事务</summary>
     protected override DbTransaction? DbTransaction { get; set; }
@@ -52,6 +52,10 @@ public class MySqlCommand : DbCommand
 
     /// <summary>更新行方式</summary>
     public override UpdateRowSource UpdatedRowSource { get; set; }
+
+    /// <summary>最近一次执行的语句在自增列上自动生成的ID，直接来自服务端 OK 包，未执行插入或没有自增列时为0。
+    /// 上层可据此省去 INSERT;SELECT LAST_INSERT_ID() 的第二次往返</summary>
+    public Int64 LastInsertedId { get; internal set; }
 
     private Int32 _statementId = -1;
     /// <summary>是否已预编译</summary>
@@ -363,6 +367,23 @@ public class MySqlCommand : DbCommand
         var operationLease = await conn.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
         var previousTimeout = client.Timeout;
 
+        // 连接显式关闭多语句时，存储过程 OUT/INOUT 的 SET→CALL→SELECT 仍依赖多语句能力：
+        // 仅在本次命令期间用 COM_SET_OPTION 临时开启，读取器关闭时恢复，用户面的关闭配置保持不变
+        var toggleMultiStatements = false;
+        if (!AllowMultiStatements && CommandType == CommandType.StoredProcedure && HasOutputParameters)
+        {
+            try
+            {
+                await client.SetOptionAsync(0, cancellationToken).ConfigureAwait(false);
+                toggleMultiStatements = true;
+            }
+            catch
+            {
+                operationLease.Dispose();
+                throw;
+            }
+        }
+
         // SchemaOnly/SingleRow 借用会话变量 SQL_SELECT_LIMIT 限制返回行数，读取器关闭时恢复。
         // SET 经临时连接复用同一客户端执行，避免在已持有租约时重入连接锁
         var selectLimit = behavior.HasFlag(CommandBehavior.SchemaOnly) ? 0 : behavior.HasFlag(CommandBehavior.SingleRow) ? 1 : -1;
@@ -376,6 +397,10 @@ public class MySqlCommand : DbCommand
             }
             catch
             {
+                // 已临时开启的多语句能力必须恢复，否则连接会带着该能力回到连接池
+                if (toggleMultiStatements)
+                    await DisableMultiStatementsAsync(client).ConfigureAwait(false);
+
                 operationLease.Dispose();
                 throw;
             }
@@ -400,6 +425,8 @@ public class MySqlCommand : DbCommand
                 CommandPhaseTimeout = CommandTimeout,
                 // CommandTimeout=0 表示整条命令（含读取阶段）都不限时；否则读取阶段沿用连接超时
                 ReadPhaseTimeout = CommandTimeout > 0 ? previousTimeout : 0,
+                // 关闭多语句的连接为存储过程 OUT/INOUT 临时开启过该能力，读取器关闭时必须关回去
+                RestoreMultiStatementsOnClose = toggleMultiStatements,
                 // 跨度覆盖命令发送到读取器关闭的完整周期
                 Activity = span,
                 // 会话变量 SQL_SELECT_LIMIT 已改写，关闭时需恢复，避免污染连接池中的会话
@@ -423,6 +450,10 @@ public class MySqlCommand : DbCommand
             // 这里必须主动恢复，否则会话把 SQL_SELECT_LIMIT=0 带回连接池，后续查询全部被静默截断为空。
             if (selectLimit >= 0)
                 await ResetSelectLimitAsync(conn, client).ConfigureAwait(false);
+
+            // 临时开启的多语句能力同样不会经由读取器关闭恢复；网络异常时连接已不可用，直接放弃发送
+            if (toggleMultiStatements && !IsNetworkException(ex))
+                await DisableMultiStatementsAsync(client).ConfigureAwait(false);
 
             operationLease.Dispose();
 
@@ -458,6 +489,24 @@ public class MySqlCommand : DbCommand
         catch
         {
             // 恢复失败时会话状态不可信，标记连接失效，避免带着行数限制归还连接池
+            client.Active = false;
+        }
+    }
+
+    /// <summary>恢复关闭多语句能力。临时开启后必须关回，避免连接归还池后仍可堆叠语句</summary>
+    /// <param name="client">底层客户端</param>
+    /// <returns></returns>
+    internal static async Task DisableMultiStatementsAsync(SqlClient? client)
+    {
+        if (client is not { Active: true }) return;
+
+        try
+        {
+            await client.SetOptionAsync(1, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+            // 恢复失败时会话状态不可信，标记连接失效，避免带着开启的多语句能力归还连接池
             client.Active = false;
         }
     }
@@ -601,9 +650,10 @@ public class MySqlCommand : DbCommand
     /// <param name="sql">待检查的 SQL</param>
     /// <param name="noBackslashEscapes">服务器是否启用 NO_BACKSLASH_ESCAPES</param>
     /// <param name="ansiQuotes">服务器是否启用 ANSI_QUOTES</param>
+    /// <param name="conservative">保守模式。用于重试判定，解析不确定或含可执行注释时按多语句处理；false 用于执行提示，只认真实语句</param>
     /// <returns>分号后仍有语句时返回 true</returns>
-    /// <remarks>解析不确定（字符串/注释未闭合）时按多语句处理，宁可放弃自动重试，也不重复执行 DML</remarks>
-    private static Boolean HasMultipleStatements(String sql, Boolean noBackslashEscapes, Boolean ansiQuotes)
+    /// <remarks>解析不确定（字符串/注释未闭合）时，保守模式按多语句处理，宁可放弃自动重试，也不重复执行 DML</remarks>
+    private static Boolean HasMultipleStatements(String sql, Boolean noBackslashEscapes, Boolean ansiQuotes, Boolean conservative = true)
     {
         var i = 0;
         while (i < sql.Length)
@@ -644,7 +694,7 @@ public class MySqlCommand : DbCommand
                     }
                     i++;
                 }
-                if (!closed) return true;
+                if (!closed) return conservative;
                 continue;
             }
 
@@ -667,25 +717,78 @@ public class MySqlCommand : DbCommand
             // 无法静态判断只读，保守放弃重试
             if (ch == '/' && i + 1 < sql.Length && sql[i + 1] == '*')
             {
-                if (i + 2 < sql.Length &&
+                if (conservative && i + 2 < sql.Length &&
                     (sql[i + 2] == '!' ||
                      (sql[i + 2] is 'M' or 'm' && i + 3 < sql.Length && sql[i + 3] == '!'))) return true;
                 var end = sql.IndexOf("*/", i + 2, StringComparison.Ordinal);
-                if (end < 0) return true;
+                if (end < 0) return conservative;
                 i = end + 2;
                 continue;
             }
 
             if (ch == ';')
             {
-                for (var j = i + 1; j < sql.Length; j++)
+                // 重试判定用保守模式：分号后只要还有非空白内容就算多语句，包括注释与不可解析内容
+                if (conservative)
                 {
-                    if (!Char.IsWhiteSpace(sql[j])) return true;
+                    for (var j = i + 1; j < sql.Length; j++)
+                    {
+                        if (!Char.IsWhiteSpace(sql[j])) return true;
+                    }
+                    return false;
                 }
-                return false;
+
+                // 执行提示只认真实语句：分号后的空白与注释都不算第二条语句
+                return HasStatementAfter(sql, i + 1);
             }
 
             i++;
+        }
+
+        return false;
+    }
+
+    /// <summary>判断分号之后是否还有真实语句。跳过空白与注释，注释未闭合时按没有后续语句处理</summary>
+    /// <param name="sql">待检查的 SQL</param>
+    /// <param name="index">分号后的起始位置</param>
+    /// <returns>仍有可执行内容时返回 true</returns>
+    private static Boolean HasStatementAfter(String sql, Int32 index)
+    {
+        var i = index;
+        while (i < sql.Length)
+        {
+            var ch = sql[i];
+            if (Char.IsWhiteSpace(ch))
+            {
+                i++;
+                continue;
+            }
+
+            // -- 行注释（MySQL 要求 -- 后跟空白）
+            if (ch == '-' && i + 1 < sql.Length && sql[i + 1] == '-' &&
+                (i + 2 >= sql.Length || Char.IsWhiteSpace(sql[i + 2])))
+            {
+                while (i < sql.Length && sql[i] != '\n' && sql[i] != '\r') i++;
+                continue;
+            }
+
+            // # 行注释
+            if (ch == '#')
+            {
+                while (i < sql.Length && sql[i] != '\n' && sql[i] != '\r') i++;
+                continue;
+            }
+
+            // 块注释
+            if (ch == '/' && i + 1 < sql.Length && sql[i + 1] == '*')
+            {
+                var end = sql.IndexOf("*/", i + 2, StringComparison.Ordinal);
+                if (end < 0) return false;
+                i = end + 2;
+                continue;
+            }
+
+            return true;
         }
 
         return false;
@@ -953,6 +1056,14 @@ public class MySqlCommand : DbCommand
             sb.Append(L.T("BatchCount: {0}", batchCount.Value));
         }
 
+        // 关闭多语句时，服务端 1064 多半是分号后还有语句；补一句提示，避免误判为 SQL 语法写错
+        if (ex is MySqlException { ErrorCode: 1064 } && !AllowMultiStatements && CommandType == CommandType.Text &&
+            HasMultipleStatements(CommandText ?? String.Empty, NoBackslashEscapes, AnsiQuotes, false))
+        {
+            sb.AppendLine();
+            sb.Append(L.T("Multiple statements require AllowMultiStatements=true in the connection string."));
+        }
+
         var message = sb.Return(true);
 
         return ex switch
@@ -987,6 +1098,20 @@ public class MySqlCommand : DbCommand
 
     /// <summary>连接是否开启多语句能力</summary>
     private Boolean AllowMultiStatements => _DbConnection?.Setting.AllowMultiStatements == true;
+
+    /// <summary>存储过程是否包含 OUT/INOUT 参数。此类调用需要 SET→CALL→SELECT 多段语句</summary>
+    private Boolean HasOutputParameters
+    {
+        get
+        {
+            foreach (MySqlParameter item in _parameters)
+            {
+                if (item.Direction != ParameterDirection.Input) return true;
+            }
+
+            return false;
+        }
+    }
     #endregion
 
     #region 执行
@@ -1073,16 +1198,8 @@ public class MySqlCommand : DbCommand
     /// <returns>完整的存储过程调用SQL</returns>
     private String BuildStoredProcedureCall()
     {
-        // OUT/INOUT 参数需要 SET 变量 → CALL → SELECT 多段语句，多语句关闭时无法生成合法调用
-        if (!AllowMultiStatements)
-        {
-            foreach (MySqlParameter item in _parameters)
-            {
-                if (item.Direction != ParameterDirection.Input && !item.ParameterName.IsNullOrEmpty())
-                    throw new InvalidOperationException(L.T("Stored procedure with OUT/INOUT parameters requires AllowMultiStatements=true in the connection string."));
-            }
-        }
-
+        // OUT/INOUT 参数需要 SET 变量 → CALL → SELECT 多段语句；
+        // 连接显式关闭多语句时，由 ExecuteDbDataReaderCoreAsync 用 COM_SET_OPTION 临时开启该能力
         var sb = Pool.StringBuilder.Get();
         var callArgs = new List<String>();
         var outParams = new List<String>();

@@ -183,4 +183,38 @@ END");
         using var verifyCmd = new MySqlCommand(_conn, $"SELECT COUNT(*) FROM `{_table}`");
         Assert.Equal(3, verifyCmd.ExecuteScalar().ToInt());
     }
+
+    [Fact]
+    [DisplayName("存储过程_关闭多语句时OUT参数仍可用且能力自动恢复")]
+    public void WhenMultiStatementsDisabledThenOutParamWorksAndOptionRestored()
+    {
+        // 使用关闭多语句的独立连接；临时表按会话隔离，需在本次会话内重建
+        var builder = new MySqlConnectionStringBuilder(DALTests.GetConnStr())
+        {
+            Database = "newlife_test",
+            AllowMultiStatements = false
+        };
+        using var conn = new MySqlConnection(builder.ConnectionString);
+        conn.Open();
+
+        conn.ExecuteNonQuery($"CREATE TEMPORARY TABLE `{_table}` (`id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY, `name` VARCHAR(128) NOT NULL, `age` INT DEFAULT NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+        conn.ExecuteNonQuery($"INSERT INTO `{_table}` (name, age) VALUES ('OutTest', 10), ('OutTest', 20), ('OutTest', 30)");
+
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = _spInOut;
+        cmd.CommandType = CommandType.StoredProcedure;
+
+        var ps = cmd.Parameters as MySqlParameterCollection;
+        ps!.AddWithValue("p_name", "OutTest");
+        var pOut = new MySqlParameter { ParameterName = "p_count", Direction = ParameterDirection.Output };
+        ps.Add(pOut);
+
+        cmd.ExecuteNonQuery();
+
+        Assert.Equal(3, pOut.Value.ToInt());
+
+        // 驱动临时开启的多语句能力必须关回：同一连接上的多语句应重新被服务端拒绝
+        using var multi = new MySqlCommand(conn, "SELECT 1; SELECT 2");
+        Assert.Throws<MySqlException>(() => multi.ExecuteScalar());
+    }
 }

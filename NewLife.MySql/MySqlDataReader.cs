@@ -155,6 +155,9 @@ public class MySqlDataReader : DbDataReader
     /// <summary>关闭读取器时是否恢复会话变量 SQL_SELECT_LIMIT。SchemaOnly/SingleRow 会改写该变量，不恢复将污染连接池中的会话</summary>
     internal Boolean ResetSelectLimit { get; set; }
 
+    /// <summary>关闭读取器时是否关闭临时开启的多语句能力。连接显式关闭多语句时，存储过程 OUT/INOUT 用 COM_SET_OPTION 临时开启</summary>
+    internal Boolean RestoreMultiStatementsOnClose { get; set; }
+
     /// <summary>关闭读取器时是否同时关闭连接（CommandBehavior.CloseConnection）</summary>
     internal Boolean CloseConnectionOnClose { get; set; }
 
@@ -521,6 +524,9 @@ public class MySqlDataReader : DbDataReader
 
             _hasReadResult = true;
             _RecordsAffected += qr.AffectedRows;
+
+            // OK 包自带自增列的最后插入ID，直接回填命令，上层可省去 SELECT LAST_INSERT_ID() 的额外往返
+            if (qr.FieldCount <= 0 && Command is MySqlCommand cmd) cmd.LastInsertedId = qr.InsertedId;
             _hasMoreResults = qr.HasMoreResults;
 
             _FieldCount = qr.FieldCount;
@@ -581,6 +587,13 @@ public class MySqlDataReader : DbDataReader
             // 必须在本读取器仍持有连接租约时恢复会话变量，否则其它命令可能插入到恢复之前
             if (ResetSelectLimit)
                 await ResetSelectLimitAsync().ConfigureAwait(false);
+
+            // 临时开启的多语句能力必须关回去，连接归还池后不能带着该能力继续服务后续命令
+            if (RestoreMultiStatementsOnClose)
+            {
+                RestoreMultiStatementsOnClose = false;
+                await MySqlCommand.DisableMultiStatementsAsync(Command.Connection is MySqlConnection mc ? mc.Client : null).ConfigureAwait(false);
+            }
 
             // SET sql_mode 后刷新缓存，避免后续文本参数按旧转义模式拼接
             if (RefreshSqlModeOnClose)
