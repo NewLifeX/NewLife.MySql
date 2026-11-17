@@ -1,7 +1,6 @@
 using System.ComponentModel;
 using NewLife;
 using NewLife.MySql;
-using Xunit.Abstractions;
 
 namespace UnitTest;
 
@@ -10,12 +9,6 @@ namespace UnitTest;
 [Collection(TestCollections.ReadOnly)]
 public class LargePacketTests
 {
-    private readonly ITestOutputHelper _output;
-
-    /// <summary>实例化</summary>
-    /// <param name="output">测试输出</param>
-    public LargePacketTests(ITestOutputHelper output) => _output = output;
-
     [Fact]
     [DisplayName("17MB参数写入与读取往返一致")]
     public async Task LargePayload_RoundTrip()
@@ -23,17 +16,11 @@ public class LargePacketTests
         using var conn = new MySqlConnection(DALTests.GetConnStr());
         await conn.OpenAsync();
 
-        // 服务端 max_allowed_packet 过小时无法验证（MySQL 8 默认 64MB）。
-        // xUnit 2.x 无公开动态 Skip API，这里显式输出跳过原因，避免报告里看起来“跑过但没测”。
-        // 收发分帧本身由 SqlClientFrameHeaderTests 的内存流用例覆盖，不依赖服务端配置。
+        // 服务端 max_allowed_packet 必须能容纳 17MB 报文；CI 已固定 64M，本机需自行调整
         using (var check = new MySqlCommand(conn, "SELECT @@max_allowed_packet"))
         {
             var max = (await check.ExecuteScalarAsync()).ToLong();
-            if (max < 40L * 1024 * 1024)
-            {
-                _output.WriteLine("跳过 17MB 往返：max_allowed_packet={0} 小于 40MB", max);
-                return;
-            }
+            Assert.True(max >= 40L * 1024 * 1024, $"max_allowed_packet={max} 小于 40MB，请将服务端 max_allowed_packet 调整为 64M 后重跑");
         }
 
         var data = new Byte[17 * 1024 * 1024];

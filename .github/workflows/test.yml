@@ -70,7 +70,7 @@ jobs:
     - name: 启动 MySQL 并准备测试库（Linux）
       if: matrix.kind == 'linux'
       run: |
-        echo -e "[mysqld]\nbind-address = *" | sudo tee /etc/mysql/mysql.conf.d/zz-ci.cnf > /dev/null
+        echo -e "[mysqld]\nbind-address = *\nmax_allowed_packet = 64M" | sudo tee /etc/mysql/mysql.conf.d/zz-ci.cnf > /dev/null
         sudo systemctl restart mysql.service
         for i in $(seq 1 30); do
           if mysqladmin ping -h 127.0.0.1 -uroot -proot --silent 2>/dev/null; then break; fi
@@ -106,7 +106,7 @@ jobs:
         $base = "C:\mysql\mysql-$ver-winx64"
         & "$base\bin\mysqld.exe" --initialize-insecure --basedir="$base" --datadir="C:\mysql-data"
         if ($LASTEXITCODE -ne 0) { exit 1 }
-        Start-Process -FilePath "$base\bin\mysqld.exe" -ArgumentList "--basedir=$base", "--datadir=C:\mysql-data", "--port=3306" -WindowStyle Hidden
+        Start-Process -FilePath "$base\bin\mysqld.exe" -ArgumentList "--basedir=$base", "--datadir=C:\mysql-data", "--port=3306", "--max_allowed_packet=64M" -WindowStyle Hidden
         for ($i = 0; $i -lt 60; $i++) {
           & "$base\bin\mysqladmin.exe" ping -h 127.0.0.1 -uroot --silent 2>$null
           if ($LASTEXITCODE -eq 0) { break }
@@ -153,7 +153,7 @@ jobs:
     # 宿主运行器自带 MySQL 8.0（root/root，默认未启动），容器经 --network host 访问
     - name: 启动 MySQL 并准备测试库
       run: |
-        echo -e "[mysqld]\nbind-address = *" | sudo tee /etc/mysql/mysql.conf.d/zz-ci.cnf > /dev/null
+        echo -e "[mysqld]\nbind-address = *\nmax_allowed_packet = 64M" | sudo tee /etc/mysql/mysql.conf.d/zz-ci.cnf > /dev/null
         sudo systemctl restart mysql.service
         for i in $(seq 1 30); do
           if mysqladmin ping -h 127.0.0.1 -uroot -proot --silent 2>/dev/null; then break; fi
@@ -233,6 +233,9 @@ jobs:
     - name: Check config metadata
       shell: pwsh
       run: pwsh -NoProfile -File ./tools/check-config-metadata.ps1
+    - name: Check packet slice ownership
+      shell: pwsh
+      run: pwsh -NoProfile -File ./tools/check-packet-slices.ps1
     - name: Check README languages
       shell: pwsh
       run: pwsh -NoProfile -File ./tools/sync-readme-languages.ps1 -Check

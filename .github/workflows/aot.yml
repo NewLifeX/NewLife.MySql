@@ -104,7 +104,7 @@ jobs:
     - name: 启动 MySQL
       if: matrix.db
       run: |
-        echo -e "[mysqld]\nbind-address = *" | sudo tee /etc/mysql/mysql.conf.d/zz-ci.cnf > /dev/null
+        echo -e "[mysqld]\nbind-address = *\nmax_allowed_packet = 64M" | sudo tee /etc/mysql/mysql.conf.d/zz-ci.cnf > /dev/null
         sudo systemctl restart mysql.service
         for i in $(seq 1 30); do
           if mysqladmin ping -h 127.0.0.1 -uroot -proot --silent 2>/dev/null; then break; fi
