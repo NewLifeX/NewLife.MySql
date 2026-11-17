@@ -52,6 +52,8 @@ public enum ClientFlags : UInt32
     CAN_HANDLE_EXPIRED_PASSWORD = (1u << 22),
     /// <summary>支持发送会话跟踪变量</summary>
     CLIENT_SESSION_TRACK = (1u << 23),
+    /// <summary>支持 zstd 压缩算法</summary>
+    ZSTD_COMPRESSION_ALGORITHM = (1u << 26),
     /// <summary>支持查询属性</summary>
     CLIENT_QUERY_ATTRIBUTES = (1u << 27),
     /// <summary>验证服务器证书</summary>

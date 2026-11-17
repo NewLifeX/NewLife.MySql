@@ -40,7 +40,7 @@ Its innovative **Pipelined Batch Execution** (Pipeline) delivers a **2×~3×** s
 |------|------|
 | Connection management | MySQL 5.x / 8.0 / 9.0+, multiple authentication methods: `mysql_native_password` + `caching_sha2_password` + `authentication_webauthn` |
 | Unix Socket | Supports Unix Domain Socket local connections with zero TCP overhead |
-| Compression protocol | Supports zlib compressed transport (`UseCompression`) to reduce network bandwidth consumption; zstd is deferred because of the zero-third-party-dependency constraint |
+| Compression protocol | Supports zlib compressed transport (`UseCompression`) and optional zstd via the `NewLife.MySql.Zstd` package |
 | Query execution | `ExecuteReader` / `ExecuteScalar` / `ExecuteNonQuery`, complete ADO.NET interfaces |
 | Parameterized queries | Client-side parameter substitution with `@parameter-name` syntax and automatic escaping to prevent injection |
 | Prepared statements | `Prepare()` uses the `COM_STMT_PREPARE` binary protocol, with an optional global `UseServerPrepare` switch |
@@ -143,7 +143,7 @@ Depends only on `NewLife.Core` (also from the NewLife team), with no GPL licensi
 | **OpenTelemetry tracing** | ✅ | ✅ | ✅ (8.1+) |
 | **OceanBase / TiDB / Aurora / Doris** | ✅ Auto-detect | ❌ | ❌ |
 | **MySqlBulkCopy** | ✅ | ✅ | ✅ |
-| **Compression protocol (zlib)** | ✅ | ✅ | ❌ |
+| **Compression protocol (zlib/zstd)** | ✅ | ✅ | ❌ |
 | **Unix Socket** | ✅ | ✅ | ❌ |
 | **WebAuthn authentication** | ✅ | ✅ | ❌ |
 | **DbDataSource** | ✅ | ❌ | ❌ |
@@ -160,6 +160,21 @@ dotnet add package NewLife.MySql
 
 ```xml
 <PackageReference Include="NewLife.MySql" Version="1.0.*" />
+```
+
+For zstd compression, also install the optional package and select the algorithm:
+
+```shell
+dotnet add package NewLife.MySql.Zstd
+```
+
+```csharp
+using NewLife.MySql.Zstd;
+ZstdCompression.Use();
+```
+
+```
+UseCompression=true;CompressionAlgorithm=zstd
 ```
 
 ---
@@ -550,6 +565,7 @@ The connection pool is enabled by default with no extra configuration needed. Ea
 | ConnectionLifeTime | 0 | Connection lifetime (seconds); 0 means never expire |
 | ConnectionIdleTime | 300 | Idle timeout (seconds); connections are reclaimed after it elapses |
 | ValidationInterval | 30 | Idle validation interval (seconds) |
+| PoolExpireTime | 600 | Idle expiration for the whole pool (seconds); `0` disables cleanup |
 
 ```csharp
 var connStr = "Server=localhost;Database=mydb;...;MinPoolSize=5;MaxPoolSize=50;ConnectionLifeTime=3600;";

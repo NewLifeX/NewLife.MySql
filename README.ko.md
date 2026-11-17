@@ -40,7 +40,7 @@
 |------|------|
 | 연결 관리 | MySQL 5.x / 8.0 / 9.0+, 다양한 인증 방식: `mysql_native_password` + `caching_sha2_password` + `authentication_webauthn` |
 | Unix Socket | TCP 오버헤드 없이 Unix Domain Socket 로컬 연결 지원 |
-| 압축 프로토콜 | 네트워크 대역폭 소모를 줄이는 zlib 압축 전송(`UseCompression`) 지원; zstd는 서드파티 의존성 제로 제약 때문에 보류 |
+| 압축 프로토콜 | zlib 압축 전송(`UseCompression`)을 지원하며, 선택적 `NewLife.MySql.Zstd` 패키지로 zstd를 사용할 수 있습니다 |
 | 쿼리 실행 | `ExecuteReader` / `ExecuteScalar` / `ExecuteNonQuery`, 완전한 ADO.NET 인터페이스 |
 | 매개변수화 쿼리 | `@parameter-name` 구문으로 클라이언트 측에서 매개변수를 치환하고 자동 이스케이프로 인젝션 방지 |
 | 준비된 문 | `Prepare()`는 `COM_STMT_PREPARE` 바이너리 프로토콜을 사용하며, 전역 `UseServerPrepare` 스위치를 선택적으로 사용 |
@@ -143,7 +143,7 @@
 | **OpenTelemetry 추적** | ✅ | ✅ | ✅ (8.1+) |
 | **OceanBase / TiDB / Aurora / Doris** | ✅ 자동 감지 | ❌ | ❌ |
 | **MySqlBulkCopy** | ✅ | ✅ | ✅ |
-| **압축 프로토콜(zlib)** | ✅ | ✅ | ❌ |
+| **압축 프로토콜(zlib/zstd)** | ✅ | ✅ | ❌ |
 | **Unix Socket** | ✅ | ✅ | ❌ |
 | **WebAuthn 인증** | ✅ | ✅ | ❌ |
 | **DbDataSource** | ✅ | ❌ | ❌ |
@@ -160,6 +160,21 @@ dotnet add package NewLife.MySql
 
 ```xml
 <PackageReference Include="NewLife.MySql" Version="1.0.*" />
+```
+
+zstd 압축을 사용하려면 선택적 패키지를 추가로 설치하고 알고리즘을 선택하세요:
+
+```shell
+dotnet add package NewLife.MySql.Zstd
+```
+
+```csharp
+using NewLife.MySql.Zstd;
+ZstdCompression.Use();
+```
+
+```
+UseCompression=true;CompressionAlgorithm=zstd
 ```
 
 ---

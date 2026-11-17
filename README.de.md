@@ -40,7 +40,7 @@ Seine innovative **pipelinegestützte Batch-Ausführung** (Pipeline) liefert bei
 |------|------|
 | Verbindungsverwaltung | MySQL 5.x / 8.0 / 9.0+, mehrere Authentifizierungsverfahren: `mysql_native_password` + `caching_sha2_password` + `authentication_webauthn` |
 | Unix Socket | Unterstützt lokale Verbindungen über Unix Domain Socket ohne TCP-Overhead |
-| Komprimierungsprotokoll | Unterstützt zlib-komprimierten Transport (`UseCompression`) zur Verringerung des Netzwerkbandbreitenbedarfs; zstd ist wegen der Vorgabe „null Drittanbieter-Abhängigkeiten“ zurückgestellt |
+| Komprimierungsprotokoll | Unterstützt zlib-komprimierten Transport (`UseCompression`) und optional zstd über das Paket `NewLife.MySql.Zstd` |
 | Abfrageausführung | `ExecuteReader` / `ExecuteScalar` / `ExecuteNonQuery`, vollständige ADO.NET-Schnittstellen |
 | Parametrisierte Abfragen | Clientseitige Parametersubstitution mit der Syntax `@parameter-name` und automatischer Maskierung zum Schutz vor Injection |
 | Prepared Statements | `Prepare()` nutzt das binäre Protokoll `COM_STMT_PREPARE`, mit optionalem globalem Schalter `UseServerPrepare` |
@@ -143,7 +143,7 @@ Hängt ausschließlich von `NewLife.Core` ab (ebenfalls vom NewLife-Team), ohne 
 | **OpenTelemetry-Tracing** | ✅ | ✅ | ✅ (8.1+) |
 | **OceanBase / TiDB / Aurora / Doris** | ✅ Automatische Erkennung | ❌ | ❌ |
 | **MySqlBulkCopy** | ✅ | ✅ | ✅ |
-| **Komprimierungsprotokoll (zlib)** | ✅ | ✅ | ❌ |
+| **Komprimierungsprotokoll (zlib/zstd)** | ✅ | ✅ | ❌ |
 | **Unix Socket** | ✅ | ✅ | ❌ |
 | **WebAuthn-Authentifizierung** | ✅ | ✅ | ❌ |
 | **DbDataSource** | ✅ | ❌ | ❌ |
@@ -160,6 +160,21 @@ dotnet add package NewLife.MySql
 
 ```xml
 <PackageReference Include="NewLife.MySql" Version="1.0.*" />
+```
+
+Für zstd-Komprimierung installieren Sie zusätzlich das optionale Paket und wählen den Algorithmus:
+
+```shell
+dotnet add package NewLife.MySql.Zstd
+```
+
+```csharp
+using NewLife.MySql.Zstd;
+ZstdCompression.Use();
+```
+
+```
+UseCompression=true;CompressionAlgorithm=zstd
 ```
 
 ---

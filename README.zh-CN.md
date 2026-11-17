@@ -42,7 +42,7 @@
 |------|------|
 | 连接管理 | MySQL 5.x / 8.0 / 9.0+，`mysql_native_password` + `caching_sha2_password` + `authentication_webauthn` 多认证 |
 | Unix Socket | 支持 Unix Domain Socket 本地连接，零 TCP 开销 |
-| 压缩协议 | 支持 zlib 压缩传输（`UseCompression`），减少网络带宽消耗；zstd 因零第三方依赖约束暂缓支持 |
+| 压缩协议 | 支持 zlib 压缩传输（`UseCompression`）；安装可选包 `NewLife.MySql.Zstd` 后支持 zstd |
 | 查询执行 | `ExecuteReader` / `ExecuteScalar` / `ExecuteNonQuery`，完整 ADO.NET 接口 |
 | 参数化查询 | 客户端参数替换，`@参数名` 语法，自动转义防注入 |
 | 预编译语句 | `Prepare()` 走 `COM_STMT_PREPARE` 二进制协议，可选 `UseServerPrepare` 全局开关 |
@@ -145,7 +145,7 @@
 | **OpenTelemetry 链路追踪** | ✅ | ✅ | ✅ (8.1+) |
 | **OceanBase / TiDB / Aurora / Doris** | ✅ 自动检测 | ❌ | ❌ |
 | **MySqlBulkCopy** | ✅ | ✅ | ✅ |
-| **压缩协议 (zlib)** | ✅ | ✅ | ❌ |
+| **压缩协议 (zlib/zstd)** | ✅ | ✅ | ❌ |
 | **Unix Socket** | ✅ | ✅ | ❌ |
 | **WebAuthn 认证** | ✅ | ✅ | ❌ |
 | **DbDataSource** | ✅ | ❌ | ❌ |
@@ -162,6 +162,21 @@ dotnet add package NewLife.MySql
 
 ```xml
 <PackageReference Include="NewLife.MySql" Version="1.0.*" />
+```
+
+需要 zstd 压缩时，再安装可选包并选择算法：
+
+```shell
+dotnet add package NewLife.MySql.Zstd
+```
+
+```csharp
+using NewLife.MySql.Zstd;
+ZstdCompression.Use();
+```
+
+```
+UseCompression=true;CompressionAlgorithm=zstd
 ```
 
 ---
@@ -552,6 +567,7 @@ using var tracerProvider = Sdk.CreateTracerProviderBuilder()
 | ConnectionLifeTime | 0 | 连接存活期（秒），0 表示永不过期 |
 | ConnectionIdleTime | 300 | 空闲超时（秒），超时后回收 |
 | ValidationInterval | 30 | 空闲验活间隔（秒） |
+| PoolExpireTime | 600 | 整个连接池空闲过期时间（秒），0 表示不清理 |
 
 ```csharp
 var connStr = "Server=localhost;Database=mydb;...;MinPoolSize=5;MaxPoolSize=50;ConnectionLifeTime=3600;";

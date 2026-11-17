@@ -24,6 +24,8 @@ public class SqlClient : DisposeBase
 
     // 压缩协议相关
     private Boolean _useCompression;
+    private MySqlCompressionAlgorithm _compressionAlgorithm;
+    private IMySqlCompressionCodec? _compressionCodec;
     private Byte[]? _compressHeaderBuf;
     // 解压缓存：一个压缩包可能包含多个普通包，缓存未消费的普通包数据（含各包 4 字节普通帧头）
     private Byte[]? _compressCache;
@@ -175,6 +177,10 @@ public class SqlClient : DisposeBase
         if (!sslMode.IsNullOrEmpty() && !IsSupportedSslMode(sslMode))
             throw new ArgumentException(L.T("Unsupported SslMode: {0}.", sslMode), nameof(set.SslMode));
 
+        // zstd 级别写入握手响应，范围与 MySQL 协议一致
+        if (set.UseCompression && set.CompressionAlgorithm == MySqlCompressionAlgorithm.Zstd && (set.ZstdCompressionLevel < 1 || set.ZstdCompressionLevel > 22))
+            throw new ArgumentOutOfRangeException(nameof(set.ZstdCompressionLevel), L.T("Zstd compression level must be between 1 and 22."));
+
         // 握手 charset 只声明编号，驱动收发始终按 UTF-8 编码。GBK/GB2312/Latin1 等会造成双向乱码，
         // 且可能让转义后的字节被服务器按另一字符集解释，直接拒绝而不是静默使用错误编码。
         if (set.CharSet is not (MySqlCharSet.Utf8 or MySqlCharSet.Utf8Mb4 or MySqlCharSet.Utf8Mb4Unicode))
@@ -316,9 +322,21 @@ public class SqlClient : DisposeBase
             // 认证成功后，将 Capability 更新为实际协商的客户端标志
             Capability = auth.GetFlags(welcome.Capability);
 
-            // 压缩协议：如果客户端和服务器都支持 COMPRESS 且连接字符串启用，则开启压缩
-            if (Capability.Has(ClientFlags.COMPRESS) && set.UseCompression)
-                _useCompression = true;
+            // 压缩协议：zstd 与 zlib 共用 7 字节压缩包头，按协商结果选择编解码器
+            if (set.UseCompression)
+            {
+                if (Capability.Has(ClientFlags.ZSTD_COMPRESSION_ALGORITHM))
+                {
+                    _compressionAlgorithm = MySqlCompressionAlgorithm.Zstd;
+                    _compressionCodec = MySqlCompression.CreateCodec(_compressionAlgorithm, set.ZstdCompressionLevel);
+                    _useCompression = true;
+                }
+                else if (Capability.Has(ClientFlags.COMPRESS))
+                {
+                    _compressionAlgorithm = MySqlCompressionAlgorithm.Zlib;
+                    _useCompression = true;
+                }
+            }
 
             // 记录当前使用的数据库
             Database = set.Database ?? "";
@@ -804,6 +822,9 @@ public class SqlClient : DisposeBase
     private void ResetCompressionState()
     {
         _useCompression = false;
+        _compressionAlgorithm = MySqlCompressionAlgorithm.Zlib;
+        _compressionCodec.TryDispose();
+        _compressionCodec = null;
         _compressCache = null;
         _compressCacheOffset = 0;
         _compressCacheLength = 0;
@@ -1187,7 +1208,7 @@ public class SqlClient : DisposeBase
 
             payload = new Byte[remain + uncompressedLen];
             if (remain > 0) Buffer.BlockCopy(_compressCache!, _compressCacheOffset, payload, 0, remain);
-            var n = ZlibDecompress(compressed, 0, compressedLen, payload, remain, uncompressedLen);
+            var n = DecompressPayload(compressed, 0, compressedLen, payload, remain, uncompressedLen);
             payloadLen = remain + n;
         }
         _compressCache = payload;
@@ -1251,7 +1272,10 @@ public class SqlClient : DisposeBase
             var output = RentCompressStream();
             try
             {
-                CompressPlainFrame(output, plainHeader, pk2, 4, len, count);
+                if (_compressionAlgorithm == MySqlCompressionAlgorithm.Zstd)
+                    CompressPlainFrameZstd(output, plainHeader, pk2, 4, len);
+                else
+                    CompressPlainFrame(output, plainHeader, pk2, 4, len, count);
 
                 var compressedLength = (Int32)output.Length;
                 // 压缩后更大（或达到上限后提前放弃）则直接发原文（未压缩长度字段填 0）
@@ -1327,6 +1351,66 @@ public class SqlClient : DisposeBase
         {
             ms.Reset();
             _compressStream = ms;
+        }
+    }
+
+    /// <summary>把普通帧（4 字节帧头 + 载荷）压缩成 zstd 数据</summary>
+    /// <param name="output">压缩输出</param>
+    /// <param name="header">普通帧头</param>
+    /// <param name="pk">待发送数据包（已预留 4 字节普通帧头）</param>
+    /// <param name="skip">跳过数据包头部字节数</param>
+    /// <param name="len">载荷长度</param>
+    private void CompressPlainFrameZstd(PooledWriteStream output, Byte[] header, IPacket pk, Int32 skip, Int32 len)
+    {
+        var codec = _compressionCodec ?? throw new InvalidOperationException(L.T("zstd compression codec is not initialized."));
+
+        var data = new Byte[header.Length + len];
+        Buffer.BlockCopy(header, 0, data, 0, header.Length);
+        CopyPayload(pk, skip, len, data, header.Length);
+
+        var compressed = codec.Compress(data, 0, data.Length);
+        output.Write(compressed, 0, compressed.Length);
+    }
+
+    /// <summary>把数据包载荷复制到连续缓冲</summary>
+    private static void CopyPayload(IPacket pk, Int32 skip, Int32 len, Byte[] target, Int32 offset)
+    {
+        var remaining = len;
+        for (var node = (IPacket?)pk; node != null && remaining > 0; node = node.Next)
+        {
+            Byte[] source;
+            Int32 sourceOffset, count;
+            if (node.TryGetArray(out var seg))
+            {
+                source = seg.Array!;
+                sourceOffset = seg.Offset;
+                count = seg.Count;
+            }
+            else
+            {
+                var span = node.GetSpan();
+                source = span.ToArray();
+                sourceOffset = 0;
+                count = source.Length;
+            }
+
+            if (skip > 0)
+            {
+                if (count <= skip)
+                {
+                    skip -= count;
+                    continue;
+                }
+
+                sourceOffset += skip;
+                count -= skip;
+                skip = 0;
+            }
+            if (count > remaining) count = remaining;
+
+            Buffer.BlockCopy(source, sourceOffset, target, offset, count);
+            offset += count;
+            remaining -= count;
         }
     }
 
@@ -1508,6 +1592,18 @@ public class SqlClient : DisposeBase
         }
     }
     #endregion
+
+    /// <summary>按当前协商算法解压压缩包载荷</summary>
+    private Int32 DecompressPayload(Byte[] compressed, Int32 offset, Int32 count, Byte[] output, Int32 outputOffset, Int32 outputCount)
+    {
+        if (_compressionAlgorithm == MySqlCompressionAlgorithm.Zstd)
+        {
+            var codec = _compressionCodec ?? throw new InvalidOperationException(L.T("zstd compression codec is not initialized."));
+            return codec.Decompress(compressed, offset, count, output, outputOffset, outputCount);
+        }
+
+        return ZlibDecompress(compressed, offset, count, output, outputOffset, outputCount);
+    }
 
     #region zlib 压缩辅助
     /// <summary>zlib 压缩。MySQL 压缩协议使用 zlib 格式（带 2 字节头 + adler32），与 .NET DeflateStream 的 DEFLATE 格式不兼容</summary>

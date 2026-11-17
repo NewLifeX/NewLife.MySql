@@ -40,7 +40,7 @@ Su innovadora **ejecución por lotes en pipeline** (Pipeline) ofrece una acelera
 |------|------|
 | Gestión de conexiones | MySQL 5.x / 8.0 / 9.0+, múltiples métodos de autenticación: `mysql_native_password` + `caching_sha2_password` + `authentication_webauthn` |
 | Unix Socket | Admite conexiones locales mediante Unix Domain Socket con cero sobrecoste de TCP |
-| Protocolo de compresión | Admite transporte comprimido con zlib (`UseCompression`) para reducir el consumo de ancho de banda; zstd queda aplazado por la restricción de cero dependencias de terceros |
+| Protocolo de compresión | Admite transporte comprimido con zlib (`UseCompression`) y zstd opcional mediante el paquete `NewLife.MySql.Zstd` |
 | Ejecución de consultas | `ExecuteReader` / `ExecuteScalar` / `ExecuteNonQuery`, interfaces ADO.NET completas |
 | Consultas parametrizadas | Sustitución de parámetros en el cliente con la sintaxis `@nombre-de-parámetro` y escape automático para prevenir inyecciones |
 | Sentencias preparadas | `Prepare()` usa el protocolo binario `COM_STMT_PREPARE`, con un interruptor global opcional `UseServerPrepare` |
@@ -143,7 +143,7 @@ Solo depende de `NewLife.Core` (también del equipo NewLife), sin riesgo de lice
 | **Trazado OpenTelemetry** | ✅ | ✅ | ✅ (8.1+) |
 | **OceanBase / TiDB / Aurora / Doris** | ✅ Detección automática | ❌ | ❌ |
 | **MySqlBulkCopy** | ✅ | ✅ | ✅ |
-| **Protocolo de compresión (zlib)** | ✅ | ✅ | ❌ |
+| **Protocolo de compresión (zlib/zstd)** | ✅ | ✅ | ❌ |
 | **Unix Socket** | ✅ | ✅ | ❌ |
 | **Autenticación WebAuthn** | ✅ | ✅ | ❌ |
 | **DbDataSource** | ✅ | ❌ | ❌ |
@@ -160,6 +160,21 @@ dotnet add package NewLife.MySql
 
 ```xml
 <PackageReference Include="NewLife.MySql" Version="1.0.*" />
+```
+
+Para compresión zstd, instale también el paquete opcional y seleccione el algoritmo:
+
+```shell
+dotnet add package NewLife.MySql.Zstd
+```
+
+```csharp
+using NewLife.MySql.Zstd;
+ZstdCompression.Use();
+```
+
+```
+UseCompression=true;CompressionAlgorithm=zstd
 ```
 
 ---

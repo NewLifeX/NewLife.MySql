@@ -68,3 +68,8 @@
 "The column name '{0}' was not found.": "No se encontró el nombre de columna \"{0}\"."
 "Unsupported character set: {0}.": "Conjunto de caracteres no compatible: {0}."
 "TimeSpan value is outside the MySQL TIME range.": "El valor TimeSpan está fuera del rango TIME de MySQL."
+"The server does not support zstd compression.": "El servidor no admite compresión zstd."
+"zstd compression is not registered. Install NewLife.MySql.Zstd and call ZstdCompression.Use().": "La compresión zstd no está registrada. Instale NewLife.MySql.Zstd y llame a ZstdCompression.Use()."
+"Unsupported compression algorithm: {0}.": "Algoritmo de compresión no admitido: {0}."
+"Zstd compression level must be between 1 and 22.": "El nivel de compresión zstd debe estar entre 1 y 22."
+"zstd compression codec is not initialized.": "El códec de compresión zstd no está inicializado."

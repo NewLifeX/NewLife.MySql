@@ -68,3 +68,8 @@
 "The column name '{0}' was not found.": "لم يتم العثور على اسم العمود \"{0}\"."
 "Unsupported character set: {0}.": "مجموعة محارف غير مدعومة: {0}."
 "TimeSpan value is outside the MySQL TIME range.": "قيمة TimeSpan خارج نطاق TIME في MySQL."
+"The server does not support zstd compression.": "لا يدعم الخادم ضغط zstd."
+"zstd compression is not registered. Install NewLife.MySql.Zstd and call ZstdCompression.Use().": "ضغط zstd غير مسجل. ثبّت NewLife.MySql.Zstd واستدع ZstdCompression.Use()."
+"Unsupported compression algorithm: {0}.": "خوارزمية ضغط غير مدعومة: {0}."
+"Zstd compression level must be between 1 and 22.": "يجب أن يكون مستوى ضغط zstd بين 1 و22."
+"zstd compression codec is not initialized.": "لم تتم تهيئة برنامج ترميز ضغط zstd."

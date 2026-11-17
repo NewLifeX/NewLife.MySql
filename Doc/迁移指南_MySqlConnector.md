@@ -131,7 +131,8 @@ var total = cmd.ExecuteArrayBatch(3);
 |-------------------|---------------------|
 | `MySqlBulkCopy` | 已支持同名 `MySqlBulkCopy`；大批量 DML 也可用管道化批量/值数组 |
 | `MySqlDataSource` (.NET 7+) | 已支持 `MySqlDataSource`（DbDataSource，net7.0+） |
-| 压缩协议 | 支持 zlib（`UseCompression=true`）；压缩下单包载荷上限 16MB-4 字节 |
+| 压缩协议 | 内置 zlib（`UseCompression=true`）；安装 `NewLife.MySql.Zstd` 后可用 `CompressionAlgorithm=zstd`；压缩下单包载荷上限 16MB-4 字节 |
+| 动态连接串 | 池按连接串创建；`PoolExpireTime`（默认 600 秒）会清理空闲池，正在使用的池不回收 |
 | Unix Socket | 支持连接串 `Socket` 参数（.NET 5+，Linux/macOS） |
 | `MySqlDecimal` | `Decimal` |
 | `MySqlDateTime` | `DateTime` |

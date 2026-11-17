@@ -1,7 +1,8 @@
-﻿using System.Collections.Concurrent;
+using System.Collections.Concurrent;
 using NewLife.Collections;
 using NewLife.Log;
 using NewLife.MySql.Common;
+using NewLife.Threading;
 
 namespace NewLife.MySql;
 
@@ -14,6 +15,24 @@ public class MySqlPool : ObjectPool<SqlClient>
 
     /// <summary>设置</summary>
     public MySqlConnectionStringBuilder? Setting { get; set; }
+
+    private readonly Object _lifecycleLock = new();
+    private DateTime _lastUsed = DateTime.UtcNow;
+    private Int32 _renting;
+    private Int32 _returning;
+    private Boolean _retired;
+
+    /// <summary>最后使用时间。用于连接池管理按空闲时间淘汰整个池</summary>
+    public DateTime LastUsed
+    {
+        get
+        {
+            lock (_lifecycleLock) return _lastUsed;
+        }
+    }
+
+    /// <summary>连接池是否已退役。退役后不再接受新的借出请求</summary>
+    public Boolean IsRetired => Volatile.Read(ref _retired);
 
     private IDictionary<String, String>? _Variables;
     private DateTime _nextTime;
@@ -68,6 +87,103 @@ public class MySqlPool : ObjectPool<SqlClient>
         _serverVersionComment = serverVersionComment;
         _databaseType = databaseType;
         _serverInfoExpire = DateTime.UtcNow.AddMinutes(10);
+    }
+
+    /// <summary>借出连接。与退役流程互斥：退役检查通过后，本次借出计入 _renting，直到借出完成</summary>
+    /// <returns>连接</returns>
+    public override SqlClient Get()
+    {
+        EnterRent();
+        try
+        {
+            return base.Get();
+        }
+        finally
+        {
+            ExitRent();
+        }
+    }
+
+    /// <summary>异步借出连接。与退役流程互斥：退役检查通过后，本次借出计入 _renting，直到借出完成</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <returns>连接</returns>
+    public override async Task<SqlClient> GetAsync(CancellationToken cancellationToken = default)
+    {
+        EnterRent();
+        try
+        {
+            return await base.GetAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            ExitRent();
+        }
+    }
+
+    /// <summary>归还连接。归还完成前不允许退役，避免清理线程把正在入池的连接丢掉</summary>
+    /// <param name="value">连接</param>
+    /// <returns>是否成功归入池</returns>
+    public override Boolean Return(SqlClient value)
+    {
+        lock (_lifecycleLock)
+        {
+            if (_retired)
+            {
+                value.TryDispose();
+                return false;
+            }
+
+            _returning++;
+            _lastUsed = DateTime.UtcNow;
+        }
+
+        try
+        {
+            return base.Return(value);
+        }
+        finally
+        {
+            lock (_lifecycleLock)
+            {
+                _returning--;
+                _lastUsed = DateTime.UtcNow;
+            }
+        }
+    }
+
+    private void EnterRent()
+    {
+        lock (_lifecycleLock)
+        {
+            if (_retired) throw new ObjectDisposedException(nameof(MySqlPool));
+
+            _renting++;
+            _lastUsed = DateTime.UtcNow;
+        }
+    }
+
+    private void ExitRent()
+    {
+        lock (_lifecycleLock)
+        {
+            _renting--;
+            _lastUsed = DateTime.UtcNow;
+        }
+    }
+
+    /// <summary>尝试退役。只有在没有借出、没有归还、没有繁忙连接时才允许退役</summary>
+    /// <param name="idleBefore">空闲截止时间，最后使用时间必须早于该时间</param>
+    /// <returns>退役成功返回 true</returns>
+    internal Boolean TryRetire(DateTime idleBefore)
+    {
+        lock (_lifecycleLock)
+        {
+            if (_retired || _renting > 0 || _returning > 0 || BusyCount > 0) return false;
+            if (_lastUsed > idleBefore) return false;
+
+            _retired = true;
+            return true;
+        }
     }
 
     /// <summary>创建连接</summary>
@@ -176,13 +292,42 @@ public class MySqlPool : ObjectPool<SqlClient>
 }
 
 /// <summary>连接池管理。根据连接字符串，换取对应连接池</summary>
-public class MySqlPoolManager
+public class MySqlPoolManager : DisposeBase
 {
     private readonly ConcurrentDictionary<String, MySqlPool> _pools = new();
+    private readonly TimerX _timer;
+
+    /// <summary>连接池数量。用于诊断动态连接字符串是否造成池对象累积</summary>
+    internal Int32 PoolCount => _pools.Count;
+
+    /// <summary>实例化连接池管理，并启动空闲池清理定时器</summary>
+    public MySqlPoolManager()
+    {
+        // 每 60 秒扫描一次。只有超过 PoolExpireTime 且没有任何借出/归还的池才会被移除
+        _timer = new TimerX(ScanPools, null, 60_000, 60_000) { Async = false };
+    }
+
     /// <summary>获取连接池。连接字符串相同时共用连接池</summary>
     /// <param name="setting"></param>
     /// <returns></returns>
-    public MySqlPool GetPool(MySqlConnectionStringBuilder setting) => _pools.GetOrAdd(setting.GetPoolKey(), k => CreatePool(setting));
+    public MySqlPool GetPool(MySqlConnectionStringBuilder setting)
+    {
+        if (Disposed) throw new ObjectDisposedException(nameof(MySqlPoolManager));
+
+        var key = setting.GetPoolKey();
+        while (true)
+        {
+            var pool = _pools.GetOrAdd(key, _ => CreatePool(setting));
+
+            // 清理线程可能刚好把旧池标记为退役。此时重新创建，避免把已释放的池交给调用方
+            if (!pool.IsRetired) return pool;
+
+            RemovePool(key, pool);
+        }
+    }
+
+    private Boolean RemovePool(String key, MySqlPool pool)
+        => ((ICollection<KeyValuePair<String, MySqlPool>>)_pools).Remove(new KeyValuePair<String, MySqlPool>(key, pool));
 
     /// <summary>创建连接池</summary>
     /// <param name="setting"></param>
@@ -204,5 +349,49 @@ public class MySqlPoolManager
         };
 
         return pool;
+    }
+
+    /// <summary>扫描并移除长时间未使用的空连接池</summary>
+    /// <param name="state">定时器状态</param>
+    private void ScanPools(Object? state) => SweepPools(DateTime.UtcNow);
+
+    /// <summary>按最后使用时间清理空闲连接池。返回移除数量，便于测试和诊断</summary>
+    /// <param name="now">当前时间</param>
+    /// <returns>移除的连接池数量</returns>
+    internal Int32 SweepPools(DateTime now)
+    {
+        var count = 0;
+        foreach (var item in _pools)
+        {
+            var pool = item.Value;
+            var expire = pool.Setting?.PoolExpireTime ?? 0;
+            if (expire <= 0) continue;
+
+            var idleBefore = now.AddSeconds(-expire);
+            if (!pool.TryRetire(idleBefore)) continue;
+
+            RemovePool(item.Key, pool);
+            pool.Dispose();
+            count++;
+        }
+
+        return count;
+    }
+
+    /// <summary>销毁管理器，停止定时器并释放所有连接池</summary>
+    /// <param name="disposing">是否释放托管资源</param>
+    protected override void Dispose(Boolean disposing)
+    {
+        if (disposing)
+        {
+            _timer.TryDispose();
+
+            foreach (var item in _pools)
+            {
+                if (_pools.TryRemove(item.Key, out var pool)) pool.TryDispose();
+            }
+        }
+
+        base.Dispose(disposing);
     }
 }

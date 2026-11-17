@@ -40,7 +40,7 @@
 |------|------|
 | إدارة الاتصالات | MySQL 5.x / 8.0 / 9.0+، وطرق مصادقة متعددة: `mysql_native_password` + `caching_sha2_password` + `authentication_webauthn` |
 | Unix Socket | يدعم الاتصالات المحلية عبر Unix Domain Socket دون أي كلفة TCP |
-| بروتوكول الضغط | يدعم النقل المضغوط zlib (`UseCompression`) لتقليل استهلاك عرض النطاق؛ وتأجيل zstd بسبب قيد صفر التبعيات الخارجية |
+| بروتوكول الضغط | يدعم النقل المضغوط zlib (`UseCompression`) وzstd الاختياري عبر حزمة `NewLife.MySql.Zstd` |
 | تنفيذ الاستعلامات | `ExecuteReader` / `ExecuteScalar` / `ExecuteNonQuery`، وواجهات ADO.NET كاملة |
 | الاستعلامات ذات المعاملات | استبدال المعاملات من جانب العميل بصيغة `@parameter-name` مع تهريب تلقائي لمنع الحقن |
 | العبارات المُعدّة مسبقًا | يستخدم `Prepare()` البروتوكول الثنائي `COM_STMT_PREPARE`، مع مفتاح عام اختياري `UseServerPrepare` |
@@ -143,7 +143,7 @@
 | **تتبّع OpenTelemetry** | ✅ | ✅ | ✅ (8.1+) |
 | **OceanBase / TiDB / Aurora / Doris** | ✅ كشف تلقائي | ❌ | ❌ |
 | **MySqlBulkCopy** | ✅ | ✅ | ✅ |
-| **بروتوكول الضغط (zlib)** | ✅ | ✅ | ❌ |
+| **بروتوكول الضغط (zlib/zstd)** | ✅ | ✅ | ❌ |
 | **Unix Socket** | ✅ | ✅ | ❌ |
 | **مصادقة WebAuthn** | ✅ | ✅ | ❌ |
 | **DbDataSource** | ✅ | ❌ | ❌ |
@@ -160,6 +160,21 @@ dotnet add package NewLife.MySql
 
 ```xml
 <PackageReference Include="NewLife.MySql" Version="1.0.*" />
+```
+
+لضغط zstd، ثبّت الحزمة الاختيارية وحدد الخوارزمية:
+
+```shell
+dotnet add package NewLife.MySql.Zstd
+```
+
+```csharp
+using NewLife.MySql.Zstd;
+ZstdCompression.Use();
+```
+
+```
+UseCompression=true;CompressionAlgorithm=zstd
 ```
 
 ---

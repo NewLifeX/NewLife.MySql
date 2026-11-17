@@ -40,7 +40,7 @@
 |------|------|
 | Управление соединениями | MySQL 5.x / 8.0 / 9.0+, несколько методов аутентификации: `mysql_native_password` + `caching_sha2_password` + `authentication_webauthn` |
 | Unix Socket | Поддержка локальных подключений через Unix Domain Socket без накладных расходов TCP |
-| Протокол сжатия | Поддержка сжатой передачи zlib (`UseCompression`) для снижения расхода сетевой пропускной способности; zstd отложен из-за требования нулевых сторонних зависимостей |
+| Протокол сжатия | Поддержка сжатой передачи zlib (`UseCompression`) и zstd через необязательный пакет `NewLife.MySql.Zstd` |
 | Выполнение запросов | `ExecuteReader` / `ExecuteScalar` / `ExecuteNonQuery`, полный набор интерфейсов ADO.NET |
 | Параметризованные запросы | Клиентская подстановка параметров с синтаксисом `@parameter-name` и автоматическим экранированием для защиты от инъекций |
 | Подготовленные выражения | `Prepare()` использует бинарный протокол `COM_STMT_PREPARE`, есть необязательный глобальный переключатель `UseServerPrepare` |
@@ -143,7 +143,7 @@
 | **Трассировка OpenTelemetry** | ✅ | ✅ | ✅ (8.1+) |
 | **OceanBase / TiDB / Aurora / Doris** | ✅ Автоопределение | ❌ | ❌ |
 | **MySqlBulkCopy** | ✅ | ✅ | ✅ |
-| **Протокол сжатия (zlib)** | ✅ | ✅ | ❌ |
+| **Протокол сжатия (zlib/zstd)** | ✅ | ✅ | ❌ |
 | **Unix Socket** | ✅ | ✅ | ❌ |
 | **Аутентификация WebAuthn** | ✅ | ✅ | ❌ |
 | **DbDataSource** | ✅ | ❌ | ❌ |
@@ -160,6 +160,21 @@ dotnet add package NewLife.MySql
 
 ```xml
 <PackageReference Include="NewLife.MySql" Version="1.0.*" />
+```
+
+Для сжатия zstd дополнительно установите необязательный пакет и выберите алгоритм:
+
+```shell
+dotnet add package NewLife.MySql.Zstd
+```
+
+```csharp
+using NewLife.MySql.Zstd;
+ZstdCompression.Use();
+```
+
+```
+UseCompression=true;CompressionAlgorithm=zstd
 ```
 
 ---

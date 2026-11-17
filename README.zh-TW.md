@@ -42,7 +42,7 @@
 |------|------|
 | 連線管理 | MySQL 5.x / 8.0 / 9.0+，`mysql_native_password` + `caching_sha2_password` + `authentication_webauthn` 多重驗證 |
 | Unix Socket | 支援 Unix Domain Socket 本機連線，零 TCP 額外負擔 |
-| 壓縮通訊協定 | 支援 zlib 壓縮傳輸（`UseCompression`），降低網路頻寬消耗；zstd 因零第三方相依性約束暫緩支援 |
+| 壓縮通訊協定 | 支援 zlib 壓縮傳輸（`UseCompression`）；安裝可選套件 `NewLife.MySql.Zstd` 後支援 zstd |
 | 查詢執行 | `ExecuteReader` / `ExecuteScalar` / `ExecuteNonQuery`，完整 ADO.NET 介面 |
 | 參數化查詢 | 用戶端參數替換，`@參數名` 語法，自動逸出防注入 |
 | 預備語句 | `Prepare()` 走 `COM_STMT_PREPARE` 二進位通訊協定，可選用 `UseServerPrepare` 全域開關 |
@@ -145,7 +145,7 @@
 | **OpenTelemetry 鏈路追蹤** | ✅ | ✅ | ✅ (8.1+) |
 | **OceanBase / TiDB / Aurora / Doris** | ✅ 自動偵測 | ❌ | ❌ |
 | **MySqlBulkCopy** | ✅ | ✅ | ✅ |
-| **壓縮通訊協定 (zlib)** | ✅ | ✅ | ❌ |
+| **壓縮通訊協定 (zlib/zstd)** | ✅ | ✅ | ❌ |
 | **Unix Socket** | ✅ | ✅ | ❌ |
 | **WebAuthn 驗證** | ✅ | ✅ | ❌ |
 | **DbDataSource** | ✅ | ❌ | ❌ |
@@ -162,6 +162,21 @@ dotnet add package NewLife.MySql
 
 ```xml
 <PackageReference Include="NewLife.MySql" Version="1.0.*" />
+```
+
+需要 zstd 壓縮時，再安裝可選套件並選擇演算法：
+
+```shell
+dotnet add package NewLife.MySql.Zstd
+```
+
+```csharp
+using NewLife.MySql.Zstd;
+ZstdCompression.Use();
+```
+
+```
+UseCompression=true;CompressionAlgorithm=zstd
 ```
 
 ---

@@ -5,6 +5,7 @@ on:
     branches: [ master, dev ]
     paths:
       - 'NewLife.MySql/**'
+      - 'NewLife.MySql.Zstd/**'
       - 'NewLife.MySql.EntityFramework/**'
       - 'NewLife.MySql.EntityFrameworkCore/**'
       - 'UnitTest/**'
@@ -18,6 +19,7 @@ on:
   pull_request:
     paths:
       - 'NewLife.MySql/**'
+      - 'NewLife.MySql.Zstd/**'
       - 'NewLife.MySql.EntityFramework/**'
       - 'NewLife.MySql.EntityFrameworkCore/**'
       - 'UnitTest/**'

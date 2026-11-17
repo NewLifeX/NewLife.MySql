@@ -56,6 +56,10 @@ class Authentication(SqlClient client)
         writer.WriteLength(attrs.Length);
         writer.Write(attrs);
 
+        // zstd 握手响应末尾追加压缩级别；服务器只有声明 ZSTD 能力时才读取该字节
+        if ((flags2 & ClientFlags.ZSTD_COMPRESSION_ALGORITHM) != 0)
+            writer.WriteByte((Byte)set.ZstdCompressionLevel);
+
         // 切片共享底层缓冲（v12 引用计数语义，原包保持有效）：SendPacketAsync 发送即消费会释放传入句柄，此处兜底（Dispose 幂等），原包由 using 在作用域末归还
         var pk2 = pk.Slice(4, writer.Position - 4);
 
@@ -350,9 +354,21 @@ class Authentication(SqlClient client)
         if ((caps & ClientFlags.MULTI_FACTOR_AUTHENTICATION) != 0)
             flags |= ClientFlags.MULTI_FACTOR_AUTHENTICATION;
 
-        // 压缩
-        if ((caps & ClientFlags.COMPRESS) != 0 && client.Setting.UseCompression)
-            flags |= ClientFlags.COMPRESS;
+        // 压缩。客户端显式选择 zstd 时，服务器必须支持且可选包已注册，不在算法之间静默降级
+        if (client.Setting.UseCompression)
+        {
+            if (client.Setting.CompressionAlgorithm == MySqlCompressionAlgorithm.Zstd)
+            {
+                if ((caps & ClientFlags.ZSTD_COMPRESSION_ALGORITHM) == 0)
+                    throw new NotSupportedException(L.T("The server does not support zstd compression."));
+                if (!MySqlCompression.IsRegistered(MySqlCompressionAlgorithm.Zstd))
+                    throw new NotSupportedException(L.T("zstd compression is not registered. Install NewLife.MySql.Zstd and call ZstdCompression.Use()."));
+
+                flags |= ClientFlags.ZSTD_COMPRESSION_ALGORITHM;
+            }
+            else if ((caps & ClientFlags.COMPRESS) != 0)
+                flags |= ClientFlags.COMPRESS;
+        }
 
         return flags;
     }

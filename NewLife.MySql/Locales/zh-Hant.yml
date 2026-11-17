@@ -68,3 +68,8 @@
 "The column name '{0}' was not found.": "未找到資料行名稱「{0}」。"
 "Unsupported character set: {0}.": "不支援的字元集：{0}。"
 "TimeSpan value is outside the MySQL TIME range.": "TimeSpan 超出 MySQL TIME 取值範圍。"
+"The server does not support zstd compression.": "伺服器不支援 zstd 壓縮。"
+"zstd compression is not registered. Install NewLife.MySql.Zstd and call ZstdCompression.Use().": "未註冊 zstd 壓縮。請安裝 NewLife.MySql.Zstd 並呼叫 ZstdCompression.Use()。"
+"Unsupported compression algorithm: {0}.": "不支援的壓縮演算法：{0}。"
+"Zstd compression level must be between 1 and 22.": "zstd 壓縮層級必須介於 1 到 22 之間。"
+"zstd compression codec is not initialized.": "zstd 壓縮編解碼器未初始化。"

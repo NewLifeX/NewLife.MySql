@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using NewLife;
 using NewLife.MySql;
+using NewLife.MySql.Zstd;
 using NewLife.Security;
 
 namespace UnitTest;
@@ -113,6 +114,51 @@ public class CompressionTests : IDisposable
 
         var ex = Assert.ThrowsAny<Exception>(() => cmd.ExecuteNonQuery());
         Assert.Contains("UseCompression", ex.ToString());
+    }
+
+    [Fact]
+    [DisplayName("zstd压缩协议下查询与大数据往返")]
+    public void Zstd_QueryAndLargePayload()
+    {
+        ZstdCompression.Use();
+
+        var table = "zstd_comp_" + Rand.Next(10000);
+        var connStr = _ConnStr.TrimEnd(';') + ";UseCompression=true;CompressionAlgorithm=zstd;MaxPoolSize=1;";
+        using var conn = new MySqlConnection(connStr);
+        conn.Open();
+
+        using (var cmd = new MySqlCommand(conn, "SELECT 1"))
+            Assert.Equal(1L, cmd.ExecuteScalar());
+
+        conn.ExecuteNonQuery($"CREATE TEMPORARY TABLE `{table}` (`id` INT NOT NULL PRIMARY KEY, `payload` LONGTEXT) ENGINE=InnoDB");
+
+        var text = new String('z', 256 * 1024);
+        using (var insert = new MySqlCommand(conn, $"INSERT INTO `{table}` VALUES (1, @p)"))
+        {
+            insert.Parameters.AddWithValue("@p", text);
+            insert.ExecuteNonQuery();
+        }
+
+        using (var select = new MySqlCommand(conn, $"SELECT payload FROM `{table}` WHERE id=1"))
+            Assert.Equal(text, select.ExecuteScalar());
+
+        // 预编译参数路径
+        using (var prepared = new MySqlCommand("SELECT @v", conn))
+        {
+            prepared.Parameters.AddWithValue("@v", 42);
+            prepared.Prepare();
+            Assert.Equal(42L, prepared.ExecuteScalar());
+        }
+
+        // 不可压缩数据走“压缩后更大则回退明文”分支
+        var random = Convert.ToBase64String(Rand.NextBytes(256 * 1024));
+        using (var insert = new MySqlCommand(conn, $"REPLACE INTO `{table}` VALUES (2, @p)"))
+        {
+            insert.Parameters.AddWithValue("@p", random);
+            insert.ExecuteNonQuery();
+        }
+        using (var select = new MySqlCommand(conn, $"SELECT payload FROM `{table}` WHERE id=2"))
+            Assert.Equal(random, select.ExecuteScalar());
     }
 
     [Fact]

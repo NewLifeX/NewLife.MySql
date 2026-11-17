@@ -47,8 +47,31 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// <summary>Unix域套接字路径。设置后将通过 Unix domain socket 而非 TCP 连接，仅 .NET Core 5.0+ 且 Linux/macOS 生效</summary>
     public String? Socket { get => this[nameof(Socket)] as String; set => this[nameof(Socket)] = value; }
 
-    /// <summary>是否启用压缩协议。启用后客户端和服务器之间的通信使用 zlib 压缩，减少网络流量，默认false</summary>
+    /// <summary>是否启用压缩协议。启用后客户端和服务器之间的通信按 <see cref="CompressionAlgorithm"/> 压缩，减少网络流量，默认false</summary>
     public Boolean UseCompression { get => this[nameof(UseCompression)].ToBoolean(); set => this[nameof(UseCompression)] = value; }
+
+    /// <summary>压缩算法。默认 Zlib；Zstd 需要安装 NewLife.MySql.Zstd 可选包并调用 ZstdCompression.Use()</summary>
+    public MySqlCompressionAlgorithm CompressionAlgorithm
+    {
+        get
+        {
+            var value = this[nameof(CompressionAlgorithm)];
+            if (value is MySqlCompressionAlgorithm algorithm) return algorithm;
+            if (value is String text && !text.IsNullOrEmpty())
+            {
+                if (text.EqualIgnoreCase("zlib")) return MySqlCompressionAlgorithm.Zlib;
+                if (text.EqualIgnoreCase("zstd")) return MySqlCompressionAlgorithm.Zstd;
+
+                throw new ArgumentException(L.T("Unsupported compression algorithm: {0}.", text), nameof(CompressionAlgorithm));
+            }
+
+            return MySqlCompressionAlgorithm.Zlib;
+        }
+        set => this[nameof(CompressionAlgorithm)] = value.ToString();
+    }
+
+    /// <summary>zstd 压缩级别。默认3，范围1~22，级别越高压缩率越好但 CPU 开销越大</summary>
+    public Int32 ZstdCompressionLevel { get => GetInt32(nameof(ZstdCompressionLevel), 3); set => this[nameof(ZstdCompressionLevel)] = value; }
 
     /// <summary>是否使用服务端预编译执行。启用后参数化查询走 COM_STMT_PREPARE/EXECUTE 二进制协议，默认false</summary>
     public Boolean UseServerPrepare { get => this[nameof(UseServerPrepare)].ToBoolean(); set => this[nameof(UseServerPrepare)] = value; }
@@ -88,6 +111,10 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
     /// 借出前 PING 验活阈值取此值的80%，即 IdlePoolTime×0.8 秒闲置后借出前自动补一次 PING。</summary>
     public Int32 IdlePoolTime { get => GetInt32(nameof(IdlePoolTime), 60); set => this[nameof(IdlePoolTime)] = value; }
 
+    /// <summary>连接池过期时间（秒）。默认600。整个连接池超过该时长没有借出或归还，且没有繁忙连接时，
+    /// 定时器会移除该池并释放其中连接。动态连接字符串场景用于防止池对象无限累积；0 表示不清理。</summary>
+    public Int32 PoolExpireTime { get => GetInt32(nameof(PoolExpireTime), 600); set => this[nameof(PoolExpireTime)] = value; }
+
     /// <summary>字符集。默认Utf8Mb4，支持4字节Unicode（含emoji）。握手时写入协议编号，等效于SET NAMES。
     /// 当前驱动只支持 UTF-8 系列，GBK/GB2312/Latin1 等会在建连时拒绝</summary>
     public MySqlCharSet CharSet
@@ -121,6 +148,8 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
             [nameof(SslMode)] = ["sslmode", "ssl mode", "ssl-mode"],
             [nameof(Socket)] = ["socket", "unixsocket", "unix socket", "pipe name", "pipename"],
             [nameof(UseCompression)] = ["usecompression", "use compression", "compress", "compressed"],
+            [nameof(CompressionAlgorithm)] = ["compressionalgorithm", "compression algorithm", "compression"],
+            [nameof(ZstdCompressionLevel)] = ["zstdcompressionlevel", "zstd compression level", "zstdlevel"],
             [nameof(UseServerPrepare)] = ["useserverprepare", "use server prepare", "use_server_prepare"],
             [nameof(Pipeline)] = ["pipeline", "pipelining"],
             [nameof(TracePackets)] = ["tracepackets", "trace packets", "packettrace", "packet trace"],
@@ -132,6 +161,7 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
             [nameof(LoadBalanceTimeout)] = ["loadbalancetimeout", "load balance timeout"],
             [nameof(ConnectionLifeTime)] = ["connectionlifetime", "connection lifetime", "connection life time", "connlifetime"],
             [nameof(IdlePoolTime)] = ["idlepooltime", "idle pool time", "pool idle time", "idletime", "idle time"],
+            [nameof(PoolExpireTime)] = ["poolexpiretime", "pool expire time", "pool expiry", "poolexpiry"],
             [nameof(CharSet)] = ["charset", "character set", "characterset", "char set"],
         };
 
@@ -150,6 +180,7 @@ public class MySqlConnectionStringBuilder : DbConnectionStringBuilder
         RetryOnNetworkFailure = true;
         ConnectionLifeTime = 600;
         IdlePoolTime = 60;
+        PoolExpireTime = 600;
     }
 
     /// <summary>使用连接字符串实例化</summary>

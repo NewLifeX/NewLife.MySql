@@ -304,14 +304,25 @@ public sealed partial class MySqlConnection : DbConnection
             var client = Client;
             if (client == null)
             {
-                // 根据连接字符串创建连接池,然后从连接池获取连接
-                _pool = Factory?.PoolManager?.GetPool(Setting);
-
-                if (_pool != null)
+                // 根据连接字符串创建连接池,然后从连接池获取连接。
+                // 空闲池清理与借出可能并发：池刚被退役时重新取一次，避免把已释放的连接池交给调用方
+                for (var i = 0; i < 3; i++)
                 {
-                    client = await _pool.GetAsync(cancellationToken).ConfigureAwait(false);
-                    borrowedClient = client;
+                    _pool = Factory?.PoolManager?.GetPool(Setting);
+                    if (_pool == null) break;
+
+                    try
+                    {
+                        client = await _pool.GetAsync(cancellationToken).ConfigureAwait(false);
+                        borrowedClient = client;
+                        break;
+                    }
+                    catch (ObjectDisposedException) when (_pool.IsRetired && i < 2)
+                    {
+                        _pool = null;
+                    }
                 }
+
                 client ??= new SqlClient(Setting);
                 borrowedClient ??= client;
 

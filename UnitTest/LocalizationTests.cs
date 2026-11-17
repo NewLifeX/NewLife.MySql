@@ -91,6 +91,7 @@ public class LocalizationTests
             ("Connection is not open.", []),
             ("Authentication failed.", []),
             ("The server does not support SSL connections.", []),
+            ("The server does not support zstd compression.", []),
             ("The database connection has been closed.", []),
             ("Transaction has already been committed or is not pending.", []),
             ("Binlog reconnected: {0}", ["mysql-bin.000001"]),

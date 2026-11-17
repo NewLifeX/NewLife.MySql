@@ -29,6 +29,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\NewLife.MySql\NewLife.MySql.csproj" />
+    <ProjectReference Include="..\NewLife.MySql.Zstd\NewLife.MySql.Zstd.csproj" />
   </ItemGroup>
 
   <ItemGroup>

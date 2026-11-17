@@ -16,6 +16,7 @@
   <Project Path="NewLife.MySql.EntityFramework/NewLife.MySql.EntityFramework.csproj" />
   <Project Path="NewLife.MySql.EntityFrameworkCore/NewLife.MySql.EntityFrameworkCore.csproj" />
   <Project Path="NewLife.MySql/NewLife.MySql.csproj" />
+  <Project Path="NewLife.MySql.Zstd/NewLife.MySql.Zstd.csproj" />
   <Project Path="Test/Test.csproj" />
   <Project Path="UnitTest.EntityFramework/UnitTest.EntityFramework.csproj" />
   <Project Path="UnitTest.EntityFrameworkCore/UnitTest.EntityFrameworkCore.csproj" />

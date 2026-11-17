@@ -276,4 +276,61 @@ public class ConnectionPoolParameterTests
 
         Assert.Same(pool1, pool2);
     }
+
+    [Fact(DisplayName = "连接字符串_压缩算法默认zlib并可指定zstd")]
+    public void CompressionAlgorithm_DefaultAndZstd()
+    {
+        var builder = new MySqlConnectionStringBuilder();
+        Assert.Equal(MySqlCompressionAlgorithm.Zlib, builder.CompressionAlgorithm);
+
+        var zstd = new MySqlConnectionStringBuilder("server=localhost;CompressionAlgorithm=zstd;ZstdCompressionLevel=8");
+        Assert.Equal(MySqlCompressionAlgorithm.Zstd, zstd.CompressionAlgorithm);
+        Assert.Equal(8, zstd.ZstdCompressionLevel);
+
+        var assigned = new MySqlConnectionStringBuilder { CompressionAlgorithm = MySqlCompressionAlgorithm.Zstd };
+        Assert.Equal(MySqlCompressionAlgorithm.Zstd, assigned.CompressionAlgorithm);
+        Assert.Contains("CompressionAlgorithm=Zstd", assigned.ConnectionString);
+    }
+
+    [Fact(DisplayName = "连接字符串_PoolExpireTime默认值为600")]
+    public void PoolExpireTime_DefaultValue()
+    {
+        var builder = new MySqlConnectionStringBuilder();
+
+        Assert.Equal(600, builder.PoolExpireTime);
+    }
+
+    [Fact(DisplayName = "连接池_空闲池被清理定时器移除")]
+    public void Pool_IdlePool_RemovedBySweep()
+    {
+        using var poolManager = new MySqlPoolManager();
+        var setting = new MySqlConnectionStringBuilder("server=127.0.0.1;port=3306;uid=root;pwd=root;database=sys;PoolExpireTime=1");
+        var pool = poolManager.GetPool(setting);
+
+        var removed = poolManager.SweepPools(DateTime.UtcNow.AddMinutes(1));
+
+        Assert.Equal(1, removed);
+        Assert.True(pool.IsRetired);
+        Assert.Equal(0, poolManager.PoolCount);
+        Assert.Throws<ObjectDisposedException>(() => pool.Get());
+    }
+
+    [Fact(DisplayName = "连接池_有借出连接时不会被清理")]
+    public void Pool_BusyPool_NotRemoved()
+    {
+        using var poolManager = new MySqlPoolManager();
+        var setting = new MySqlConnectionStringBuilder("server=127.0.0.1;port=3306;uid=root;pwd=root;database=sys;PoolExpireTime=1");
+        var pool = poolManager.GetPool(setting);
+        var client = pool.Get();
+
+        try
+        {
+            Assert.Equal(0, poolManager.SweepPools(DateTime.UtcNow.AddMinutes(1)));
+            Assert.False(pool.IsRetired);
+        }
+        finally
+        {
+            pool.Return(client);
+        }
+    }
 }
