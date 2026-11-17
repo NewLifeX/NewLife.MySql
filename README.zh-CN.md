@@ -117,7 +117,7 @@
 
 ### 🌐 广泛兼容
 
-- **框架**：`net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net8.0` / `net10.0`
+- **框架**：`net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net8.0` / `net10.0` / `net11.0`
 - **NativeAOT**：`net8.0+` 支持裁剪与 NativeAOT（`IsAotCompatible`，含 `AotSmoke` 冒烟与 CI 主流 RID 矩阵防回归；必选 win-x64 / linux-x64 / linux-arm64；龙芯 linux-la64 以 QEMU 仿真覆盖（观察期：可运行、失败不阻断），见 [AOT兼容性评估](Doc/AOT兼容性评估.md)）
 - **MySQL**：5.5 ~ 9.0+，`mysql_native_password` + `caching_sha2_password`
 - **兼容库**：OceanBase、TiDB、Doris（自动检测）、Aurora / CloudSQL（云数据库）、MariaDB（基础）
@@ -439,7 +439,7 @@ using var reader = batch.ExecuteReader();
 
 ## EF Core 支持
 
-`NewLife.MySql.EntityFrameworkCore` 包提供 EF Core 数据库提供程序，支持 .NET 6 / .NET 8 / .NET 10。
+`NewLife.MySql.EntityFrameworkCore` 包提供 EF Core 数据库提供程序，支持 .NET 6 / .NET 8 / .NET 10 / .NET 11。
 
 ```shell
 dotnet add package NewLife.MySql.EntityFrameworkCore
@@ -641,7 +641,7 @@ Console.WriteLine($"Database type: {conn2.DatabaseType}");  // TiDB
 | `net45` / `net461` | .NET Framework，兼容老项目 |
 | `netstandard2.0` / `netstandard2.1` | 跨平台兼容，支持异步 Dispose |
 | `net6.0` | 额外支持 DbBatch API |
-| `net10.0` | 最新 .NET，最优性能 |
+| `net10.0` / `net11.0` | 最新 .NET，最优性能 |
 
 ---
 

@@ -23,10 +23,9 @@ jobs:
       with:
         dotnet-version: |
           6.x
-          7.x
           8.x
-          9.x
           10.x
+          11.x
     - name: Get Version
       run: echo "VERSION=$(date '+%Y.%m%d')" >> $GITHUB_ENV
     - name: Guard - 正式发布禁止预发布依赖

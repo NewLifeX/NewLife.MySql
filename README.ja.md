@@ -117,7 +117,7 @@
 
 ### 🌐 広範な互換性
 
-- **フレームワーク**：`net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net8.0` / `net10.0`
+- **フレームワーク**：`net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net8.0` / `net10.0` / `net11.0`
 - **NativeAOT**：`net8.0+` でトリミングと NativeAOT をサポート（`IsAotCompatible`、`AotSmoke` スモークテストと主要 RID マトリクスの CI による回帰保護あり。必須は win-x64 / linux-x64 / linux-arm64。LoongArch linux-la64 は QEMU エミュレーションでカバー（観察期間：実行されるが失敗してもブロックしない））。詳細は [AOT 互換性評価](Doc/AOT兼容性评估.md) を参照
 - **MySQL**：5.5 〜 9.0+、`mysql_native_password` + `caching_sha2_password`
 - **互換データベース**：OceanBase、TiDB、Doris（自動検出）、Aurora / CloudSQL（クラウドデータベース）、MariaDB（基本機能）
@@ -439,7 +439,7 @@ using var reader = batch.ExecuteReader();
 
 ## EF Core サポート
 
-`NewLife.MySql.EntityFrameworkCore` パッケージは、.NET 6 / .NET 8 / .NET 10 をサポートする EF Core データベースプロバイダーを提供します。
+`NewLife.MySql.EntityFrameworkCore` パッケージは、.NET 6 / .NET 8 / .NET 10 / .NET 11 をサポートする EF Core データベースプロバイダーを提供します。
 
 ```shell
 dotnet add package NewLife.MySql.EntityFrameworkCore
@@ -640,7 +640,7 @@ Console.WriteLine($"Database type: {conn2.DatabaseType}");  // TiDB
 | `net45` / `net461` | .NET Framework、レガシープロジェクトと互換 |
 | `netstandard2.0` / `netstandard2.1` | クロスプラットフォーム互換、非同期 Dispose をサポート |
 | `net6.0` | DbBatch API もサポート |
-| `net10.0` | 最新の .NET、最適なパフォーマンス |
+| `net10.0` / `net11.0` | 最新の .NET、最適なパフォーマンス |
 
 ---
 

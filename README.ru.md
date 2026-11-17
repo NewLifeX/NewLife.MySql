@@ -115,7 +115,7 @@
 
 ### 🌐 Широкая совместимость
 
-- **Платформы**: `net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net8.0` / `net10.0`
+- **Платформы**: `net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net8.0` / `net10.0` / `net11.0`
 - **NativeAOT**: `net8.0+` поддерживает тримминг и NativeAOT (`IsAotCompatible`, есть smoke-тест `AotSmoke` и CI-матрица основных RID для защиты от регрессий; обязательны win-x64 / linux-x64 / linux-arm64; LoongArch linux-la64 покрывается эмуляцией QEMU (период наблюдения: запускается, сбои не блокируют)), см. [Оценку совместимости с AOT](Doc/AOT兼容性评估.md)
 - **MySQL**: 5.5 ~ 9.0+, `mysql_native_password` + `caching_sha2_password`
 - **Совместимые базы данных**: OceanBase, TiDB, Doris (автоопределение), Aurora / CloudSQL (облачные базы данных), MariaDB (базово)
@@ -437,7 +437,7 @@ using var reader = batch.ExecuteReader();
 
 ## Поддержка EF Core
 
-Пакет `NewLife.MySql.EntityFrameworkCore` предоставляет провайдер базы данных EF Core с поддержкой .NET 6 / .NET 8 / .NET 10.
+Пакет `NewLife.MySql.EntityFrameworkCore` предоставляет провайдер базы данных EF Core с поддержкой .NET 6 / .NET 8 / .NET 10 / .NET 11.
 
 ```shell
 dotnet add package NewLife.MySql.EntityFrameworkCore
@@ -638,7 +638,7 @@ Console.WriteLine($"Database type: {conn2.DatabaseType}");  // TiDB
 | `net45` / `net461` | .NET Framework, совместимость с унаследованными проектами |
 | `netstandard2.0` / `netstandard2.1` | Кроссплатформенность, поддержка асинхронного Dispose |
 | `net6.0` | Дополнительно поддерживает API DbBatch |
-| `net10.0` | Новейший .NET, оптимальная производительность |
+| `net10.0` / `net11.0` | Новейший .NET, оптимальная производительность |
 
 ---
 

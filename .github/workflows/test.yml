@@ -63,10 +63,9 @@ jobs:
       with:
         dotnet-version: |
           6.x
-          7.x
           8.x
-          9.x
           10.x
+          11.x
     # 运行器自带 MySQL 8.0（root/root，默认未启动），单元测试依赖本机 3306
     # 部分测试连接回环别名 127.0.0.2，需要监听全部地址
     - name: 启动 MySQL 并准备测试库（Linux）

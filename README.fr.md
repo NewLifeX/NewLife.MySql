@@ -115,7 +115,7 @@ Dépend uniquement de `NewLife.Core` (également de l'équipe NewLife), sans ris
 
 ### 🌐 Large compatibilité
 
-- **Frameworks** : `net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net8.0` / `net10.0`
+- **Frameworks** : `net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net8.0` / `net10.0` / `net11.0`
 - **NativeAOT** : `net8.0+` prend en charge le trimming et NativeAOT (`IsAotCompatible`, avec un test de fumée `AotSmoke` et une matrice CI des RID courants pour la protection contre les régressions ; win-x64 / linux-x64 / linux-arm64 requis ; LoongArch linux-la64 est couvert par émulation QEMU (période d'observation : il s'exécute, les échecs ne bloquent pas)), voir [évaluation de compatibilité AOT](Doc/AOT兼容性评估.md)
 - **MySQL** : 5.5 ~ 9.0+, `mysql_native_password` + `caching_sha2_password`
 - **Bases compatibles** : OceanBase, TiDB, Doris (détection automatique), Aurora / CloudSQL (bases cloud), MariaDB (basique)
@@ -437,7 +437,7 @@ using var reader = batch.ExecuteReader();
 
 ## Prise en charge d'EF Core
 
-Le paquet `NewLife.MySql.EntityFrameworkCore` fournit un fournisseur de base de données EF Core prenant en charge .NET 6 / .NET 8 / .NET 10.
+Le paquet `NewLife.MySql.EntityFrameworkCore` fournit un fournisseur de base de données EF Core prenant en charge .NET 6 / .NET 8 / .NET 10 / .NET 11.
 
 ```shell
 dotnet add package NewLife.MySql.EntityFrameworkCore
@@ -638,7 +638,7 @@ Le SQL de base, les transactions, les requêtes paramétrées et les opérations
 | `net45` / `net461` | .NET Framework, compatible avec les projets existants |
 | `netstandard2.0` / `netstandard2.1` | Compatibilité multiplateforme, prise en charge de Dispose asynchrone |
 | `net6.0` | Prise en charge supplémentaire de l'API DbBatch |
-| `net10.0` | Dernière version de .NET, performances optimales |
+| `net10.0` / `net11.0` | Dernière version de .NET, performances optimales |
 
 ---
 

@@ -32,7 +32,7 @@ $version = $nupkg.BaseName.Substring("NewLife.MySql.".Length)
 Write-Host "包版本：$version"
 
 $consumer = Join-Path $work "Consumer"
-& dotnet new console -n Consumer -o $consumer --framework net10.0 --force | Out-Null
+& dotnet new console -n Consumer -o $consumer --framework net11.0 --force | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "创建消费工程失败" }
 
 $nugetConfig = @"

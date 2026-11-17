@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk" ToolsVersion="Current">
   <PropertyGroup>
-    <TargetFrameworks>net6.0;net8.0;net10.0</TargetFrameworks>
+    <TargetFrameworks>net6.0;net8.0;net10.0;net11.0</TargetFrameworks>
     <AssemblyTitle>NewLife MySql EF Core Provider</AssemblyTitle>
     <Description>Entity Framework Core database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations and DbBatch.</Description>
     <PackageDescription>基于 NewLife.MySql 的 Entity Framework Core 数据库提供程序，纯 .NET 实现，零第三方依赖，支持管道化批量操作和 DbBatch。Entity Framework Core database provider built on NewLife.MySql. Pure .NET, zero third-party dependencies, supports pipelined batch operations and DbBatch.</PackageDescription>
@@ -56,6 +56,9 @@
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
     <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.9" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net11.0'">
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="11.0.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\NewLife.MySql\NewLife.MySql.csproj" />

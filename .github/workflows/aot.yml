@@ -31,12 +31,14 @@ jobs:
     - name: Setup dotNET
       uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: 10.x
-    - name: 构建驱动与 EF Core 提供程序（net8.0 / net10.0）并校验 0 条 IL 告警
+        dotnet-version: |
+          10.x
+          11.x
+    - name: 构建驱动与 EF Core 提供程序（net8.0 / net10.0 / net11.0）并校验 0 条 IL 告警
       run: |
         set -o pipefail
         for proj in NewLife.MySql/NewLife.MySql.csproj NewLife.MySql.EntityFrameworkCore/NewLife.MySql.EntityFrameworkCore.csproj; do
-          for tfm in net8.0 net10.0; do
+          for tfm in net8.0 net10.0 net11.0; do
             echo "===== ${proj} ${tfm} ====="
             log="build-$(basename ${proj} .csproj)-${tfm}.log"
             dotnet build "${proj}" -f ${tfm} -c Release -v n 2>&1 | tee "${log}"

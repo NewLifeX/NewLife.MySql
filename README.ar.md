@@ -115,7 +115,7 @@
 
 ### 🌐 توافق واسع
 
-- **أطر العمل**: `net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net8.0` / `net10.0`
+- **أطر العمل**: `net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net8.0` / `net10.0` / `net11.0`
 - **NativeAOT**: يدعم `net8.0+` التشذيب وNativeAOT (خاصية `IsAotCompatible`، مع اختبار دخان `AotSmoke` ومصفوفة RID رئيسية في CI لحماية الانحدار؛ والمطلوب win-x64 / linux-x64 / linux-arm64؛ ويُغطّى LoongArch linux-la64 عبر محاكاة QEMU (فترة رصد: يعمل، ولا تُعطّل الأعطال البناء))، راجع [تقييم توافق AOT](Doc/AOT兼容性评估.md)
 - **MySQL**: 5.5 ~ 9.0+، `mysql_native_password` + `caching_sha2_password`
 - **قواعد بيانات متوافقة**: OceanBase وTiDB وDoris (كشف تلقائي)، وAurora / CloudSQL (قواعد سحابية)، وMariaDB (دعم أساسي)
@@ -437,7 +437,7 @@ using var reader = batch.ExecuteReader();
 
 ## دعم EF Core
 
-توفّر حزمة `NewLife.MySql.EntityFrameworkCore` موفّر قاعدة بيانات لـEF Core يدعم .NET 6 / .NET 8 / .NET 10.
+توفّر حزمة `NewLife.MySql.EntityFrameworkCore` موفّر قاعدة بيانات لـEF Core يدعم .NET 6 / .NET 8 / .NET 10 / .NET 11.
 
 ```shell
 dotnet add package NewLife.MySql.EntityFrameworkCore
@@ -638,7 +638,7 @@ Console.WriteLine($"Database type: {conn2.DatabaseType}");  // TiDB
 | `net45` / `net461` | .NET Framework، متوافق مع المشاريع القديمة |
 | `netstandard2.0` / `netstandard2.1` | توافق عبر المنصات، ويدعم Dispose غير المتزامن |
 | `net6.0` | يدعم إضافةً واجهة DbBatch |
-| `net10.0` | أحدث .NET، وأداء أمثل |
+| `net10.0` / `net11.0` | أحدث .NET، وأداء أمثل |
 
 ---
 

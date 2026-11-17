@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFrameworks>netstandard2.0;netstandard2.1;net6.0;net8.0;net10.0</TargetFrameworks>
+    <TargetFrameworks>netstandard2.0;netstandard2.1;net6.0;net8.0;net10.0;net11.0</TargetFrameworks>
     <PackageDescription>NewLife.MySql 的可选 zstd 压缩包。需要 CompressionAlgorithm=zstd 时安装；核心驱动保持零第三方依赖。Optional zstd compression provider for NewLife.MySql.</PackageDescription>
     <Company>新生命开发团队</Company>
     <Copyright>©2002-2026 NewLife</Copyright>

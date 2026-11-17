@@ -115,7 +115,7 @@
 
 ### 🌐 폭넓은 호환성
 
-- **프레임워크**: `net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net8.0` / `net10.0`
+- **프레임워크**: `net45` / `net461` / `netstandard2.0` / `netstandard2.1` / `net6.0` / `net8.0` / `net10.0` / `net11.0`
 - **NativeAOT**: `net8.0+`는 트리밍과 NativeAOT를 지원합니다(`IsAotCompatible`, `AotSmoke` 스모크 테스트와 회귀 방지를 위한 CI 주류 RID 매트릭스 포함; 필수는 win-x64 / linux-x64 / linux-arm64, LoongArch linux-la64는 QEMU 에뮬레이션으로 포함(관찰 기간: 실행되지만 실패해도 차단하지 않음)), [AOT 호환성 평가](Doc/AOT兼容性评估.md) 참고
 - **MySQL**: 5.5 ~ 9.0+, `mysql_native_password` + `caching_sha2_password`
 - **호환 데이터베이스**: OceanBase, TiDB, Doris(자동 감지), Aurora / CloudSQL(클라우드 데이터베이스), MariaDB(기본 지원)
@@ -437,7 +437,7 @@ using var reader = batch.ExecuteReader();
 
 ## EF Core 지원
 
-`NewLife.MySql.EntityFrameworkCore` 패키지는 .NET 6 / .NET 8 / .NET 10을 지원하는 EF Core 데이터베이스 공급자를 제공합니다.
+`NewLife.MySql.EntityFrameworkCore` 패키지는 .NET 6 / .NET 8 / .NET 10 / .NET 11을 지원하는 EF Core 데이터베이스 공급자를 제공합니다.
 
 ```shell
 dotnet add package NewLife.MySql.EntityFrameworkCore
@@ -638,7 +638,7 @@ Console.WriteLine($"Database type: {conn2.DatabaseType}");  // TiDB
 | `net45` / `net461` | .NET Framework, 레거시 프로젝트와 호환 |
 | `netstandard2.0` / `netstandard2.1` | 크로스 플랫폼 호환, 비동기 Dispose 지원 |
 | `net6.0` | DbBatch API 추가 지원 |
-| `net10.0` | 최신 .NET, 최적의 성능 |
+| `net10.0` / `net11.0` | 최신 .NET, 최적의 성능 |
 
 ---
 
