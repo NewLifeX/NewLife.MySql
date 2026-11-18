@@ -64,11 +64,16 @@ jobs:
           10.0.x
           11.x
     - name: Select Xcode
-      # runner 镜像的 Xcode 版本随镜像滚动，取已安装的最新版，避免硬编码版本号失效
+      # .NET for iOS 的 net10 目标绑定 iOS SDK 26.0，要求 Xcode 主次版本 26.0；
+      # 镜像同时安装多个 Xcode，优先选中 26.0（缺失时退回最新版），避免默认最新版 26.6 报版本不匹配
       run: |
-        latest=$(ls -d /Applications/Xcode*.app | sort -V | tail -1)
-        echo "Selected $latest"
-        sudo xcode-select -s "$latest"
+        pick=""
+        for d in /Applications/Xcode_26.0.app /Applications/Xcode_26.0.1.app; do
+          if [ -d "$d" ]; then pick="$d"; break; fi
+        done
+        if [ -z "$pick" ]; then pick=$(ls -d /Applications/Xcode*.app | sort -V | tail -1); fi
+        echo "Selected $pick"
+        sudo xcode-select -s "$pick"
     - name: Install iOS workload
       run: dotnet workload install ios || sudo dotnet workload install ios
     - name: Run iOS smoke
