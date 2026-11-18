@@ -195,7 +195,9 @@ jobs:
             fi
             export PATH=/root/dotnet10:$PATH
             dotnet --info
-            dotnet test -c Release UnitTest/UnitTest.csproj
+            # 龙芯 SDK 最高只有 10.0（Loongnix 未发布 11），用 TargetFrameworks 覆盖把依赖工程限定到 net10 目标，
+            # 避免 restore 评估 net11.0 报 NETSDK1045；Loongnix 发布 SDK 11 后去掉该覆盖
+            dotnet test -c Release UnitTest/UnitTest.csproj -p:TargetFrameworks=net10.0
           '
 
   test-netfx:
@@ -207,7 +209,10 @@ jobs:
     - name: Setup dotNET
       uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: 10.x
+        # 驱动工程含 net11.0，restore 需要 .NET 11 SDK；用例本身仍在 .NET Framework 4.7.2 上跑
+        dotnet-version: |
+          10.x
+          11.x
     - name: Test
       run: |
         dotnet test -c Release UnitTest.EntityFramework/UnitTest.EntityFramework.csproj

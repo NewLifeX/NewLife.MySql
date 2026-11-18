@@ -54,13 +54,11 @@ jobs:
   # 运行器镜像核实：Ubuntu（含 arm64）自带 MySQL 8 服务端（root/root，默认未启动）→ linux 双平台跑全量 27 场景；
   # Windows 仅装 MySQL CLI、macOS 无 MySQL → 其余平台用 --no-db 运行纯内存场景（S13 + P1/P3/P4/P5；P2 需真实数据库执行参数往返）。
   # 必选平台（阻断）：win-x64 / linux-x64 / linux-arm64；win-arm64 / osx-x64 / osx-arm64 / linux-la64 先观察期（continue-on-error），稳定全绿后逐项转阻断。
+  # 观察期平台单独成作业：jobs.<job_id>.if 只允许 github/needs/vars/inputs 上下文，写 matrix.xxx 会让整个工作流文件判定非法（0 个作业、整体失败）。
   native-smoke:
     name: NativeAOT 冒烟（${{ matrix.rid }}）
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
-    continue-on-error: ${{ matrix.experimental == true }}
-    # 必选平台阻断；观察期平台（win-arm64/osx-*）只在夜间定时与手动触发时跑
-    if: matrix.experimental != true || github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -73,32 +71,21 @@ jobs:
             os: ubuntu-latest
             bin: AotSmoke
             db: true
-          - rid: win-arm64
-            os: windows-11-arm
-            bin: AotSmoke.exe
-            db: false
-            experimental: true
           - rid: linux-arm64
             os: ubuntu-24.04-arm
             bin: AotSmoke
             db: true
-          - rid: osx-arm64
-            os: macos-latest
-            bin: AotSmoke
-            db: false
-            experimental: true
-          - rid: osx-x64
-            os: macos-15-intel
-            bin: AotSmoke
-            db: false
-            experimental: true
 
-    steps:
+    # 步骤用 YAML 锚点共享给下方观察期作业，避免两份维护
+    steps: &native-smoke-steps
     - uses: actions/checkout@v7
     - name: Setup dotNET
       uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: 10.x
+        # 驱动工程含 net11.0，restore 需要 .NET 11 SDK；冒烟应用本身仍是 net10.0
+        dotnet-version: |
+          10.x
+          11.x
     - name: 安装 NativeAOT 依赖（clang / zlib）
       if: runner.os == 'Linux'
       run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
@@ -156,6 +143,32 @@ jobs:
       shell: bash
       run: ./out/${{ matrix.bin }} --no-db
 
+  # 观察期平台（win-arm64 / osx-*）：只在夜间定时与手动触发时跑，失败不阻断
+  native-smoke-observing:
+    name: NativeAOT 冒烟（${{ matrix.rid }}）
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-arm64
+            os: windows-11-arm
+            bin: AotSmoke.exe
+            db: false
+          - rid: osx-arm64
+            os: macos-latest
+            bin: AotSmoke
+            db: false
+          - rid: osx-x64
+            os: macos-15-intel
+            bin: AotSmoke
+            db: false
+
+    steps: *native-smoke-steps
+
   # NativeAOT 冒烟（musl）：alpine 容器内原生发布运行，无 MySQL → 纯内存场景。
   # 容器内 actions/setup-dotnet 不可用，改用 dotnet-install.sh；官方要求 alpine 3.15+ 且安装 clang/build-base/zlib-dev
   native-smoke-musl:
@@ -182,7 +195,8 @@ jobs:
           set -e
           apk add --no-cache bash curl clang build-base zlib-dev icu-libs >/dev/null
           curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
-          bash /tmp/dotnet-install.sh --channel 10.0 --install-dir /usr/share/dotnet >/dev/null
+          # 驱动工程含 net11.0，restore 需要 .NET 11 SDK；冒烟应用本身仍是 net10.0
+          bash /tmp/dotnet-install.sh --channel 11.0 --install-dir /usr/share/dotnet >/dev/null
           ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet
           export DOTNET_CLI_TELEMETRY_OPTOUT=1
           dotnet run -c Release --project AotSmoke/AotSmoke.csproj -- --no-db
@@ -249,10 +263,12 @@ jobs:
             fi
             export PATH=/root/dotnet10:$PATH
             dotnet --info
+            # 龙芯 SDK 最高只有 10.0（Loongnix 未发布 11），用 TargetFrameworks 覆盖把依赖工程限定到 net10 目标，
+            # 避免 restore 评估 net11.0 报 NETSDK1045；Loongnix 发布 SDK 11 后去掉该覆盖
             echo "===== JIT 基线冒烟（--no-db 纯内存场景） ====="
-            dotnet run -c Release --project AotSmoke/AotSmoke.csproj -- --no-db
+            dotnet run -c Release --project AotSmoke/AotSmoke.csproj --property:TargetFrameworks=net10.0 -- --no-db
             echo "===== 自包含原生发布（linux-loongarch64） ====="
-            dotnet publish AotSmoke/AotSmoke.csproj -c Release -r linux-loongarch64 --self-contained -o AotSmoke/bin/la64-out
+            dotnet publish AotSmoke/AotSmoke.csproj -c Release -r linux-loongarch64 --self-contained -p:TargetFrameworks=net10.0 -o AotSmoke/bin/la64-out
             echo "===== 运行原生可执行文件（--no-db） ====="
             ./AotSmoke/bin/la64-out/AotSmoke --no-db
           '
@@ -275,6 +291,6 @@ jobs:
               mkdir -p /root/dotnet10 && tar -xzf /tmp/dotnet10.tar.gz -C /root/dotnet10
             fi
             export PATH=/root/dotnet10:$PATH
-            dotnet publish AotSmoke/AotSmoke.csproj -c Release -r linux-loongarch64 --self-contained -p:PublishReadyToRun=true -o AotSmoke/bin/la64-r2r
+            dotnet publish AotSmoke/AotSmoke.csproj -c Release -r linux-loongarch64 --self-contained -p:PublishReadyToRun=true -p:TargetFrameworks=net10.0 -o AotSmoke/bin/la64-r2r
             ./AotSmoke/bin/la64-r2r/AotSmoke --no-db
           '

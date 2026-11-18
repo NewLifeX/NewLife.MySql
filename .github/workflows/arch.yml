@@ -21,7 +21,10 @@ jobs:
     - name: Setup dotNET (host, for restore)
       uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: 10.x
+        # 驱动工程含 net11.0，restore 需要 .NET 11 SDK；冒烟应用本身仍是 net10.0
+        dotnet-version: |
+          10.x
+          11.x
     - name: Set up QEMU (riscv64)
       uses: docker/setup-qemu-action@v4
       with:
@@ -63,7 +66,10 @@ jobs:
     - name: Setup dotNET (host, for restore)
       uses: actions/setup-dotnet@v6
       with:
-        dotnet-version: 10.x
+        # 驱动工程含 net11.0，restore 需要 .NET 11 SDK；冒烟应用本身仍是 net10.0
+        dotnet-version: |
+          10.x
+          11.x
     - name: Set up QEMU (s390x)
       uses: docker/setup-qemu-action@v4
       with:
