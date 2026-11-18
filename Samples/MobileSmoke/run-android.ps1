@@ -9,7 +9,7 @@ $root = Resolve-Path "$PSScriptRoot/../.."
 $project = Join-Path $PSScriptRoot "MobileSmoke.csproj"
 $package = "com.newlife.smoke.mysql"
 
-dotnet build $project -c $Configuration -f net10.0-android --nologo
+dotnet build $project -c $Configuration -f net10.0-android -p:MobileSmokeTarget=net10.0-android --nologo
 if ($LASTEXITCODE -ne 0) { throw "Android build failed" }
 
 $apk = Get-ChildItem (Join-Path $root "Bin/MobileSmoke") -Recurse -Filter *.apk |

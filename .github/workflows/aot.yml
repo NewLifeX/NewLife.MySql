@@ -105,7 +105,7 @@ jobs:
           CREATE USER IF NOT EXISTS 'root'@'%' IDENTIFIED BY 'root';
           GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;
           FLUSH PRIVILEGES;"
-        mysql -h 127.0.0.1 -uroot -proot -e "SELECT VERSION(); SELECT @@default_authentication_plugin; SHOW GRANTS FOR CURRENT_USER();"
+        mysql -h 127.0.0.1 -uroot -proot -e "SELECT VERSION(); SELECT @@max_allowed_packet; SHOW GRANTS FOR CURRENT_USER();"
     - name: JIT 基线冒烟（数据库场景）
       if: matrix.db
       env:
