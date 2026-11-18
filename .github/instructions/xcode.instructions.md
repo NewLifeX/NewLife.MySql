@@ -296,6 +296,8 @@ ShowIn="11110"      # 1=显示, 0=隐藏, A/?/-=自动
 
 ## 5. 实体类操作指南
 
+> **分层约定（必守）**：`实体._.字段` 是数据层字段句柄，只允许出现在实体所属程序集内（`*.Biz.cs` 与生成代码）。控制器、服务、任务等应用层禁止直接拼 `WhereExpression`，统一调用实体查询方法（`Search`/`FindAllBy*`），缺方法就补到 Biz；应用层需要字段名或排序时用 `实体.__.字段`（如 `p.Sort = User.__.Id + " Desc"`）。
+
 ### 5.1 基础 CRUD
 
 ```csharp
@@ -687,3 +689,4 @@ xcode Order.xml
 - 数据模型和实体操作 → 本指令
 - Web 控制器和界面 → `cube.instructions.md`
 - 基础编码规范 → `copilot-instructions.md`
+- 查询边界：`Entity._` 仅限实体程序集；应用层只调 `Search`/`FindAllBy*`，字段名用 `__`。
