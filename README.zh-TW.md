@@ -1,8 +1,6 @@
 # NewLife.MySql — 純自主研發高效能 MySQL 驅動
 
 [![AOT](https://github.com/NewLifeX/NewLife.MySql/actions/workflows/aot.yml/badge.svg?label=AOT)](https://github.com/NewLifeX/NewLife.MySql/actions/workflows/aot.yml)
-
-
 ![GitHub License](https://img.shields.io/github/license/NewLifeX/NewLife.MySql?logo=github)
 ![NuGet Downloads](https://img.shields.io/nuget/dt/NewLife.MySql?logo=nuget)
 ![NuGet](https://img.shields.io/nuget/v/NewLife.MySql?logo=nuget)

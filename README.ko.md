@@ -1,8 +1,6 @@
 # NewLife.MySql — 순수 C# 고성능 MySQL 드라이버
 
 [![AOT](https://github.com/NewLifeX/NewLife.MySql/actions/workflows/aot.yml/badge.svg?label=AOT)](https://github.com/NewLifeX/NewLife.MySql/actions/workflows/aot.yml)
-
-
 ![GitHub License](https://img.shields.io/github/license/NewLifeX/NewLife.MySql?logo=github)
 ![NuGet Downloads](https://img.shields.io/nuget/dt/NewLife.MySql?logo=nuget)
 ![NuGet](https://img.shields.io/nuget/v/NewLife.MySql?logo=nuget)
