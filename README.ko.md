@@ -18,7 +18,7 @@
 
 **NewLife.MySql**은 NewLife 팀이 만든 순수 C# MySQL 클라이언트 드라이버입니다. 표준 ADO.NET 인터페이스를 기반으로 MySQL 프로토콜 계층(Protocol Version 10)을 TCP 위에 직접 구현했습니다. 의존성은 `NewLife.Core` 하나뿐이며, **서드파티 의존성 제로**, **전 구간 진정한 비동기**, **MIT 라이선스**로 상업적 사용도 부담이 없습니다.
 
-독자적인 **파이프라인 배치 실행**(Pipeline)은 수만 행 규모의 배치 쓰기에서 행 단위 기준 대비 **2~3배** 빠른 속도를 제공하여, 빅데이터 배치 작업과 信创(중국 자체 기술) 대체 시나리오에 이상적인 선택입니다.
+독자적인 **파이프라인 배치 실행**(Pipeline)은 로컬 실측에서 1,000행 배치 쓰기를 2,473ms에서 70ms로 단축합니다(행 단위 자동 커밋 기준 35×). 배치가 크고 네트워크 지연이 높을수록 효과가 커져 빅데이터 배치 작업과 信创(중국 자체 기술) 대체 시나리오에 적합합니다.
 
 ---
 
@@ -28,9 +28,9 @@
 |------|------|
 | **가볍고 최소한의 기능** | 표준 ADO.NET의 CRUD, 트랜잭션, 매개변수화 쿼리, 저장 프로시저, 배치 작업만 제공 |
 | **고성능** | 추가 메모리 할당 제로(`ArrayPool` / `OwnerPacket`), 진정한 비동기 I/O, 파이프라인 배치 실행 |
-| **순수 국산(중국) 스택** | 핵심 코드를 완전히 자체 통제하여 GPL 라이선스 리스크가 없고 信创 환경에 적합 |
+| **순수 국산(중국) 스택** | 핵심 코드를 완전히 자체 통제하여 MIT 라이선스로 copyleft 의무가 없고 信创 환경에 적합 |
 | **빅데이터 친화** | 딕셔너리 매개변수 집합 / 배열 바인딩 / 파이프라인 / 다중 행 VALUES / DbBatch로 수만 행부터 수백만 행까지 대응 |
-| **폭넓은 호환성** | 모든 버전의 `net45` ~ `net10`, MySQL 5.x ~ 9.0+, OceanBase / TiDB / Doris / Aurora / CloudSQL 호환, `net8.0+`에서 NativeAOT 지원 |
+| **폭넓은 호환성** | 모든 버전의 `net45` ~ `net11`, MySQL 5.x ~ 9.0+, OceanBase / TiDB / Doris / Aurora / CloudSQL 호환, `net8.0+`에서 NativeAOT 지원 |
 
 ## 핵심 기능
 
@@ -43,7 +43,7 @@
 | 매개변수화 쿼리 | `@parameter-name` 구문으로 클라이언트 측에서 매개변수를 치환하고 자동 이스케이프로 인젝션 방지 |
 | 준비된 문 | `Prepare()`는 `COM_STMT_PREPARE` 바이너리 프로토콜을 사용하며, 전역 `UseServerPrepare` 스위치를 선택적으로 사용 |
 | 배치 작업 | `ExecuteBatch` / `ExecuteArrayBatch` / 파이프라인 / 다중 행 VALUES / DbBatch / `MySqlBulkCopy` |
-| 파이프라인 실행 | `Pipeline=true`는 배치로 보내고 배치로 받아 네트워크 왕복이 한 번뿐: 수천 행에서 35배, 수만 행에서 약 100배 |
+| 파이프라인 실행 | `Pipeline=true`는 배치로 보내고 배치로 받아 네트워크 왕복이 한 번뿐; 로컬 실측 1,000행 배치에서 35배, 배치가 크고 지연이 높을수록 효과가 커짐 |
 | 트랜잭션 | `BeginTransaction` / `Commit` / `Rollback`, 네 가지 격리 수준, 자동 롤백 |
 | 저장 프로시저 | `CommandType.StoredProcedure`, IN/OUT 매개변수 지원 |
 | SSL/TLS | `SslMode=Preferred/Required`, TLS 1.2/1.3 지원 |
@@ -69,25 +69,45 @@
 - **2단계**: OK/Error 응답을 순서대로 한 번에 읽어 영향받은 행 수를 누적
 - TCP 스택이 작은 패킷을 병합(Nagle 알고리즘)하므로 네트워크 왕복은 한 번뿐
 
-**실측 데이터**(.NET 10 + MySQL 8.0.26 localhost, 파이프라인 + 트랜잭션 대 행 단위 기준):
+**실측 데이터**(.NET 10 + MySQL 8.0.26 localhost, 파이프라인 + 트랜잭션 대 행 단위 자동 커밋 기준):
 
 | 시나리오 | 행 단위 기준 | Pipeline(tx) | 배속 |
 |------|------:|------:|------:|
 | 100행 INSERT | 244ms | 20ms | 12.2배 |
 | 1,000행 INSERT | 2,473ms | 70ms | **35.3배** |
-| 10,000행 INSERT | 약 70초¹ | 약 0.7초¹ | 약 98배 |
-
-> ¹ 트랜잭션 없는 10,000행 행 단위 수치는 외삽값(행당 2.4ms)이며, Pipeline 수치는 트랜잭션 없이 측정한 값입니다. 트랜잭션을 사용하면 10,000행에 약 70ms가 걸립니다.
 
 **세 드라이버 성능 데이터**(10,000행 배치 작업):
 
-| 작업 | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) |
+| 작업 | NewLife 파이프라인 + 배열 바인딩(tx) | MySql.Data 준비된 루프(tx) | MySqlConnector 준비된 루프(tx) |
 |------|------:|------:|------:|
 | INSERT | 814ms | 1,089ms | 1,135ms |
 | UPDATE | 856ms | 1,151ms | 1,196ms |
 | DELETE | 816ms | 1,091ms | 1,126ms |
 
-> 수천 행만으로도 로컬 LAN에서 **35배** 속도 향상을 달성하며, 데이터 센터를 넘는 환경에서는 이점이 더 큽니다. 자세한 데이터는 [성능 테스트 보고서](Doc/性能测试报告.md)를 참고하세요.
+> 로컬 LAN에서도 수천 행에서 **35×** 속도 향상을 달성하며, 배치 크기와 지연이 클수록 효과가 커집니다. MySql.Data와 MySqlConnector에는 동등한 배열 바인딩/파이프라인 API가 없어, 표의 경쟁사 수치는 트랜잭션 내 준비된 명령문 루프로 측정했습니다. `MySqlBatch`/`AllowBatch` 다중 문장 경로는 이 테스트에 포함되지 않았습니다. 자세한 데이터와 방법은 [성능 테스트 보고서](Doc/性能测试报告.md)를 참고하세요.
+
+### 📊 읽기 경로와 선택 기준
+
+**읽기 성능**(10,000행, ms, 낮을수록 좋음; NewLife는 드라이버 내장 `ReadTableAsync`/`ReadModelsAsync`를 사용하고, 나머지 두 드라이버는 동일한 NewLife `DbTable` 도우미를 ADO.NET 리더 위에서 사용):
+
+| 시나리오 | NewLife | MySql.Data | MySqlConnector | 비고 |
+|------|------:|------:|------:|------|
+| 대량 읽기(BulkRead) | **6.61** | 9.11 | 6.98 | MySqlConnector보다 5% 낮음, MySql.Data보다 27% 낮음 |
+| DbTable 채우기 | **6.67** | 22.34 | 6.95 | MySqlConnector보다 4% 낮음, MySql.Data보다 70% 낮음 |
+| 엔터티 매핑(ReadModels) | **6.72** | 24.38 | 10.01 | MySqlConnector보다 33% 낮음, MySql.Data보다 72% 낮음 |
+| 행 단위 포인트 조회 | 1,181 | 1,374 | **1,141** | MySqlConnector보다 3.5% 높음, MySql.Data보다 14% 낮음 |
+
+> MySqlConnector는 성숙한 고성능 드라이버이며 범용으로 우수한 선택입니다. 위 수치는 단일 로컬 환경에서 측정한 것이므로 자신의 스키마와 네트워크에서 검증하세요. 전체 방법론: [성능 테스트 보고서](Doc/性能测试报告.md).
+
+**드라이버 선택**
+
+| 우선순위가 ...라면 | 권장 드라이버 |
+|------|------|
+| 대용량 배치 DML, 내장 엔터티 매핑, net45 대상 또는 국산 데이터베이스 적응 | NewLife.MySql |
+| 최대 규모의 커뮤니티와 ORM/도구 생태계, 우수한 전반적 성능 | MySqlConnector |
+| Oracle 상용 지원과 공식 인증 | MySql.Data |
+
+세 드라이버 모두 프로덕션에 적합합니다. 벤치마크 차이는 하드웨어, 네트워크, 스키마, 워크로드에 따라 달라집니다.
 
 ### 🔧 여섯 가지 배치 작업 방식
 
@@ -102,7 +122,7 @@
 
 ### 🛡️ 서드파티 의존성 제로
 
-(역시 NewLife 팀이 만든) `NewLife.Core`에만 의존하므로 GPL 라이선스 리스크가 없고, MIT 라이선스로 상업적 사용이 자유로우며, 信创 환경과 보안 감사가 엄격한 시나리오에 적합합니다.
+(역시 NewLife 팀이 만든) `NewLife.Core`에만 의존하므로 MIT 라이선스로 copyleft 의무가 없고, 상업적 사용이 자유로우며, 信创 환경과 보안 감사가 엄격한 시나리오에 적합합니다.
 
 ### ⚡ 극한의 성능 최적화
 
@@ -123,30 +143,32 @@
 
 ## 기능 비교
 
+세 드라이버 모두 활발히 유지관리되며 프로덕션에 적합합니다. “—”는 내장된 동등 기능이 없다는 뜻이며 구현이 불가능하다는 의미는 아닙니다. 기능은 각 프로젝트의 소스 코드와 문서로 확인했습니다(2026-11).
+
 | 기능 | NewLife.MySql | MySqlConnector | MySql.Data (Oracle) |
 |------|:---:|:---:|:---:|
-| **라이선스** | **MIT** | MIT | GPL(상업적 사용은 유료) |
-| **국산(중국) 자주성** | ✅ | ❌ | ❌ |
-| **서드파티 의존성** | **없음** | 없음 | 없음 |
-| **진정한 비동기 I/O** | ✅ | ✅ | ❌ |
-| **파이프라인 배치 실행** | ✅ | ❌ | ❌ |
-| **배열 바인딩 배치** | ✅ | ❌ | ❌ |
-| **딕셔너리 매개변수 집합 배치** | ✅ | ❌ | ❌ |
-| **DbBatch(.NET 6+)** | ✅ | ✅ | ❌ |
-| **DataAdapter** | ✅ | ❌ | ✅ |
-| **EF Core** | ✅ | ✅ (Pomelo) | ✅ |
-| **XCode ORM 통합** | ✅ | ❌ | ❌ |
-| **대상 프레임워크** | net45~net10 | netstandard2.0+ | net462+ |
-| **NativeAOT(net8.0+)** | ✅ | ✅ | ❌ |
-| **OpenTelemetry 추적** | ✅ | ✅ | ✅ (8.1+) |
-| **OceanBase / TiDB / Aurora / Doris** | ✅ 자동 감지 | ❌ | ❌ |
-| **MySqlBulkCopy** | ✅ | ✅ | ✅ |
-| **압축 프로토콜(zlib/zstd)** | ✅ | ✅ | ❌ |
-| **Unix Socket** | ✅ | ✅ | ❌ |
-| **WebAuthn 인증** | ✅ | ✅ | ❌ |
-| **DbDataSource** | ✅ | ❌ | ❌ |
+| **유지관리 / 커뮤니티** | NewLife 팀, NewLife 생태계 중심 | 오픈소스 커뮤니티, 폭넓은 채택 | Oracle, 상용 지원 |
+| **라이선스** | **MIT** | MIT | GPLv2 + FOSS 예외 또는 상용 라이선스 |
+| **패키지 의존성** | **1**(NewLife.Core) | 1~4(대상 프레임워크에 따라) | 5~6 |
+| **대상 프레임워크** | net45~net11 | net462~net11 | net462~net11 |
+| **진정한 비동기 I/O** | ✅ | ✅ | ✅(8.0.33+) |
+| **파이프라인 준비된 배치** | ✅ `Pipeline` + 배열 바인딩 | —(`MySqlBatch`가 명령을 연결) | —(`AllowBatch` 다중 문장) |
+| **딕셔너리 매개변수 집합 배치** | ✅ | — | — |
+| **배열 바인딩 배치** | ✅ | — | — |
+| **DbBatch(.NET 6+)** | ✅ | ✅ | — |
+| **DbDataSource(.NET 7+)** | ✅ | ✅ | — |
+| **DataAdapter** | ✅ | ✅(동기 전용) | ✅ |
+| **대량 가져오기** | ✅ MySqlBulkCopy | ✅ MySqlBulkCopy | ✅ MySqlBulkLoader |
+| **WebAuthn 인증** | ✅ | — | ✅ |
+| **Unix Socket** | ✅ | ✅ | ✅ |
+| **압축** | ✅ zlib + 선택적 zstd | ✅ zlib; zstd(.NET 11) | ✅ zlib |
+| **OpenTelemetry 추적** | ✅ 내장 | ✅ 내장 | ✅ 별도 패키지(8.1+) |
+| **EF Core / EF6** | ✅ 둘 다 자체 개발 | ✅ EF Core(Pomelo) | ✅ 공식 |
+| **NativeAOT(net8.0+)** | ✅ | ✅ | — |
+| **XCode ORM 통합** | ✅ | — | — |
+| **국산 DB 자동 감지(OceanBase/TiDB/Doris)** | ✅ | —(MySQL 호환으로 사용 가능) | —(MySQL 호환으로 사용 가능) |
 
-> 전체 기능과 아키텍처 분석은 [아키텍처](Doc/架构设计.md)를 참고하세요.
+> 의존성 수는 NuGet 메타데이터(2026-11) 기준입니다. 의존성이 적을수록 보안 감사가 쉬워지고, 많을수록 추가 기능을 제공할 수 있습니다. 전체 기능과 아키텍처 분석은 [아키텍처](Doc/架构设计.md)와 [경쟁 분석](Doc/竞品分析报告.md)을 참고하세요.
 
 ---
 
@@ -563,6 +585,7 @@ using var tracerProvider = Sdk.CreateTracerProviderBuilder()
 | ConnectionLifeTime | 0 | 연결 수명(초), 0은 만료 없음 |
 | ConnectionIdleTime | 300 | 유휴 제한 시간(초), 경과하면 연결 회수 |
 | ValidationInterval | 30 | 유휴 검증 주기(초) |
+| PoolExpireTime | 600 | 전체 연결 풀의 유휴 만료 시간(초), `0`은 정리 비활성화 |
 
 ```csharp
 var connStr = "Server=localhost;Database=mydb;...;MinPoolSize=5;MaxPoolSize=50;ConnectionLifeTime=3600;";
@@ -679,7 +702,8 @@ dotnet publish -c Release -r linux-x64
 | [요구사항](Doc/需求文档.md) | 비전, 핵심 목표, 기능 방향 |
 | [기능 목록](Doc/功能清单.md) | 구현/테스트/주석의 3차원 상태 추적 |
 | [아키텍처](Doc/架构设计.md) | 아키텍처 개요, 프로토콜 구현, 기술 선택, 설계 결정, 드라이버 비교 |
-| [성능 테스트 보고서](Doc/性能测试报告.md) | 배치 작업의 상세 벤치마크 데이터 |
+| [성능 테스트 보고서](Doc/性能测试报告.md) | 배치 쓰기와 읽기 경로의 상세 벤치마크 데이터 |
+| [경쟁 분석](Doc/竞品分析报告.md) | 기능, 포지셔닝, 강점과 격차 비교 |
 | [변경 로그(중국어)](Doc/ChangeLog.md) | 중국어 릴리스 변경 로그 |
 | [변경 로그(영어)](Doc/ChangeLog.en.md) | 영어 릴리스 변경 로그 |
 | [简体中文 README](README.zh-CN.md) | 이 영어판과 같은 배치로 유지되는 중국어 문서 |

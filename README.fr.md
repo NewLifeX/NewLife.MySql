@@ -18,7 +18,7 @@
 
 **NewLife.MySql** est un pilote client MySQL en C# pur développé par l'équipe NewLife. Construit sur les interfaces standard ADO.NET, il implémente directement la couche protocole MySQL (Protocol Version 10) au-dessus de TCP. Il ne dépend que de `NewLife.Core`, avec **zéro dépendance tierce**, une **asynchronie réelle de bout en bout** et une **licence MIT** pour un usage commercial sans arrière-pensée.
 
-Son **exécution par lots en pipeline** (Pipeline) innovante apporte une accélération de **2× à 3×** sur les écritures par lots de l'ordre de dizaines de milliers de lignes (par rapport à la référence ligne par ligne), ce qui en fait le choix idéal pour les opérations par lots sur de grands volumes de données et pour les scénarios de substitution en environnement 信创 (souveraineté technologique).
+Son **exécution par lots en pipeline** (Pipeline) ramène les écritures par lots de 1 000 lignes de 2 473 ms à 70 ms en test local (35× par rapport à une référence ligne par ligne en autocommit) ; le gain augmente avec la taille du lot et la latence réseau, ce qui la rend adaptée aux opérations massives et aux scénarios de substitution en environnement 信创.
 
 ---
 
@@ -28,9 +28,9 @@ Son **exécution par lots en pipeline** (Pipeline) innovante apporte une accél�
 |------|------|
 | **Léger et minimal** | Uniquement les opérations ADO.NET standard : CRUD, transactions, requêtes paramétrées, procédures stockées et opérations par lots |
 | **Hautes performances** | Zéro allocation mémoire supplémentaire (`ArrayPool` / `OwnerPacket`), E/S asynchrones réelles, exécution par lots en pipeline |
-| **Pile 100 % nationale (chinoise)** | Code cœur entièrement maîtrisé, sans risque de licence GPL, adapté aux environnements 信创 |
+| **Pile 100 % nationale (chinoise)** | Code cœur entièrement maîtrisé, sous licence MIT, sans obligations de copyleft, adapté aux environnements 信创 |
 | **Adapté aux gros volumes** | Ensembles de paramètres en dictionnaire / liaison de tableaux / pipeline / VALUES multi-lignes / DbBatch, des dizaines de milliers aux millions de lignes |
-| **Large compatibilité** | `net45` ~ `net10` pour toutes les versions, MySQL 5.x ~ 9.0+, compatible OceanBase / TiDB / Doris / Aurora / CloudSQL, et prise en charge de NativeAOT à partir de `net8.0+` |
+| **Large compatibilité** | `net45` ~ `net11` pour toutes les versions, MySQL 5.x ~ 9.0+, compatible OceanBase / TiDB / Doris / Aurora / CloudSQL, et prise en charge de NativeAOT à partir de `net8.0+` |
 
 ## Fonctionnalités principales
 
@@ -43,7 +43,7 @@ Son **exécution par lots en pipeline** (Pipeline) innovante apporte une accél�
 | Requêtes paramétrées | Substitution de paramètres côté client avec la syntaxe `@nom-du-parametre` et échappement automatique contre l'injection |
 | Instructions préparées | `Prepare()` utilise le protocole binaire `COM_STMT_PREPARE`, avec un commutateur global optionnel `UseServerPrepare` |
 | Opérations par lots | `ExecuteBatch` / `ExecuteArrayBatch` / pipeline / VALUES multi-lignes / DbBatch / `MySqlBulkCopy` |
-| Exécution en pipeline | `Pipeline=true` envoie et reçoit par lots, avec un seul aller-retour réseau : 35× pour des milliers de lignes et près de 100× pour des dizaines de milliers de lignes |
+| Exécution en pipeline | `Pipeline=true` envoie et reçoit par lots avec un seul aller-retour réseau ; 35× sur des lots de 1 000 lignes en test local, et le gain augmente avec la taille du lot et la latence |
 | Transactions | `BeginTransaction` / `Commit` / `Rollback`, quatre niveaux d'isolation, annulation automatique |
 | Procédures stockées | `CommandType.StoredProcedure`, prise en charge des paramètres IN/OUT |
 | SSL/TLS | `SslMode=Preferred/Required`, prise en charge de TLS 1.2/1.3 |
@@ -69,25 +69,45 @@ Un mode pipeline innovant fondé sur le protocole binaire `COM_STMT_PREPARE + CO
 - **Phase 2** : lire toutes les réponses OK/Error dans l'ordre par lots, en cumulant le nombre de lignes affectées
 - La pile TCP regroupe les petits paquets (algorithme de Nagle), ce qui ne produit qu'un seul aller-retour réseau
 
-**Données mesurées** (.NET 10 + MySQL 8.0.26 en localhost, pipeline + transaction comparé à la référence ligne par ligne) :
+**Données mesurées** (.NET 10 + MySQL 8.0.26 en localhost, pipeline + transaction comparé à une référence ligne par ligne en autocommit) :
 
 | Scénario | Référence ligne par ligne | Pipeline(tx) | Accélération |
 |------|------:|------:|------:|
 | INSERT de 100 lignes | 244ms | 20ms | 12,2× |
 | INSERT de 1 000 lignes | 2 473ms | 70ms | **35,3×** |
-| INSERT de 10 000 lignes | ~70s¹ | ~0,7s¹ | ~98× |
-
-> ¹ Le chiffre ligne par ligne pour 10 000 lignes sans transaction est extrapolé (2,4 ms/ligne) ; le chiffre Pipeline est mesuré sans transaction. Avec une transaction, 10 000 lignes prennent environ 70 ms.
 
 **Performances des trois pilotes** (opérations par lots de 10 000 lignes) :
 
-| Opération | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) |
+| Opération | NewLife pipeline + liaison de tableaux (tx) | MySql.Data boucle préparée (tx) | MySqlConnector boucle préparée (tx) |
 |------|------:|------:|------:|
 | INSERT | 814ms | 1 089ms | 1 135ms |
 | UPDATE | 856ms | 1 151ms | 1 196ms |
 | DELETE | 816ms | 1 091ms | 1 126ms |
 
-> Quelques milliers de lignes suffisent déjà à obtenir une accélération de **35×** sur un réseau local ; le gain est encore plus marqué entre centres de données. Voir le [rapport de test de performance](Doc/性能测试报告.md) pour les données détaillées.
+> Quelques milliers de lignes suffisent déjà à obtenir une accélération de **35×** sur un réseau local ; le gain augmente avec la taille du lot et la latence. MySql.Data et MySqlConnector n'ont pas d'API équivalente de liaison de tableaux/pipeline ; leurs chiffres utilisent donc une boucle de requêtes préparées dans une transaction. Les chemins multi-instructions `MySqlBatch`/`AllowBatch` ne font pas partie de ce test. Voir le [rapport de test de performance](Doc/性能测试报告.md) pour les données et la méthodologie.
+
+### 📊 Chemin de lecture et compromis
+
+**Performances de lecture** (10 000 lignes, ms, plus bas est meilleur ; NewLife utilise `ReadTableAsync`/`ReadModelsAsync` intégrés au pilote, les deux autres passent par le même helper `DbTable` NewLife au-dessus de leurs lecteurs ADO.NET) :
+
+| Scénario | NewLife | MySql.Data | MySqlConnector | Remarque |
+|------|------:|------:|------:|------|
+| Lecture en masse (BulkRead) | **6.61** | 9.11 | 6.98 | 5 % de moins que MySqlConnector, 27 % de moins que MySql.Data |
+| Remplissage DbTable | **6.67** | 22.34 | 6.95 | 4 % de moins que MySqlConnector, 70 % de moins que MySql.Data |
+| Mappage d'entités (ReadModels) | **6.72** | 24.38 | 10.01 | 33 % de moins que MySqlConnector, 72 % de moins que MySql.Data |
+| Requête ponctuelle ligne par ligne | 1,181 | 1,374 | **1,141** | 3,5 % de plus que MySqlConnector, 14 % de moins que MySql.Data |
+
+> MySqlConnector est un pilote mature et performant, et un excellent choix généraliste ; ces chiffres proviennent d'un seul environnement local et doivent être validés sur votre propre schéma et réseau. Méthodologie complète : [rapport de test de performance](Doc/性能测试报告.md).
+
+**Choisir un pilote**
+
+| Si votre priorité est... | Pilote suggéré |
+|------|------|
+| DML par lots à gros volume, mappage d'entités intégré, cibles net45 ou adaptation aux bases nationales | NewLife.MySql |
+| La plus grande communauté et un écosystème ORM/outils mature, avec d'excellentes performances globales | MySqlConnector |
+| Le support commercial et la certification officielle Oracle | MySql.Data |
+
+Les trois pilotes conviennent à la production. Les écarts de benchmark dépendent du matériel, du réseau, du schéma et de la charge.
 
 ### 🔧 Six options d'opérations par lots
 
@@ -102,7 +122,7 @@ Un mode pipeline innovant fondé sur le protocole binaire `COM_STMT_PREPARE + CO
 
 ### 🛡️ Zéro dépendance tierce
 
-Dépend uniquement de `NewLife.Core` (également de l'équipe NewLife), sans risque de licence GPL, sous licence MIT pour un usage commercial sans arrière-pensée, adapté aux environnements 信创 et aux scénarios à audit de sécurité strict.
+Dépend uniquement de `NewLife.Core` (également de l'équipe NewLife), sous licence MIT, sans obligations de copyleft, pour un usage commercial sans arrière-pensée, adapté aux environnements 信创 et aux scénarios à audit de sécurité strict.
 
 ### ⚡ Optimisations de performance extrêmes
 
@@ -123,30 +143,32 @@ Dépend uniquement de `NewLife.Core` (également de l'équipe NewLife), sans ris
 
 ## Comparaison des fonctionnalités
 
+Les trois pilotes sont activement maintenus et utilisables en production. « — » signifie qu'il n'existe pas d'équivalent intégré, et non que la fonction est impossible. Les capacités ont été vérifiées dans le code source et la documentation de chaque projet (2026-11).
+
 | Fonctionnalité | NewLife.MySql | MySqlConnector | MySql.Data (Oracle) |
 |------|:---:|:---:|:---:|
-| **Licence** | **MIT** | MIT | GPL (payante pour un usage commercial) |
-| **Autonomie nationale (chinoise)** | ✅ | ❌ | ❌ |
-| **Dépendances tierces** | **Aucune** | Aucune | Aucune |
-| **E/S asynchrones réelles** | ✅ | ✅ | ❌ |
-| **Exécution par lots en pipeline** | ✅ | ❌ | ❌ |
-| **Lots par liaison de tableaux** | ✅ | ❌ | ❌ |
-| **Lots par ensembles de paramètres en dictionnaire** | ✅ | ❌ | ❌ |
-| **DbBatch (.NET 6+)** | ✅ | ✅ | ❌ |
-| **DataAdapter** | ✅ | ❌ | ✅ |
-| **EF Core** | ✅ | ✅ (Pomelo) | ✅ |
-| **Intégration ORM XCode** | ✅ | ❌ | ❌ |
-| **Frameworks cibles** | net45~net10 | netstandard2.0+ | net462+ |
-| **NativeAOT (net8.0+)** | ✅ | ✅ | ❌ |
-| **Traçage OpenTelemetry** | ✅ | ✅ | ✅ (8.1+) |
-| **OceanBase / TiDB / Aurora / Doris** | ✅ Détection automatique | ❌ | ❌ |
-| **MySqlBulkCopy** | ✅ | ✅ | ✅ |
-| **Protocole de compression (zlib/zstd)** | ✅ | ✅ | ❌ |
-| **Unix Socket** | ✅ | ✅ | ❌ |
-| **Authentification WebAuthn** | ✅ | ✅ | ❌ |
-| **DbDataSource** | ✅ | ❌ | ❌ |
+| **Maintenance / communauté** | Équipe NewLife, écosystème ciblé | Communauté open source, large adoption | Oracle, support commercial |
+| **Licence** | **MIT** | MIT | GPLv2 + exception FOSS, ou licence commerciale |
+| **Dépendances du paquet** | **1** (NewLife.Core) | 1~4 (selon la cible) | 5~6 |
+| **Frameworks cibles** | net45~net11 | net462~net11 | net462~net11 |
+| **E/S asynchrones réelles** | ✅ | ✅ | ✅ (8.0.33+) |
+| **Lots préparés en pipeline** | ✅ `Pipeline` + liaison de tableaux | — (`MySqlBatch` concatène les commandes) | — (`AllowBatch` multi-instructions) |
+| **Lots par ensembles de paramètres en dictionnaire** | ✅ | — | — |
+| **Lots par liaison de tableaux** | ✅ | — | — |
+| **DbBatch (.NET 6+)** | ✅ | ✅ | — |
+| **DbDataSource (.NET 7+)** | ✅ | ✅ | — |
+| **DataAdapter** | ✅ | ✅ (synchrone uniquement) | ✅ |
+| **Import en masse** | ✅ MySqlBulkCopy | ✅ MySqlBulkCopy | ✅ MySqlBulkLoader |
+| **Authentification WebAuthn** | ✅ | — | ✅ |
+| **Unix Socket** | ✅ | ✅ | ✅ |
+| **Compression** | ✅ zlib + zstd en option | ✅ zlib ; zstd sous .NET 11 | ✅ zlib |
+| **Traçage OpenTelemetry** | ✅ intégré | ✅ intégré | ✅ paquet séparé (8.1+) |
+| **EF Core / EF6** | ✅ les deux, développement interne | ✅ EF Core via Pomelo | ✅ officiel |
+| **NativeAOT (net8.0+)** | ✅ | ✅ | — |
+| **Intégration ORM XCode** | ✅ | — | — |
+| **Détection automatique des bases nationales (OceanBase/TiDB/Doris)** | ✅ | — (utilisable comme compatible MySQL) | — (utilisable comme compatible MySQL) |
 
-> Pour l'analyse complète des fonctionnalités et de l'architecture, voir [l'architecture](Doc/架构设计.md).
+> Les nombres de dépendances proviennent des métadonnées NuGet (2026-11). Moins de dépendances facilitent l'audit de sécurité ; plus de dépendances peuvent apporter des capacités supplémentaires. Pour l'analyse complète des fonctionnalités et de l'architecture, voir [l'architecture](Doc/架构设计.md) et [l'analyse concurrentielle](Doc/竞品分析报告.md).
 
 ---
 
@@ -563,6 +585,7 @@ Le pool de connexions est activé par défaut, sans configuration supplémentair
 | ConnectionLifeTime | 0 | Durée de vie des connexions (secondes) ; 0 signifie jamais d'expiration |
 | ConnectionIdleTime | 300 | Délai d'inactivité (secondes) ; les connexions sont récupérées à son expiration |
 | ValidationInterval | 30 | Intervalle de validation des connexions inactives (secondes) |
+| PoolExpireTime | 600 | Expiration pour inactivité de l'ensemble du pool (secondes) ; `0` désactive le nettoyage |
 
 ```csharp
 var connStr = "Server=localhost;Database=mydb;...;MinPoolSize=5;MaxPoolSize=50;ConnectionLifeTime=3600;";
@@ -679,7 +702,8 @@ dotnet publish -c Release -r linux-x64
 | [Exigences](Doc/需求文档.md) | Vision, objectifs principaux, orientations fonctionnelles |
 | [Liste des fonctionnalités](Doc/功能清单.md) | Suivi tridimensionnel de l'implémentation/des tests/des commentaires |
 | [Architecture](Doc/架构设计.md) | Vue d'ensemble de l'architecture, implémentation du protocole, choix technologiques, décisions de conception, comparaison des pilotes |
-| [Rapport de test de performance](Doc/性能测试报告.md) | Données de référence détaillées pour les opérations par lots |
+| [Rapport de test de performance](Doc/性能测试报告.md) | Données de benchmark détaillées pour les écritures par lots et les chemins de lecture |
+| [Analyse concurrentielle](Doc/竞品分析报告.md) | Comparaison des capacités, du positionnement, des forces et des écarts |
 | [Journal des modifications (中文)](Doc/ChangeLog.md) | Journal des versions en chinois |
 | [Journal des modifications (EN)](Doc/ChangeLog.en.md) | Journal des versions en anglais |
 | [README 简体中文](README.zh-CN.md) | Documentation chinoise, maintenue dans le même lot que cette version anglaise |

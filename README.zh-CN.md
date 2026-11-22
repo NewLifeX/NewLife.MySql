@@ -18,7 +18,7 @@
 
 **NewLife.MySql** 是新生命团队出品的纯国产 MySQL 客户端驱动，基于 ADO.NET 标准接口，直接通过 TCP 实现 MySQL 协议层（Protocol Version 10）。仅依赖 `NewLife.Core`，**零第三方依赖**、**全链路真异步**、**MIT 协议商用无忧**。
 
-独创的**管道化批量执行**（Pipeline）在万级行批量写入场景下可达 **2×~3×** 加速（vs 逐行基线），是大数据批量操作、信创国产化替代的理想选择。
+独创的**管道化批量执行**（Pipeline）在本机实测中把 1,000 行批量写入从 2,473ms 降到 70ms（相对逐行自动提交基线 35×）；批量越大、网络延迟越高，收益越明显，适合大数据批量操作与信创国产化替代场景。
 
 > ℹ️ 本中文版与 [English README](README.md) 同批维护。
 
@@ -30,9 +30,9 @@
 |------|------|
 | **轻量极简** | 只做 ADO.NET 标准的增删改查、事务、参数化查询、存储过程和批量操作 |
 | **高性能** | 零额外内存分配（`ArrayPool` / `OwnerPacket`）、真异步 IO、管道化批量执行 |
-| **纯国产** | 核心代码完全自主可控，无 GPL 许可风险，适合信创环境 |
+| **纯国产** | 核心代码完全自主可控，MIT 许可、无 copyleft 义务，适合信创环境 |
 | **大数据友好** | 字典参数集 / 数组绑定 / 管道化 / 多行 VALUES / DbBatch，覆盖万级到百万级行 |
-| **广泛兼容** | `net45` ~ `net10` 全版本，MySQL 5.x ~ 9.0+，兼容 OceanBase / TiDB / Doris / Aurora / CloudSQL，`net8.0+` 支持 NativeAOT |
+| **广泛兼容** | `net45` ~ `net11` 全版本，MySQL 5.x ~ 9.0+，兼容 OceanBase / TiDB / Doris / Aurora / CloudSQL，`net8.0+` 支持 NativeAOT |
 
 ## 核心功能
 
@@ -45,7 +45,7 @@
 | 参数化查询 | 客户端参数替换，`@参数名` 语法，自动转义防注入 |
 | 预编译语句 | `Prepare()` 走 `COM_STMT_PREPARE` 二进制协议，可选 `UseServerPrepare` 全局开关 |
 | 批量操作 | `ExecuteBatch` / `ExecuteArrayBatch` / 管道化 / 多行 VALUES / DbBatch / `MySqlBulkCopy` |
-| 管道化执行 | `Pipeline=true` 批量发送后批量接收，网络延迟仅一次，千级行 35×、万级行近百倍加速 |
+| 管道化执行 | `Pipeline=true` 批量发送后批量接收，网络往返仅一次；本机实测千级行 35×，批量越大、网络延迟越高收益越明显 |
 | 事务支持 | `BeginTransaction` / `Commit` / `Rollback`，四种隔离级别，自动回滚 |
 | 存储过程 | `CommandType.StoredProcedure`，支持 IN/OUT 参数 |
 | SSL/TLS | `SslMode=Preferred/Required`，支持 TLS 1.2/1.3 |
@@ -71,25 +71,45 @@
 - **Phase 2**：按顺序批量读取所有 OK/Error 响应，累加影响行数
 - TCP 协议栈合并小包（Nagle 算法），网络往返仅一次
 
-**实测数据**（.NET 10 + MySQL 8.0.26 本机，管道化+事务 vs 逐行基线）：
+**实测数据**（.NET 10 + MySQL 8.0.26 本机，管道化+事务 vs 逐行自动提交基线）：
 
 | 场景 | 逐行基线 | Pipeline(tx) | 加速比 |
 |------|------:|------:|------:|
 | 100 行 INSERT | 244ms | 20ms | 12.2× |
 | 1,000 行 INSERT | 2,473ms | 70ms | **35.3×** |
-| 10,000 行 INSERT | ~70s¹ | ~0.7s¹ | ~98× |
-
-> ¹ 10,000 行逐行无事务为推算值（2.4ms/行），Pipeline 为无事务实测。加事务后万行约 70ms。
 
 **三驱动性能数据**（10,000 行批量操作）：
 
-| 操作 | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) |
+| 操作 | NewLife 管道+数组绑定（事务） | MySql.Data 预编译循环（事务） | MySqlConnector 预编译循环（事务） |
 |------|------:|------:|------:|
 | INSERT | 814ms | 1,089ms | 1,135ms |
 | UPDATE | 856ms | 1,151ms | 1,196ms |
 | DELETE | 816ms | 1,091ms | 1,126ms |
 
-> 本机内网千级行已达 **35×** 加速，跨机房场景收益更大。详细数据参见 [性能测试报告](Doc/性能测试报告.md)。
+> 本机内网千级行已达 **35×** 加速，批量越大、网络延迟越高收益越明显。MySql.Data / MySqlConnector 没有等价的数组绑定/管道化批量 API，表中竞品数据为事务内预编译语句逐行执行；`MySqlBatch` / `AllowBatch` 多语句路径未纳入本项对比。详细数据与口径参见 [性能测试报告](Doc/性能测试报告.md)。
+
+### 📊 读取路径与选型权衡
+
+**读取性能**（10,000 行，ms，越小越好；NewLife 使用驱动内置的 `ReadTableAsync` / `ReadModelsAsync`，另外两个驱动通过同一个 NewLife `DbTable` 辅助类读取其 ADO.NET DataReader）：
+
+| 场景 | NewLife | MySql.Data | MySqlConnector | 说明 |
+|------|------:|------:|------:|------|
+| 批量读取（BulkRead） | **6.61** | 9.11 | 6.98 | 较 Connector 低 5%，较 MySql.Data 低 27% |
+| DbTable 填充 | **6.67** | 22.34 | 6.95 | 较 Connector 低 4%，较 MySql.Data 低 70% |
+| 实体映射（ReadModels） | **6.72** | 24.38 | 10.01 | 较 Connector 低 33%，较 MySql.Data 低 72% |
+| 逐行点查 | 1,181 | 1,374 | **1,141** | 较 Connector 高 3.5%，较 MySql.Data 低 14% |
+
+> MySqlConnector 是成熟的高性能驱动，也是通用场景的优秀选择；以上数据来自单台本机环境，请以自己的表结构和网络复测为准。完整口径见 [性能测试报告](Doc/性能测试报告.md)。
+
+**如何选择**
+
+| 如果你的首要诉求是… | 建议选择 |
+|------|------|
+| 大批量 DML、驱动内置实体映射、net45 目标框架或国产数据库适配 | NewLife.MySql |
+| 最大的社区与 ORM/工具生态、优秀的全场景性能 | MySqlConnector |
+| Oracle 商业支持与官方认证 | MySql.Data |
+
+三个驱动都适合生产环境；基准差异取决于硬件、网络、表结构与负载，建议按实际场景复测。
 
 ### 🔧 六种批量操作方案
 
@@ -104,7 +124,7 @@
 
 ### 🛡️ 零第三方依赖
 
-仅依赖 `NewLife.Core`（同为 NewLife 团队出品），无 GPL 许可风险，MIT 协议商用无忧，适合信创环境和安全审计严格的场景。
+仅依赖 `NewLife.Core`（同为 NewLife 团队出品），MIT 许可、无 copyleft 义务，商用无忧，适合信创环境和安全审计严格的场景。
 
 ### ⚡ 极致性能优化
 
@@ -125,30 +145,32 @@
 
 ## 功能特性
 
+三个驱动都在持续维护，均可用于生产环境。“—”表示没有内置等价能力，不代表不能实现；能力项已按各项目源码与文档核对（2026-11）。
+
 | 功能 | NewLife.MySql | MySqlConnector | MySql.Data (Oracle) |
 |------|:---:|:---:|:---:|
-| **许可协议** | **MIT** | MIT | GPL (商用付费) |
-| **国产自主** | ✅ | ❌ | ❌ |
-| **第三方依赖** | **无** | 无 | 无 |
-| **真异步 IO** | ✅ | ✅ | ❌ |
-| **管道化批量执行** | ✅ | ❌ | ❌ |
-| **数组绑定批量** | ✅ | ❌ | ❌ |
-| **字典参数集批量** | ✅ | ❌ | ❌ |
-| **DbBatch (.NET 6+)** | ✅ | ✅ | ❌ |
-| **DataAdapter** | ✅ | ❌ | ✅ |
-| **EF Core** | ✅ | ✅ (Pomelo) | ✅ |
-| **XCode ORM 集成** | ✅ | ❌ | ❌ |
-| **多目标框架** | net45~net10 | netstandard2.0+ | net462+ |
-| **NativeAOT (net8.0+)** | ✅ | ✅ | ❌ |
-| **OpenTelemetry 链路追踪** | ✅ | ✅ | ✅ (8.1+) |
-| **OceanBase / TiDB / Aurora / Doris** | ✅ 自动检测 | ❌ | ❌ |
-| **MySqlBulkCopy** | ✅ | ✅ | ✅ |
-| **压缩协议 (zlib/zstd)** | ✅ | ✅ | ❌ |
-| **Unix Socket** | ✅ | ✅ | ❌ |
-| **WebAuthn 认证** | ✅ | ✅ | ❌ |
-| **DbDataSource** | ✅ | ❌ | ❌ |
+| **维护方 / 社区** | 新生命团队，聚焦 NewLife 生态 | 开源社区，采用广泛 | Oracle，商业支持 |
+| **许可协议** | **MIT** | MIT | GPLv2 + FOSS 例外，或商业许可 |
+| **包依赖** | **1**（NewLife.Core） | 1~4（随目标框架） | 5~6 |
+| **目标框架** | net45~net11 | net462~net11 | net462~net11 |
+| **真异步 I/O** | ✅ | ✅ | ✅（8.0.33+） |
+| **管道化预编译批量** | ✅ `Pipeline` + 数组绑定 | —（`MySqlBatch` 合并多语句） | —（`AllowBatch` 多语句） |
+| **字典参数集批量** | ✅ | — | — |
+| **数组绑定批量** | ✅ | — | — |
+| **DbBatch (.NET 6+)** | ✅ | ✅ | — |
+| **DbDataSource (.NET 7+)** | ✅ | ✅ | — |
+| **DataAdapter** | ✅ | ✅（仅同步） | ✅ |
+| **批量导入** | ✅ MySqlBulkCopy | ✅ MySqlBulkCopy | ✅ MySqlBulkLoader |
+| **WebAuthn 认证** | ✅ | — | ✅ |
+| **Unix Socket** | ✅ | ✅ | ✅ |
+| **压缩协议** | ✅ zlib + 可选 zstd | ✅ zlib；zstd（.NET 11） | ✅ zlib |
+| **OpenTelemetry 链路追踪** | ✅ 内置 | ✅ 内置 | ✅ 独立包（8.1+） |
+| **EF Core / EF6** | ✅ 两个均为自研 | ✅ EF Core（Pomelo） | ✅ 官方 |
+| **NativeAOT (net8.0+)** | ✅ | ✅ | — |
+| **XCode ORM 集成** | ✅ | — | — |
+| **国产库自动适配（OceanBase/TiDB/Doris）** | ✅ | —（可作 MySQL 兼容库使用） | —（可作 MySQL 兼容库使用） |
 
-> 完整功能和架构分析参见 [架构设计](Doc/架构设计.md)。
+> 依赖数量来自 NuGet 元数据（2026-11）。依赖越少越便于安全审计，依赖越多可能带来更多能力。完整功能与架构分析参见 [架构设计](Doc/架构设计.md) 与 [竞品分析报告](Doc/竞品分析报告.md)。
 
 ---
 
@@ -682,7 +704,8 @@ dotnet publish -c Release -r linux-x64
 | [需求文档](Doc/需求文档.md) | 愿景、核心目标、功能方向 |
 | [功能清单](Doc/功能清单.md) | 功能实现/测试/注释三维状态追踪 |
 | [架构设计](Doc/架构设计.md) | 架构概览、协议实现、技术选型、设计决策、驱动对比 |
-| [性能测试报告](Doc/性能测试报告.md) | 批量操作基准性能测试详细数据 |
+| [性能测试报告](Doc/性能测试报告.md) | 批量写入与读取路径的基准测试详细数据 |
+| [竞品分析报告](Doc/竞品分析报告.md) | 能力、定位、优缺点与待追赶项对比 |
 | [更新日志 (中文)](Doc/ChangeLog.md) | 中文版版本更新记录 |
 | [Changelog (EN)](Doc/ChangeLog.en.md) | English release changelog |
 | [English README](README.md) | English documentation with performance charts |

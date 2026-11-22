@@ -18,7 +18,7 @@
 
 **NewLife.MySql** ist ein reiner C#-MySQL-Client-Treiber des NewLife-Teams. Auf den standardisierten ADO.NET-Schnittstellen aufbauend implementiert er die MySQL-Protokollschicht (Protocol Version 10) direkt über TCP. Er hängt ausschließlich von `NewLife.Core` ab und bietet **null Drittanbieter-Abhängigkeiten**, **echtes durchgängiges Async** und eine **MIT-Lizenz** für sorgenfreie kommerzielle Nutzung.
 
-Seine innovative **pipelinegestützte Batch-Ausführung** (Pipeline) liefert bei Batch-Schreibvorgängen im Bereich von Zehntausenden Zeilen eine **2×–3×**-Beschleunigung (gegenüber der zeilenweisen Basislinie) und ist damit die ideale Wahl für Big-Data-Batch-Operationen und Szenarien der inländischen (信创) Ablösung.
+Seine **pipelinegestützte Batch-Ausführung** (Pipeline) verkürzt Batch-Schreibvorgänge mit 1.000 Zeilen in lokalen Tests von 2.473 ms auf 70 ms (35× gegenüber einer zeilenweisen Autocommit-Basislinie); der Gewinn wächst mit Batch-Größe und Netzwerklatenz, was sie für Massendatenoperationen und Szenarien der inländischen (信创) Ablösung geeignet macht.
 
 ---
 
@@ -28,9 +28,9 @@ Seine innovative **pipelinegestützte Batch-Ausführung** (Pipeline) liefert bei
 |------|------|
 | **Leichtgewichtig und minimal** | Nur standardkonforme ADO.NET-Funktionen: CRUD, Transaktionen, parametrisierte Abfragen, gespeicherte Prozeduren und Batch-Operationen |
 | **Hohe Leistung** | Keine zusätzlichen Speicherzuweisungen (`ArrayPool` / `OwnerPacket`), echtes asynchrones I/O, pipelinegestützte Batch-Ausführung |
-| **Reiner inländischer (chinesischer) Stack** | Der Kerncode ist vollständig eigenständig kontrolliert, ohne GPL-Lizenzrisiko, geeignet für 信创-Umgebungen |
+| **Reiner inländischer (chinesischer) Stack** | Der Kerncode ist vollständig eigenständig kontrolliert, unter der MIT-Lizenz ohne Copyleft-Pflichten, geeignet für 信创-Umgebungen |
 | **Big-Data-freundlich** | Wörterbuch-Parametersätze / Array-Bindung / Pipelining / Mehrzeilen-VALUES / DbBatch – von Zehntausenden bis zu Millionen Zeilen |
-| **Breite Kompatibilität** | `net45` ~ `net10` über alle Versionen, MySQL 5.x ~ 9.0+, kompatibel mit OceanBase / TiDB / Doris / Aurora / CloudSQL sowie NativeAOT-Unterstützung ab `net8.0+` |
+| **Breite Kompatibilität** | `net45` ~ `net11` über alle Versionen, MySQL 5.x ~ 9.0+, kompatibel mit OceanBase / TiDB / Doris / Aurora / CloudSQL sowie NativeAOT-Unterstützung ab `net8.0+` |
 
 ## Kernfunktionen
 
@@ -43,7 +43,7 @@ Seine innovative **pipelinegestützte Batch-Ausführung** (Pipeline) liefert bei
 | Parametrisierte Abfragen | Clientseitige Parametersubstitution mit der Syntax `@parameter-name` und automatischer Maskierung zum Schutz vor Injection |
 | Prepared Statements | `Prepare()` nutzt das binäre Protokoll `COM_STMT_PREPARE`, mit optionalem globalem Schalter `UseServerPrepare` |
 | Batch-Operationen | `ExecuteBatch` / `ExecuteArrayBatch` / Pipelining / Mehrzeilen-VALUES / DbBatch / `MySqlBulkCopy` |
-| Pipelinegestützte Ausführung | `Pipeline=true` sendet gebündelt und empfängt gebündelt, mit nur einem Netzwerk-Roundtrip: 35× bei Tausenden Zeilen und nahezu 100× bei Zehntausenden Zeilen |
+| Pipelinegestützte Ausführung | `Pipeline=true` sendet und empfängt gebündelt mit nur einem Netzwerk-Roundtrip; 35× bei 1.000 Zeilen in lokalen Tests, und der Gewinn wächst mit Batch-Größe und Latenz |
 | Transaktionen | `BeginTransaction` / `Commit` / `Rollback`, vier Isolationsstufen, automatischer Rollback |
 | Gespeicherte Prozeduren | `CommandType.StoredProcedure`, unterstützt IN-/OUT-Parameter |
 | SSL/TLS | `SslMode=Preferred/Required`, unterstützt TLS 1.2/1.3 |
@@ -69,25 +69,45 @@ Ein innovativer Pipeline-Modus auf Basis des binären Protokolls `COM_STMT_PREPA
 - **Phase 2**: Alle OK-/Error-Antworten werden der Reihe nach gebündelt gelesen und die betroffene Zeilenzahl aufsummiert
 - Der TCP-Stack fasst kleine Pakete zusammen (Nagle-Algorithmus), sodass nur ein Netzwerk-Roundtrip entsteht
 
-**Messdaten** (.NET 10 + MySQL 8.0.26 localhost, Pipelining + Transaktion gegenüber zeilenweiser Basislinie):
+**Messdaten** (.NET 10 + MySQL 8.0.26 localhost, Pipelining + Transaktion gegenüber zeilenweiser Autocommit-Basislinie):
 
 | Szenario | Zeilenweise Basislinie | Pipeline(tx) | Beschleunigung |
 |------|------:|------:|------:|
 | INSERT mit 100 Zeilen | 244ms | 20ms | 12,2× |
 | INSERT mit 1.000 Zeilen | 2.473ms | 70ms | **35,3×** |
-| INSERT mit 10.000 Zeilen | ~70s¹ | ~0,7s¹ | ~98× |
-
-> ¹ Der zeilenweise Wert für 10.000 Zeilen ohne Transaktion ist extrapoliert (2,4ms/Zeile); der Pipeline-Wert ist ohne Transaktion gemessen. Mit Transaktion benötigen 10.000 Zeilen etwa 70ms.
 
 **Leistungsdaten im Drei-Treiber-Vergleich** (Batch-Operationen mit 10.000 Zeilen):
 
-| Operation | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) |
+| Operation | NewLife Pipeline + Array-Bindung (tx) | MySql.Data vorbereitete Schleife (tx) | MySqlConnector vorbereitete Schleife (tx) |
 |------|------:|------:|------:|
 | INSERT | 814ms | 1.089ms | 1.135ms |
 | UPDATE | 856ms | 1.151ms | 1.196ms |
 | DELETE | 816ms | 1.091ms | 1.126ms |
 
-> Bereits Tausende Zeilen erreichen im lokalen LAN eine **35×**-Beschleunigung; über Rechenzentren hinweg ist der Gewinn noch größer. Detaillierte Daten finden Sie im [Leistungstestbericht](Doc/性能测试报告.md).
+> Bereits Tausende Zeilen erreichen im lokalen LAN eine **35×**-Beschleunigung; der Gewinn wächst mit Batch-Größe und Latenz. MySql.Data und MySqlConnector haben keine äquivalente API für Array-Bindung/Pipeline, daher verwenden ihre Werte eine vorbereitete Anweisung in einer Schleife innerhalb einer Transaktion; `MySqlBatch`/`AllowBatch`-Mehrfachanweisungspfade sind nicht Teil dieses Tests. Detaillierte Daten und Methodik: [Leistungstestbericht](Doc/性能测试报告.md).
+
+### 📊 Lesepfad und Abwägungen
+
+**Leseleistung** (10.000 Zeilen, ms, niedriger ist besser; NewLife nutzt die treiberinternen `ReadTableAsync`/`ReadModelsAsync`, die anderen beiden den gleichen NewLife-`DbTable`-Helfer über ihre ADO.NET-Reader):
+
+| Szenario | NewLife | MySql.Data | MySqlConnector | Hinweis |
+|------|------:|------:|------:|------|
+| Massenlesen (BulkRead) | **6.61** | 9.11 | 6.98 | 5% niedriger als MySqlConnector, 27% niedriger als MySql.Data |
+| DbTable-Füllung | **6.67** | 22.34 | 6.95 | 4% niedriger als MySqlConnector, 70% niedriger als MySql.Data |
+| Entitätszuordnung (ReadModels) | **6.72** | 24.38 | 10.01 | 33% niedriger als MySqlConnector, 72% niedriger als MySql.Data |
+| Zeilenweise Punktabfrage | 1,181 | 1,374 | **1,141** | 3,5% höher als MySqlConnector, 14% niedriger als MySql.Data |
+
+> MySqlConnector ist ein ausgereifter Hochleistungstreiber und eine gute Allzweckwahl; diese Zahlen stammen aus einer lokalen Umgebung und sollten mit eigenem Schema und Netzwerk validiert werden. Vollständige Methodik: [Leistungstestbericht](Doc/性能测试报告.md).
+
+**Treiberauswahl**
+
+| Wenn Ihr Schwerpunkt liegt auf... | Empfohlener Treiber |
+|------|------|
+| Massen-DML, integrierter Entitätszuordnung, net45-Zielen oder Anpassung an inländische Datenbanken | NewLife.MySql |
+| Größter Community und ORM-/Tool-Ökosystem bei hervorragender Allround-Leistung | MySqlConnector |
+| Kommerziellem Oracle-Support und offizieller Zertifizierung | MySql.Data |
+
+Alle drei Treiber sind produktionstauglich. Benchmark-Unterschiede hängen von Hardware, Netzwerk, Schema und Arbeitslast ab.
 
 ### 🔧 Sechs Optionen für Batch-Operationen
 
@@ -102,7 +122,7 @@ Ein innovativer Pipeline-Modus auf Basis des binären Protokolls `COM_STMT_PREPA
 
 ### 🛡️ Null Drittanbieter-Abhängigkeiten
 
-Hängt ausschließlich von `NewLife.Core` ab (ebenfalls vom NewLife-Team), ohne GPL-Lizenzrisiko, mit MIT-Lizenz für sorgenfreie kommerzielle Nutzung und geeignet für 信创-Umgebungen sowie Szenarien mit strengen Sicherheitsaudits.
+Hängt ausschließlich von `NewLife.Core` ab (ebenfalls vom NewLife-Team), unter der MIT-Lizenz ohne Copyleft-Pflichten, für sorgenfreie kommerzielle Nutzung und geeignet für 信创-Umgebungen sowie Szenarien mit strengen Sicherheitsaudits.
 
 ### ⚡ Extreme Leistungsoptimierungen
 
@@ -123,30 +143,32 @@ Hängt ausschließlich von `NewLife.Core` ab (ebenfalls vom NewLife-Team), ohne 
 
 ## Funktionsvergleich
 
+Alle drei Treiber werden aktiv gepflegt und sind produktionstauglich. „—“ bedeutet keine integrierte Entsprechung, nicht dass es unmöglich ist. Die Fähigkeiten wurden anhand von Quellcode und Dokumentation der Projekte geprüft (2026-11).
+
 | Funktion | NewLife.MySql | MySqlConnector | MySql.Data (Oracle) |
 |------|:---:|:---:|:---:|
-| **Lizenz** | **MIT** | MIT | GPL (kostenpflichtig für kommerzielle Nutzung) |
-| **Inländische (chinesische) Autonomie** | ✅ | ❌ | ❌ |
-| **Drittanbieter-Abhängigkeiten** | **Keine** | Keine | Keine |
-| **Echtes asynchrones I/O** | ✅ | ✅ | ❌ |
-| **Pipelinegestützte Batch-Ausführung** | ✅ | ❌ | ❌ |
-| **Array-gebundener Batch** | ✅ | ❌ | ❌ |
-| **Batch mit Wörterbuch-Parametersätzen** | ✅ | ❌ | ❌ |
-| **DbBatch (.NET 6+)** | ✅ | ✅ | ❌ |
-| **DataAdapter** | ✅ | ❌ | ✅ |
-| **EF Core** | ✅ | ✅ (Pomelo) | ✅ |
-| **XCode-ORM-Integration** | ✅ | ❌ | ❌ |
-| **Zielframeworks** | net45~net10 | netstandard2.0+ | net462+ |
-| **NativeAOT (net8.0+)** | ✅ | ✅ | ❌ |
-| **OpenTelemetry-Tracing** | ✅ | ✅ | ✅ (8.1+) |
-| **OceanBase / TiDB / Aurora / Doris** | ✅ Automatische Erkennung | ❌ | ❌ |
-| **MySqlBulkCopy** | ✅ | ✅ | ✅ |
-| **Komprimierungsprotokoll (zlib/zstd)** | ✅ | ✅ | ❌ |
-| **Unix Socket** | ✅ | ✅ | ❌ |
-| **WebAuthn-Authentifizierung** | ✅ | ✅ | ❌ |
-| **DbDataSource** | ✅ | ❌ | ❌ |
+| **Wartung / Community** | NewLife-Team, fokussiertes Ökosystem | Open-Source-Community, breite Nutzung | Oracle, kommerzieller Support |
+| **Lizenz** | **MIT** | MIT | GPLv2 + FOSS-Ausnahme oder kommerzielle Lizenz |
+| **Paketabhängigkeiten** | **1** (NewLife.Core) | 1~4 (je nach Ziel) | 5~6 |
+| **Zielframeworks** | net45~net11 | net462~net11 | net462~net11 |
+| **Echtes asynchrones I/O** | ✅ | ✅ | ✅ (8.0.33+) |
+| **Pipeline-Batch mit vorbereiteten Anweisungen** | ✅ `Pipeline` + Array-Bindung | — (`MySqlBatch` verkettet Befehle) | — (`AllowBatch` Mehrfachanweisung) |
+| **Batch mit Wörterbuch-Parametersätzen** | ✅ | — | — |
+| **Array-gebundener Batch** | ✅ | — | — |
+| **DbBatch (.NET 6+)** | ✅ | ✅ | — |
+| **DbDataSource (.NET 7+)** | ✅ | ✅ | — |
+| **DataAdapter** | ✅ | ✅ (nur synchron) | ✅ |
+| **Massenimport** | ✅ MySqlBulkCopy | ✅ MySqlBulkCopy | ✅ MySqlBulkLoader |
+| **WebAuthn-Authentifizierung** | ✅ | — | ✅ |
+| **Unix Socket** | ✅ | ✅ | ✅ |
+| **Komprimierung** | ✅ zlib + optional zstd | ✅ zlib; zstd unter .NET 11 | ✅ zlib |
+| **OpenTelemetry-Tracing** | ✅ integriert | ✅ integriert | ✅ separates Paket (8.1+) |
+| **EF Core / EF6** | ✅ beide, Eigenentwicklung | ✅ EF Core über Pomelo | ✅ offiziell |
+| **NativeAOT (net8.0+)** | ✅ | ✅ | — |
+| **XCode-ORM-Integration** | ✅ | — | — |
+| **Automatische Erkennung inländischer DBs (OceanBase/TiDB/Doris)** | ✅ | — (als MySQL-kompatibel nutzbar) | — (als MySQL-kompatibel nutzbar) |
 
-> Die vollständige Funktions- und Architekturanalyse finden Sie unter [Architektur](Doc/架构设计.md).
+> Die Abhängigkeitszahlen stammen aus den NuGet-Metadaten (2026-11). Weniger Abhängigkeiten erleichtern die Sicherheitsprüfung; mehr Abhängigkeiten können zusätzliche Funktionen bieten. Die vollständige Funktions- und Architekturanalyse finden Sie unter [Architektur](Doc/架构设计.md) und [Wettbewerbsanalyse](Doc/竞品分析报告.md).
 
 ---
 
@@ -563,6 +585,7 @@ Der Verbindungspool ist standardmäßig aktiviert und erfordert keine zusätzlic
 | ConnectionLifeTime | 0 | Lebensdauer einer Verbindung (Sekunden); 0 bedeutet unbegrenzt |
 | ConnectionIdleTime | 300 | Idle-Timeout (Sekunden); danach werden Verbindungen zurückgewonnen |
 | ValidationInterval | 30 | Intervall der Idle-Validierung (Sekunden) |
+| PoolExpireTime | 600 | Leerlauf-Ablauf des gesamten Pools (Sekunden); `0` deaktiviert die Bereinigung |
 
 ```csharp
 var connStr = "Server=localhost;Database=mydb;...;MinPoolSize=5;MaxPoolSize=50;ConnectionLifeTime=3600;";
@@ -679,7 +702,8 @@ dotnet publish -c Release -r linux-x64
 | [Anforderungen](Doc/需求文档.md) | Vision, Kernziele, Funktionsrichtungen |
 | [Funktionsliste](Doc/功能清单.md) | Dreidimensionale Statusverfolgung von Implementierung/Tests/Kommentaren |
 | [Architektur](Doc/架构设计.md) | Architekturüberblick, Protokollimplementierung, Technologieauswahl, Designentscheidungen, Treibervergleich |
-| [Leistungstestbericht](Doc/性能测试报告.md) | Detaillierte Benchmark-Daten für Batch-Operationen |
+| [Leistungstestbericht](Doc/性能测试报告.md) | Detaillierte Benchmark-Daten für Batch-Schreibvorgänge und Lesepfade |
+| [Wettbewerbsanalyse](Doc/竞品分析报告.md) | Vergleich von Funktionen, Positionierung, Stärken und Lücken |
 | [Changelog (中文)](Doc/ChangeLog.md) | Chinesisches Versionsprotokoll |
 | [Changelog (EN)](Doc/ChangeLog.en.md) | Englisches Versionsprotokoll |
 | [简体中文 README](README.zh-CN.md) | Chinesische Dokumentation, im selben Batch wie diese englische Version gepflegt |

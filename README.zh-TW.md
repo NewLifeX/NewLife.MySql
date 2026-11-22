@@ -18,7 +18,7 @@
 
 **NewLife.MySql** 是新生命團隊出品的純自主研發 MySQL 用戶端驅動，以 ADO.NET 標準介面為基礎，直接透過 TCP 實作 MySQL 通訊協定層（Protocol Version 10）。僅相依於 `NewLife.Core`，**零第三方相依性**、**全鏈路真非同步**、**MIT 授權商業使用無虞**。
 
-獨創的**管線化批次執行**（Pipeline）在萬級列的批次寫入場景可達 **2×~3×** 加速（相較逐列基準），是大資料批次操作、信創（資訊技術應用創新）自主可控替代的理想選擇。
+獨創的**管線化批次執行**（Pipeline）在本機實測中把 1,000 列批次寫入從 2,473ms 降到 70ms（相對逐列自動提交基準 35×）；批次越大、網路延遲越高，收益越明顯，適合大資料批次操作與信創自主可控替代場景。
 
 > ℹ️ 本繁體中文版與 [English README](README.md) 同批維護。
 
@@ -30,9 +30,9 @@
 |------|------|
 | **輕量極簡** | 只做 ADO.NET 標準的增刪改查、交易、參數化查詢、預存程序和批次操作 |
 | **高效能** | 零額外記憶體配置（`ArrayPool` / `OwnerPacket`）、真非同步 IO、管線化批次執行 |
-| **自主可控** | 核心程式碼完全自主可控，無 GPL 授權風險，適合信創環境 |
+| **自主可控** | 核心程式碼完全自主可控，MIT 授權、無 copyleft 義務，適合信創環境 |
 | **大資料友善** | 字典參數集 / 陣列繫結 / 管線化 / 多列 VALUES / DbBatch，涵蓋萬級到百萬級列 |
-| **廣泛相容** | `net45` ~ `net10` 全版本，MySQL 5.x ~ 9.0+，相容於 OceanBase / TiDB / Doris / Aurora / CloudSQL，`net8.0+` 支援 NativeAOT |
+| **廣泛相容** | `net45` ~ `net11` 全版本，MySQL 5.x ~ 9.0+，相容於 OceanBase / TiDB / Doris / Aurora / CloudSQL，`net8.0+` 支援 NativeAOT |
 
 ## 核心功能
 
@@ -45,7 +45,7 @@
 | 參數化查詢 | 用戶端參數替換，`@參數名` 語法，自動逸出防注入 |
 | 預備語句 | `Prepare()` 走 `COM_STMT_PREPARE` 二進位通訊協定，可選用 `UseServerPrepare` 全域開關 |
 | 批次操作 | `ExecuteBatch` / `ExecuteArrayBatch` / 管線化 / 多列 VALUES / DbBatch / `MySqlBulkCopy` |
-| 管線化執行 | `Pipeline=true` 批次送出後批次接收，網路延遲僅一次，千級列 35×、萬級列近百倍加速 |
+| 管線化執行 | `Pipeline=true` 批次送出後批次接收，網路來回僅一次；本機實測千級列 35×，批次越大、網路延遲越高收益越明顯 |
 | 交易支援 | `BeginTransaction` / `Commit` / `Rollback`，四種隔離等級，自動回退 |
 | 預存程序 | `CommandType.StoredProcedure`，支援 IN/OUT 參數 |
 | SSL/TLS | `SslMode=Preferred/Required`，支援 TLS 1.2/1.3 |
@@ -71,25 +71,45 @@
 - **Phase 2**：依序批次讀取所有 OK/Error 回應，累加影響列數
 - TCP 通訊協定堆疊合併小封包（Nagle 演算法），網路來回僅一次
 
-**實測資料**（.NET 10 + MySQL 8.0.26 本機，管線化+交易 vs 逐列基準）：
+**實測資料**（.NET 10 + MySQL 8.0.26 本機，管線化+交易 vs 逐列自動提交基準）：
 
 | 場景 | 逐列基準 | Pipeline(tx) | 加速比 |
 |------|------:|------:|------:|
 | 100 列 INSERT | 244ms | 20ms | 12.2× |
 | 1,000 列 INSERT | 2,473ms | 70ms | **35.3×** |
-| 10,000 列 INSERT | ~70s¹ | ~0.7s¹ | ~98× |
-
-> ¹ 10,000 列逐列無交易為推估值（2.4ms/列），Pipeline 為無交易實測。加上交易後萬列約 70ms。
 
 **三驅動效能資料**（10,000 列批次操作）：
 
-| 操作 | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) |
+| 操作 | NewLife 管線+陣列繫結（交易） | MySql.Data 預編譯迴圈（交易） | MySqlConnector 預編譯迴圈（交易） |
 |------|------:|------:|------:|
 | INSERT | 814ms | 1,089ms | 1,135ms |
 | UPDATE | 856ms | 1,151ms | 1,196ms |
 | DELETE | 816ms | 1,091ms | 1,126ms |
 
-> 本機內網千級列已達 **35×** 加速，跨機房場景效益更大。詳細資料參見 [效能測試報告](Doc/性能测试报告.md)。
+> 本機內網千級列已達 **35×** 加速，批次越大、網路延遲越高收益越明顯。MySql.Data / MySqlConnector 沒有等價的陣列繫結/管線化批次 API，表中競品資料為交易內預編譯語句逐列執行；`MySqlBatch` / `AllowBatch` 多語句路徑未納入本項對比。詳細資料與口徑參見 [效能測試報告](Doc/性能测试报告.md)。
+
+### 📊 讀取路徑與選型權衡
+
+**讀取效能**（10,000 列，ms，越小越好；NewLife 使用驅動內建的 `ReadTableAsync` / `ReadModelsAsync`，另外兩個驅動透過同一個 NewLife `DbTable` 輔助類別讀取其 ADO.NET DataReader）：
+
+| 場景 | NewLife | MySql.Data | MySqlConnector | 說明 |
+|------|------:|------:|------:|------|
+| 批次讀取（BulkRead） | **6.61** | 9.11 | 6.98 | 較 Connector 低 5%，較 MySql.Data 低 27% |
+| DbTable 填充 | **6.67** | 22.34 | 6.95 | 較 Connector 低 4%，較 MySql.Data 低 70% |
+| 實體映射（ReadModels） | **6.72** | 24.38 | 10.01 | 較 Connector 低 33%，較 MySql.Data 低 72% |
+| 逐列點查 | 1,181 | 1,374 | **1,141** | 較 Connector 高 3.5%，較 MySql.Data 低 14% |
+
+> MySqlConnector 是成熟的高效能驅動，也是通用場景的優秀選擇；以上資料來自單台本機環境，請以自己的資料表結構與網路複測為準。完整口徑見 [效能測試報告](Doc/性能测试报告.md)。
+
+**如何選擇**
+
+| 如果你的首要訴求是… | 建議選擇 |
+|------|------|
+| 大批次 DML、驅動內建實體映射、net45 目標框架或國產資料庫適配 | NewLife.MySql |
+| 最大的社群與 ORM/工具生態、優秀的全場景效能 | MySqlConnector |
+| Oracle 商業支援與官方認證 | MySql.Data |
+
+三個驅動都適合生產環境；基準差異取決於硬體、網路、資料表結構與負載，建議依實際場景複測。
 
 ### 🔧 六種批次操作方案
 
@@ -104,7 +124,7 @@
 
 ### 🛡️ 零第三方相依性
 
-僅相依於 `NewLife.Core`（同為 NewLife 團隊出品），無 GPL 授權風險，MIT 授權商業使用無虞，適合信創環境與安全稽核嚴格的場景。
+僅相依於 `NewLife.Core`（同為 NewLife 團隊出品），MIT 授權、無 copyleft 義務，商業使用無虞，適合信創環境與安全稽核嚴格的場景。
 
 ### ⚡ 極致效能最佳化
 
@@ -125,30 +145,32 @@
 
 ## 功能特性
 
+三個驅動都在持續維護，均可用於生產環境。「—」表示沒有內建等價能力，不代表不能實現；能力項已按各專案原始碼與文件核對（2026-11）。
+
 | 功能 | NewLife.MySql | MySqlConnector | MySql.Data (Oracle) |
 |------|:---:|:---:|:---:|
-| **授權條款** | **MIT** | MIT | GPL（商業使用需付費） |
-| **自主可控** | ✅ | ❌ | ❌ |
-| **第三方相依性** | **無** | 無 | 無 |
-| **真非同步 IO** | ✅ | ✅ | ❌ |
-| **管線化批次執行** | ✅ | ❌ | ❌ |
-| **陣列繫結批次** | ✅ | ❌ | ❌ |
-| **字典參數集批次** | ✅ | ❌ | ❌ |
-| **DbBatch (.NET 6+)** | ✅ | ✅ | ❌ |
-| **DataAdapter** | ✅ | ❌ | ✅ |
-| **EF Core** | ✅ | ✅ (Pomelo) | ✅ |
-| **XCode ORM 整合** | ✅ | ❌ | ❌ |
-| **多目標框架** | net45~net10 | netstandard2.0+ | net462+ |
-| **NativeAOT (net8.0+)** | ✅ | ✅ | ❌ |
-| **OpenTelemetry 鏈路追蹤** | ✅ | ✅ | ✅ (8.1+) |
-| **OceanBase / TiDB / Aurora / Doris** | ✅ 自動偵測 | ❌ | ❌ |
-| **MySqlBulkCopy** | ✅ | ✅ | ✅ |
-| **壓縮通訊協定 (zlib/zstd)** | ✅ | ✅ | ❌ |
-| **Unix Socket** | ✅ | ✅ | ❌ |
-| **WebAuthn 驗證** | ✅ | ✅ | ❌ |
-| **DbDataSource** | ✅ | ❌ | ❌ |
+| **維護方 / 社群** | 新生命團隊，聚焦 NewLife 生態 | 開源社群，採用廣泛 | Oracle，商業支援 |
+| **授權條款** | **MIT** | MIT | GPLv2 + FOSS 例外，或商業授權 |
+| **套件相依性** | **1**（NewLife.Core） | 1~4（隨目標框架） | 5~6 |
+| **目標框架** | net45~net11 | net462~net11 | net462~net11 |
+| **真非同步 I/O** | ✅ | ✅ | ✅（8.0.33+） |
+| **管線化預編譯批次** | ✅ `Pipeline` + 陣列繫結 | —（`MySqlBatch` 合併多語句） | —（`AllowBatch` 多語句） |
+| **字典參數集批次** | ✅ | — | — |
+| **陣列繫結批次** | ✅ | — | — |
+| **DbBatch (.NET 6+)** | ✅ | ✅ | — |
+| **DbDataSource (.NET 7+)** | ✅ | ✅ | — |
+| **DataAdapter** | ✅ | ✅（僅同步） | ✅ |
+| **批次匯入** | ✅ MySqlBulkCopy | ✅ MySqlBulkCopy | ✅ MySqlBulkLoader |
+| **WebAuthn 驗證** | ✅ | — | ✅ |
+| **Unix Socket** | ✅ | ✅ | ✅ |
+| **壓縮協定** | ✅ zlib + 可選 zstd | ✅ zlib；zstd（.NET 11） | ✅ zlib |
+| **OpenTelemetry 鏈路追蹤** | ✅ 內建 | ✅ 內建 | ✅ 獨立套件（8.1+） |
+| **EF Core / EF6** | ✅ 兩個均為自研 | ✅ EF Core（Pomelo） | ✅ 官方 |
+| **NativeAOT (net8.0+)** | ✅ | ✅ | — |
+| **XCode ORM 整合** | ✅ | — | — |
+| **國產庫自動適配（OceanBase/TiDB/Doris）** | ✅ | —（可作 MySQL 相容庫使用） | —（可作 MySQL 相容庫使用） |
 
-> 完整功能與架構分析參見 [架構設計](Doc/架构设计.md)。
+> 依賴數量來自 NuGet 中繼資料（2026-11）。依賴越少越便於安全稽核，依賴越多可能帶來更多能力。完整功能與架構分析參見 [架構設計](Doc/架构设计.md) 與 [競品分析報告](Doc/竞品分析报告.md)。
 
 ---
 
@@ -565,6 +587,7 @@ using var tracerProvider = Sdk.CreateTracerProviderBuilder()
 | ConnectionLifeTime | 0 | 連線存活期（秒），0 表示永不過期 |
 | ConnectionIdleTime | 300 | 閒置逾時（秒），逾時後回收 |
 | ValidationInterval | 30 | 閒置驗證間隔（秒） |
+| PoolExpireTime | 600 | 整個連線池閒置過期時間（秒），0 表示不清理 |
 
 ```csharp
 var connStr = "Server=localhost;Database=mydb;...;MinPoolSize=5;MaxPoolSize=50;ConnectionLifeTime=3600;";
@@ -681,7 +704,8 @@ dotnet publish -c Release -r linux-x64
 | [需求文件](Doc/需求文档.md) | 願景、核心目標、功能方向 |
 | [功能清單](Doc/功能清单.md) | 功能實作/測試/註解三維狀態追蹤 |
 | [架構設計](Doc/架构设计.md) | 架構概覽、通訊協定實作、技術選型、設計決策、驅動比較 |
-| [效能測試報告](Doc/性能测试报告.md) | 批次操作基準效能測試詳細資料 |
+| [效能測試報告](Doc/性能测试报告.md) | 批次寫入與讀取路徑的基準測試詳細資料 |
+| [競品分析報告](Doc/竞品分析报告.md) | 能力、定位、優缺點與待追趕項比較 |
 | [更新記錄 (中文)](Doc/ChangeLog.md) | 中文版版本更新記錄 |
 | [Changelog (EN)](Doc/ChangeLog.en.md) | English release changelog |
 | [English README](README.md) | 含效能圖表的英文文件 |

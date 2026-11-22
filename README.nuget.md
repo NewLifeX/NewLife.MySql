@@ -20,7 +20,7 @@
 
 **NewLife.MySql** is a pure C# MySQL client driver from the NewLife team. Built on the standard ADO.NET interfaces, it implements the MySQL protocol layer (Protocol Version 10) directly over TCP. It depends only on `NewLife.Core`, with **zero third-party dependencies**, **true end-to-end async**, and an **MIT license** for worry-free commercial use.
 
-Its innovative **Pipelined Batch Execution** (Pipeline) delivers a **2×~3×** speedup for batch writes in the tens-of-thousands-of-rows range (vs the row-by-row baseline), making it an ideal choice for big-data batch operations and domestic (信创) replacement scenarios.
+Its **Pipelined Batch Execution** (Pipeline) cuts 1,000-row batch writes from 2,473 ms to 70 ms in local tests (35× vs a row-by-row autocommit baseline); the gain grows with batch size and network latency, making it a good fit for bulk data operations and domestic (信创) replacement scenarios.
 
 ---
 
@@ -30,9 +30,9 @@ Its innovative **Pipelined Batch Execution** (Pipeline) delivers a **2×~3×** s
 |------|------|
 | **Lightweight and minimal** | Only standard ADO.NET CRUD, transactions, parameterized queries, stored procedures, and batch operations |
 | **High performance** | Zero extra memory allocations (`ArrayPool` / `OwnerPacket`), true async I/O, pipelined batch execution |
-| **Pure domestic (Chinese) stack** | Core code is fully self-controlled with no GPL licensing risk, suitable for 信创 environments |
+| **Pure domestic (Chinese) stack** | Core code is fully self-controlled under the MIT license with no copyleft obligations, suitable for 信创 environments |
 | **Big-data friendly** | Dictionary parameter sets / array binding / pipelining / multi-row VALUES / DbBatch, covering everything from tens of thousands to millions of rows |
-| **Broad compatibility** | `net45` ~ `net10` across all versions, MySQL 5.x ~ 9.0+, compatible with OceanBase / TiDB / Doris / Aurora / CloudSQL, and NativeAOT support on `net8.0+` |
+| **Broad compatibility** | `net45` ~ `net11` across all versions, MySQL 5.x ~ 9.0+, compatible with OceanBase / TiDB / Doris / Aurora / CloudSQL, and NativeAOT support on `net8.0+` |
 
 ## Core Features
 
@@ -45,7 +45,7 @@ Its innovative **Pipelined Batch Execution** (Pipeline) delivers a **2×~3×** s
 | Parameterized queries | Client-side parameter substitution with `@parameter-name` syntax and automatic escaping to prevent injection |
 | Prepared statements | `Prepare()` uses the `COM_STMT_PREPARE` binary protocol, with an optional global `UseServerPrepare` switch |
 | Batch operations | `ExecuteBatch` / `ExecuteArrayBatch` / pipelining / multi-row VALUES / DbBatch / `MySqlBulkCopy` |
-| Pipelined execution | `Pipeline=true` sends in batch and receives in batch, with only one network round trip: 35× for thousands of rows and nearly 100× for tens of thousands of rows |
+| Pipelined execution | `Pipeline=true` sends in batch and receives in batch, with only one network round trip: 35× for 1,000-row batches in local tests; the gain grows with batch size and network latency |
 | Transactions | `BeginTransaction` / `Commit` / `Rollback`, four isolation levels, automatic rollback |
 | Stored procedures | `CommandType.StoredProcedure`, supports IN/OUT parameters |
 | SSL/TLS | `SslMode=Preferred/Required`, supports TLS 1.2/1.3 |
@@ -71,25 +71,45 @@ An innovative pipelined mode based on the `COM_STMT_PREPARE + COM_STMT_EXECUTE` 
 - **Phase 2**: Read all OK/Error responses in order in batch, accumulating the affected row count
 - The TCP stack coalesces small packets (Nagle algorithm), so there is only one network round trip
 
-**Measured data** (.NET 10 + MySQL 8.0.26 localhost, pipelining + transaction vs row-by-row baseline):
+**Measured data** (.NET 10 + MySQL 8.0.26 localhost, pipelining + transaction vs row-by-row autocommit baseline):
 
 | Scenario | Row-by-row baseline | Pipeline(tx) | Speedup |
 |------|------:|------:|------:|
 | 100-row INSERT | 244ms | 20ms | 12.2× |
 | 1,000-row INSERT | 2,473ms | 70ms | **35.3×** |
-| 10,000-row INSERT | ~70s¹ | ~0.7s¹ | ~98× |
-
-> ¹ The 10,000-row row-by-row figure without a transaction is extrapolated (2.4ms/row); the Pipeline figure is measured without a transaction. With a transaction, 10,000 rows take about 70ms.
 
 **Three-driver performance data** (10,000-row batch operations):
 
-| Operation | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) |
+| Operation | NewLife Pipeline + array binding (tx) | MySql.Data prepared loop (tx) | MySqlConnector prepared loop (tx) |
 |------|------:|------:|------:|
 | INSERT | 814ms | 1,089ms | 1,135ms |
 | UPDATE | 856ms | 1,151ms | 1,196ms |
 | DELETE | 816ms | 1,091ms | 1,126ms |
 
-> Thousands of rows already achieve a **35×** speedup on a local LAN; the benefit is even greater across data centers. See the [Performance Test Report](https://github.com/NewLifeX/NewLife.MySql/blob/master/Doc/性能测试报告.md) for detailed data.
+> Thousands of rows already achieve a **35×** speedup on a local LAN; the benefit grows with batch size and network latency. MySql.Data and MySqlConnector have no equivalent array-binding/pipelined batch API, so their figures use a prepared-statement loop inside a transaction; `MySqlBatch`/`AllowBatch` multi-statement paths were not part of this test. See the [Performance Test Report](https://github.com/NewLifeX/NewLife.MySql/blob/master/Doc/性能测试报告.md) for detailed data and methodology.
+
+### 📊 Read Path and Trade-offs
+
+**Read-path performance** (10,000 rows, ms, lower is better; NewLife uses the driver's built-in `ReadTableAsync`/`ReadModelsAsync`, while the other two go through the same NewLife `DbTable` helper over their ADO.NET readers):
+
+| Scenario | NewLife | MySql.Data | MySqlConnector | Note |
+|------|------:|------:|------:|------|
+| BulkRead | **6.61** | 9.11 | 6.98 | 5% lower than MySqlConnector, 27% lower than MySql.Data |
+| DbTable fill | **6.67** | 22.34 | 6.95 | 4% lower than MySqlConnector, 70% lower than MySql.Data |
+| Entity mapping (ReadModels) | **6.72** | 24.38 | 10.01 | 33% lower than MySqlConnector, 72% lower than MySql.Data |
+| Row-by-row point query | 1,181 | 1,374 | **1,141** | 3.5% higher than MySqlConnector, 14% lower than MySql.Data |
+
+> MySqlConnector is a mature, high-performance driver and a strong general-purpose choice; these numbers come from one local environment and should be validated against your own schema and network. Full methodology: [Performance Test Report](https://github.com/NewLifeX/NewLife.MySql/blob/master/Doc/性能测试报告.md).
+
+**Choosing a driver**
+
+| If your priority is... | Suggested driver |
+|------|------|
+| High-volume batch DML, built-in entity materialization, net45 targets, or domestic database adaptation | NewLife.MySql |
+| The broadest community and ORM/tooling ecosystem, with excellent all-round performance | MySqlConnector |
+| Oracle commercial support and official certification | MySql.Data |
+
+All three drivers are suitable for production. Benchmark differences depend on hardware, network, schema, and workload.
 
 ### 🔧 Six Batch Operation Options
 
@@ -104,7 +124,7 @@ An innovative pipelined mode based on the `COM_STMT_PREPARE + COM_STMT_EXECUTE` 
 
 ### 🛡️ Zero Third-Party Dependencies
 
-Depends only on `NewLife.Core` (also from the NewLife team), with no GPL licensing risk, an MIT license for worry-free commercial use, and suitability for 信创 environments and scenarios with strict security audits.
+Depends only on `NewLife.Core` (also from the NewLife team) under the MIT license with no copyleft obligations. It is suitable for commercial use, 信创 environments, and scenarios with strict security audits.
 
 ### ⚡ Extreme Performance Optimizations
 
@@ -125,30 +145,32 @@ Depends only on `NewLife.Core` (also from the NewLife team), with no GPL licensi
 
 ## Feature Comparison
 
+All three drivers are actively maintained and production-ready. "—" means no built-in equivalent, not a defect. Capabilities were checked against each project's source and documentation (2026-11).
+
 | Feature | NewLife.MySql | MySqlConnector | MySql.Data (Oracle) |
 |------|:---:|:---:|:---:|
-| **License** | **MIT** | MIT | GPL (paid for commercial use) |
-| **Domestic (Chinese) autonomy** | ✅ | ❌ | ❌ |
-| **Third-party dependencies** | **None** | None | None |
-| **True async I/O** | ✅ | ✅ | ❌ |
-| **Pipelined batch execution** | ✅ | ❌ | ❌ |
-| **Array-bound batch** | ✅ | ❌ | ❌ |
-| **Dictionary parameter-set batch** | ✅ | ❌ | ❌ |
-| **DbBatch (.NET 6+)** | ✅ | ✅ | ❌ |
-| **DataAdapter** | ✅ | ❌ | ✅ |
-| **EF Core** | ✅ | ✅ (Pomelo) | ✅ |
-| **XCode ORM integration** | ✅ | ❌ | ❌ |
-| **Target frameworks** | net45~net10 | netstandard2.0+ | net462+ |
-| **NativeAOT (net8.0+)** | ✅ | ✅ | ❌ |
-| **OpenTelemetry tracing** | ✅ | ✅ | ✅ (8.1+) |
-| **OceanBase / TiDB / Aurora / Doris** | ✅ Auto-detect | ❌ | ❌ |
-| **MySqlBulkCopy** | ✅ | ✅ | ✅ |
-| **Compression protocol (zlib/zstd)** | ✅ | ✅ | ❌ |
-| **Unix Socket** | ✅ | ✅ | ❌ |
-| **WebAuthn authentication** | ✅ | ✅ | ❌ |
-| **DbDataSource** | ✅ | ❌ | ❌ |
+| **Maintainer / community** | NewLife team, focused ecosystem | Open-source community, broad adoption | Oracle, commercial support |
+| **License** | **MIT** | MIT | GPLv2 + FOSS exception, or commercial license |
+| **Package dependencies** | **1** (NewLife.Core) | 1~4 (varies by target) | 5~6 |
+| **Target frameworks** | net45~net11 | net462~net11 | net462~net11 |
+| **True async I/O** | ✅ | ✅ | ✅ (8.0.33+) |
+| **Pipelined prepared-statement batch** | ✅ `Pipeline` + array binding | — (`MySqlBatch` concatenates commands) | — (`AllowBatch` multi-statement) |
+| **Dictionary parameter-set batch** | ✅ | — | — |
+| **Array-bound batch** | ✅ | — | — |
+| **DbBatch (.NET 6+)** | ✅ | ✅ | — |
+| **DbDataSource (.NET 7+)** | ✅ | ✅ | — |
+| **DataAdapter** | ✅ | ✅ (sync only) | ✅ |
+| **Bulk import** | ✅ MySqlBulkCopy | ✅ MySqlBulkCopy | ✅ MySqlBulkLoader |
+| **WebAuthn authentication** | ✅ | — | ✅ |
+| **Unix socket** | ✅ | ✅ | ✅ |
+| **Compression** | ✅ zlib + optional zstd | ✅ zlib; zstd on .NET 11 | ✅ zlib |
+| **OpenTelemetry tracing** | ✅ built-in | ✅ built-in | ✅ separate package (8.1+) |
+| **EF Core / EF6** | ✅ both, self-developed | ✅ EF Core via Pomelo | ✅ official |
+| **NativeAOT (net8.0+)** | ✅ | ✅ | — |
+| **XCode ORM integration** | ✅ | — | — |
+| **Domestic DB auto-detection (OceanBase/TiDB/Doris)** | ✅ | — (works as MySQL-compatible) | — (works as MySQL-compatible) |
 
-> For the complete feature and architecture analysis, see [Architecture](https://github.com/NewLifeX/NewLife.MySql/blob/master/Doc/架构设计.md).
+> Dependency counts come from NuGet metadata (2026-11). Fewer dependencies reduce audit surface; more dependencies may bring additional capabilities. For the complete feature and architecture analysis, see [Architecture](https://github.com/NewLifeX/NewLife.MySql/blob/master/Doc/架构设计.md) and [Competitor Analysis](https://github.com/NewLifeX/NewLife.MySql/blob/master/Doc/竞品分析报告.md).
 
 ---
 
@@ -682,7 +704,8 @@ dotnet publish -c Release -r linux-x64
 | [Requirements](https://github.com/NewLifeX/NewLife.MySql/blob/master/Doc/需求文档.md) | Vision, core goals, feature directions |
 | [Feature List](https://github.com/NewLifeX/NewLife.MySql/blob/master/Doc/功能清单.md) | Three-dimensional status tracking of implementation/testing/comments |
 | [Architecture](https://github.com/NewLifeX/NewLife.MySql/blob/master/Doc/架构设计.md) | Architecture overview, protocol implementation, technology choices, design decisions, driver comparison |
-| [Performance Test Report](https://github.com/NewLifeX/NewLife.MySql/blob/master/Doc/性能测试报告.md) | Detailed benchmark data for batch operations |
+| [Performance Test Report](https://github.com/NewLifeX/NewLife.MySql/blob/master/Doc/性能测试报告.md) | Detailed benchmark data for batch writes and read paths |
+| [Competitor Analysis](https://github.com/NewLifeX/NewLife.MySql/blob/master/Doc/竞品分析报告.md) | Capability, positioning, strengths and gaps vs MySqlConnector and MySql.Data |
 | [Changelog (中文)](https://github.com/NewLifeX/NewLife.MySql/blob/master/Doc/ChangeLog.md) | Chinese release changelog |
 | [Changelog (EN)](https://github.com/NewLifeX/NewLife.MySql/blob/master/Doc/ChangeLog.en.md) | English release changelog |
 | [简体中文 README](https://github.com/NewLifeX/NewLife.MySql/blob/master/README.zh-CN.md) | Chinese documentation, maintained in the same batch as this English version |
