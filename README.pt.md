@@ -83,9 +83,9 @@ Um modo de pipeline inovador baseado no protocolo binário `COM_STMT_PREPARE + C
 
 | Operação | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) |
 |------|------:|------:|------:|
-| INSERT | 899ms | 1.927ms | 1.906ms |
-| UPDATE | 710ms | 2.265ms | 2.041ms |
-| DELETE | 661ms | 1.961ms | 1.767ms |
+| INSERT | 814ms | 1.089ms | 1.135ms |
+| UPDATE | 856ms | 1.151ms | 1.196ms |
+| DELETE | 816ms | 1.091ms | 1.126ms |
 
 > Milhares de linhas já alcançam **35×** de ganho em LAN local; o benefício é ainda maior entre data centers. Consulte o [Relatório de Testes de Desempenho](Doc/性能测试报告.md) para os dados detalhados.
 

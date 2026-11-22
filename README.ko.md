@@ -83,9 +83,9 @@
 
 | 작업 | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) |
 |------|------:|------:|------:|
-| INSERT | 899ms | 1,927ms | 1,906ms |
-| UPDATE | 710ms | 2,265ms | 2,041ms |
-| DELETE | 661ms | 1,961ms | 1,767ms |
+| INSERT | 814ms | 1,089ms | 1,135ms |
+| UPDATE | 856ms | 1,151ms | 1,196ms |
+| DELETE | 816ms | 1,091ms | 1,126ms |
 
 > 수천 행만으로도 로컬 LAN에서 **35배** 속도 향상을 달성하며, 데이터 센터를 넘는 환경에서는 이점이 더 큽니다. 자세한 데이터는 [성능 테스트 보고서](Doc/性能测试报告.md)를 참고하세요.
 

@@ -83,9 +83,9 @@ Ein innovativer Pipeline-Modus auf Basis des binären Protokolls `COM_STMT_PREPA
 
 | Operation | NewLife Pipeline(tx) | MySql.Data Batch(tx) | MySqlConnector Batch(tx) |
 |------|------:|------:|------:|
-| INSERT | 899ms | 1.927ms | 1.906ms |
-| UPDATE | 710ms | 2.265ms | 2.041ms |
-| DELETE | 661ms | 1.961ms | 1.767ms |
+| INSERT | 814ms | 1.089ms | 1.135ms |
+| UPDATE | 856ms | 1.151ms | 1.196ms |
+| DELETE | 816ms | 1.091ms | 1.126ms |
 
 > Bereits Tausende Zeilen erreichen im lokalen LAN eine **35×**-Beschleunigung; über Rechenzentren hinweg ist der Gewinn noch größer. Detaillierte Daten finden Sie im [Leistungstestbericht](Doc/性能测试报告.md).
 
