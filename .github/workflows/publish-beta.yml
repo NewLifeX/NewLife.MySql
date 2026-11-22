@@ -54,12 +54,41 @@ jobs:
       # 下游只加 PackageReference 的端到端验证（词表已编入程序集）；失败即不发包
       shell: pwsh
       run: pwsh -NoProfile -File ./tools/check-package-consumer.ps1
+    # NuGet.org Trusted Publishing（OIDC）：需在 nuget.org → Trusted Publishing
+    # 为 NewLifeX/NewLife.MySql + publish-beta.yml 建立策略；OIDC 不可用时回退 secrets.nugetKey。
     - name: NuGet login (OIDC)
       id: nuget-login
       continue-on-error: true
       uses: NuGet/login@v1
       with:
         user: BigStone
+    - name: Select NuGet credential
+      id: nuget-auth
+      shell: bash
+      env:
+        OIDC_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+        FALLBACK_KEY: ${{ secrets.nugetKey }}
+      run: |
+        if [ -n "$OIDC_KEY" ]; then
+          echo "mode=OIDC" >> "$GITHUB_OUTPUT"
+          echo "key=$OIDC_KEY" >> "$GITHUB_OUTPUT"
+          echo "::notice::NuGet 认证：OIDC 受信任发布"
+        elif [ -n "$FALLBACK_KEY" ]; then
+          echo "mode=nugetKey" >> "$GITHUB_OUTPUT"
+          echo "key=$FALLBACK_KEY" >> "$GITHUB_OUTPUT"
+          echo "::warning::NuGet OIDC 登录失败，回退到 nugetKey；请检查 Trusted Publishing 策略"
+        else
+          echo "::error::NuGet OIDC 登录失败且未配置 nugetKey"
+          exit 1
+        fi
     - name: Publish
       run: |
-        dotnet nuget push ./out/*.nupkg --skip-duplicate --source https://api.nuget.org/v3/index.json --api-key ${{ steps.nuget-login.outputs.NUGET_API_KEY || secrets.nugetKey }}
+        dotnet nuget push ./out/*.nupkg --skip-duplicate --source https://api.nuget.org/v3/index.json --api-key ${{ steps.nuget-auth.outputs.key }}
+    - name: Publish Summary
+      if: always()
+      shell: pwsh
+      run: |
+        $mode = '${{ steps.nuget-auth.outputs.mode }}'
+        $icon = if ($mode -eq 'OIDC') { '✅' } elseif ($mode -eq 'nugetKey') { '⚠️' } else { '❌' }
+        @('### 发布结果', '', '| 项目 | 结果 |', '| --- | --- |', "| NuGet 认证 | $icon $mode |") |
+          Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
