@@ -95,6 +95,19 @@ public class MySqlParameterCollection : DbParameterCollection
         return -1;
     }
 
+    /// <summary>按名称查找参数索引，避免为 SQL 中的参数标记分配子串</summary>
+    /// <param name="parameterName">参数名片段</param>
+    /// <returns>参数索引，未找到返回 -1</returns>
+    internal Int32 IndexOf(ReadOnlySpan<Char> parameterName)
+    {
+        for (var i = 0; i < _items.Count; i++)
+        {
+            var name = _items[i].ParameterName;
+            if (name != null && name.AsSpan().Equals(parameterName, StringComparison.OrdinalIgnoreCase)) return i;
+        }
+        return -1;
+    }
+
     /// <summary>获取参数索引</summary>
     /// <param name="value">参数对象</param>
     /// <returns></returns>

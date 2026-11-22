@@ -13,6 +13,10 @@ else if (args.Length > 0 && args[0].Equals("--select", StringComparison.OrdinalI
 {
     await DriverBenchmark.RunSelectAsync(args);
 }
+else if (args.Length > 0 && args[0].Equals("--batch", StringComparison.OrdinalIgnoreCase))
+{
+    await DriverBenchmark.RunBatchAsync(args);
+}
 else if (args.Length > 0 && args[0].Equals("--feature", StringComparison.OrdinalIgnoreCase))
 {
     await FeatureBenchmark.RunAsync(args);

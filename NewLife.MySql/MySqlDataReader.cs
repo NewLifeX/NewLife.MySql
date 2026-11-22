@@ -172,6 +172,9 @@ public class MySqlDataReader : DbDataReader
 
     /// <summary>命令执行跨度。关闭读取器时结束，覆盖命令发送到结果读取完毕的完整周期</summary>
     internal MySqlActivity Activity { get; set; }
+
+    /// <summary>是否使用同步阻塞 I/O。同步 API 创建的读取器走无异步续体的阻塞路径</summary>
+    internal Boolean SynchronousIo { get; set; }
     #endregion
 
     #region 核心方法
@@ -456,8 +459,8 @@ public class MySqlDataReader : DbDataReader
 
         var columns = CurrentColumns;
         var result = IsBinaryProtocol
-            ? await client.NextBinaryRowAsync(values, columns, cancellationToken).ConfigureAwait(false)
-            : await client.NextRowAsync(values, columns, cancellationToken).ConfigureAwait(false);
+            ? await client.NextBinaryRowAsync(values, columns, cancellationToken, SynchronousIo).ConfigureAwait(false)
+            : await client.NextRowAsync(values, columns, cancellationToken, SynchronousIo).ConfigureAwait(false);
 
         if (!result.HasRow)
         {
@@ -490,7 +493,7 @@ public class MySqlDataReader : DbDataReader
             SetClientTimeout(client, ReadPhaseTimeout);
             while (true)
             {
-                var row = await client.SkipRowAsync(cancellationToken).ConfigureAwait(false);
+                var row = await client.SkipRowAsync(cancellationToken, SynchronousIo).ConfigureAwait(false);
                 if (!row.HasRow)
                 {
                     _hasMoreResults = row.HasMoreResults;
@@ -519,7 +522,8 @@ public class MySqlDataReader : DbDataReader
 
         try
         {
-            using var response = await client.ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+            client.BeginScratch();
+            using var response = await client.ReadPacketAsync(cancellationToken, SynchronousIo, true).ConfigureAwait(false);
             var qr = client.GetResult(response);
 
             _hasReadResult = true;
@@ -547,14 +551,15 @@ public class MySqlDataReader : DbDataReader
                 return true;
             }
 
-            _Columns = await client.GetColumnsAsync(qr.FieldCount, cancellationToken).ConfigureAwait(false);
+            _Columns = await client.GetColumnsAsync(qr.FieldCount, cancellationToken, SynchronousIo, Command is MySqlCommand c ? c.CommandText : null).ConfigureAwait(false);
             _allRowsConsumed = false;
 
             return true;
         }
         finally
         {
-            SetClientTimeout(client, ReadPhaseTimeout > 0 ? ReadPhaseTimeout : previousTimeout);
+            // 同步路径保持命令阶段超时直到读取器关闭；避免在 15/30 秒之间切换导致重复 setsockopt
+            if (!SynchronousIo) SetClientTimeout(client, ReadPhaseTimeout > 0 ? ReadPhaseTimeout : previousTimeout);
         }
     }
 
@@ -577,6 +582,10 @@ public class MySqlDataReader : DbDataReader
         try
         {
             while (await NextResultAsync(CancellationToken.None).ConfigureAwait(false)) { }
+
+            // 响应已完整消费，标记连接洁净，下一次命令可跳过 socket 探活
+            if (Command.Connection is MySqlConnection cleanConn && cleanConn.Client is { Active: true } cleanClient)
+                cleanClient.MarkClean();
         }
         catch
         {

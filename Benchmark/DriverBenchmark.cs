@@ -173,6 +173,74 @@ public static class DriverBenchmark
         }
     }
 
+    /// <summary>批量 DML 专项对比。只跑事务/管道化批量，避免无事务逐行写入被磁盘 fsync 主导</summary>
+    /// <param name="args">命令行参数</param>
+    public static async Task RunBatchAsync(String[] args)
+    {
+        _connStr = Environment.GetEnvironmentVariable("MYSQL_CONNSTR")
+            ?? "Server=127.0.0.1;Port=3306;Database=benchmark;User Id=root;Password=root;";
+
+        Console.WriteLine("=== Batch DML Benchmark ===");
+
+        try
+        {
+            var builder = new NL.MySqlConnectionStringBuilder(_connStr);
+            var dbName = builder.Database;
+            builder.Database = "mysql";
+            using (var c = new NL.MySqlConnection(builder.ConnectionString))
+            {
+                c.Open();
+                c.ExecuteNonQuery("CREATE DATABASE IF NOT EXISTS `" + dbName + "`");
+            }
+
+            using var conn = new NL.MySqlConnection(_connStr);
+            conn.Open();
+            Console.WriteLine("MySQL: " + conn.ServerVersion);
+            conn.ExecuteNonQuery("DROP TABLE IF EXISTS bench_driver");
+            conn.ExecuteNonQuery("CREATE TABLE bench_driver (id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(64) NOT NULL, age INT NOT NULL, email VARCHAR(128), score DOUBLE, created DATETIME NOT NULL) ENGINE=InnoDB");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("Connect failed: " + ex.Message);
+            return;
+        }
+
+        var rowCounts = new[] { 100, 1000, 10000 };
+        var all = new List<R>();
+
+        foreach (var n in rowCounts)
+        {
+            Console.WriteLine("======== " + n + " rows ========");
+            var (names, ages, emails, scores, dates) = MakeData(n);
+
+            Console.WriteLine("--- INSERT ---");
+            await RunOne(all, "INSERT", "NewLife Pipeline(tx)", n, () => NL_PipelineInsert(n, names, ages, emails, scores, dates));
+            await RunOne(all, "INSERT", "Official Batch(tx)", n, () => Off_BatchInsert(n, names, ages, emails, scores, dates));
+            await RunOne(all, "INSERT", "Connector Batch(tx)", n, () => Conn_BatchInsert(n, names, ages, emails, scores, dates));
+
+            Console.WriteLine("--- UPDATE ---");
+            var newAges = MakeUpdateData(n);
+            await RunOne(all, "UPDATE", "NewLife Pipeline(tx)", n, () => NL_PipelineUpdate(n, newAges), () => SeedData(n));
+            await RunOne(all, "UPDATE", "Official Batch(tx)", n, () => Off_BatchUpdate(n, newAges), () => SeedData(n));
+            await RunOne(all, "UPDATE", "Connector Batch(tx)", n, () => Conn_BatchUpdate(n, newAges), () => SeedData(n));
+
+            Console.WriteLine("--- DELETE ---");
+            await RunOne(all, "DELETE", "NewLife Pipeline(tx)", n, () => NL_PipelineDelete(n), () => SeedData(n));
+            await RunOne(all, "DELETE", "Official Batch(tx)", n, () => Off_BatchDelete(n), () => SeedData(n));
+            await RunOne(all, "DELETE", "Connector Batch(tx)", n, () => Conn_BatchDelete(n), () => SeedData(n));
+
+            Console.WriteLine();
+        }
+
+        Console.WriteLine();
+        Console.WriteLine("=== Markdown ===");
+        Console.WriteLine();
+        foreach (var op in new[] { "INSERT", "UPDATE", "DELETE" })
+        {
+            PrintDriverTable(all, rowCounts, op);
+        }
+    }
+
     #region 辅助
     private static async Task RunOne(List<R> all, String op, String driver, Int32 rowCount, Func<Int32> action, Action? setup = null)
     {

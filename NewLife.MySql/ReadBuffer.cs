@@ -64,6 +64,55 @@ class ReadBuffer
         }
     }
 
+    /// <summary>从流中精确同步读取指定字节数到目标缓冲区。供同步 API 走无异步状态机的阻塞路径</summary>
+    /// <param name="stream">底层数据流</param>
+    /// <param name="buffer">目标缓冲区</param>
+    /// <param name="offset">目标偏移量</param>
+    /// <param name="count">需要读取的字节数</param>
+    public void Read(Stream stream, Byte[] buffer, Int32 offset, Int32 count)
+    {
+        while (count > 0)
+        {
+            // 先从缓冲区中满足请求
+            var buffered = _len - _pos;
+            if (buffered > 0)
+            {
+                var toCopy = Math.Min(buffered, count);
+                Buffer.BlockCopy(_buffer!, _pos, buffer, offset, toCopy);
+                _pos += toCopy;
+                offset += toCopy;
+                count -= toCopy;
+                if (count == 0) return;
+            }
+
+            // 大块读取直接走底层流，跳过缓冲
+            if (count >= _bufferSize)
+            {
+                FillExactly(stream, buffer, offset, count);
+                return;
+            }
+
+            // 补充缓冲区
+            _buffer ??= new Byte[_bufferSize];
+
+            var n = stream.Read(_buffer, 0, _buffer.Length);
+            if (n == 0) throw new EndOfStreamException(L.T("The connection was closed unexpectedly while reading a MySQL packet."));
+            _pos = 0;
+            _len = n;
+        }
+    }
+
+    private static void FillExactly(Stream stream, Byte[] buffer, Int32 offset, Int32 count)
+    {
+        while (count > 0)
+        {
+            var n = stream.Read(buffer, offset, count);
+            if (n == 0) throw new EndOfStreamException(L.T("The connection was closed unexpectedly while reading a MySQL packet."));
+            offset += n;
+            count -= n;
+        }
+    }
+
     /// <summary>清空缓冲区中的残留数据</summary>
     public void Reset()
     {

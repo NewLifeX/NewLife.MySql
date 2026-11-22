@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Diagnostics;
 using System.IO.Compression;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -92,7 +93,24 @@ public class SqlClient : DisposeBase
     public Encoding Encoding { get; set; } = Encoding.UTF8;
 
     /// <summary>读取超时。单位秒，默认15秒，0表示不超时</summary>
-    public Int32 Timeout { get; set; } = 15;
+    public Int32 Timeout
+    {
+        get => _timeout;
+        set
+        {
+            // 同步路径的超时下推到网络流，已应用值由 ApplySyncXxxTimeout 缓存，这里不去重置缓存。
+            // 命令阶段与读取阶段在 15/30 秒之间来回切换时，可以避免每个命令重复 setsockopt
+            _timeout = value;
+        }
+    }
+    private Int32 _timeout = 15;
+
+    // 已应用到网络流的同步读写超时（秒）。避免每个数据包都做一次 setsockopt
+    private Int32 _syncReadTimeout = -1;
+    private Int32 _syncWriteTimeout = -1;
+
+    // 连接洁净标记：上一次命令已完整消费响应，命令执行前可跳过 socket 探活
+    private Boolean _clean;
 
     /// <summary>最后活跃时间。最后一次发送指令的时间</summary>
     public DateTime LastActive { get; set; }
@@ -205,6 +223,7 @@ public class SqlClient : DisposeBase
             // Unix 域套接字连接（仅 .NET Core 5.0+ 且 Linux/macOS 生效）
 #if NET5_0_OR_GREATER
             var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+            socket.NoDelay = true;
             socket.ReceiveTimeout = msTimeout;
             socket.SendTimeout = msTimeout;
             try
@@ -261,7 +280,8 @@ public class SqlClient : DisposeBase
                 throw;
             }
 
-            // 设置读写超时
+            // 设置读写超时。请求-响应协议必须关闭 Nagle，否则小包等待延迟确认会引入固定几十微秒延迟
+            client.NoDelay = true;
             client.ReceiveTimeout = msTimeout;
             client.SendTimeout = msTimeout;
 
@@ -528,19 +548,35 @@ public class SqlClient : DisposeBase
     #region 网络操作
     /// <summary>重置连接状态。探测底层 socket 是否仍可复用</summary>
     /// <returns>连接是否仍然可用</returns>
-    public Boolean Reset()
+    public Boolean Reset() => Reset(true);
+
+    /// <summary>重置连接状态</summary>
+    /// <param name="verify">是否探测底层 socket。命令执行前可跳过探测，由上一次成功读取标记的连接洁净状态兜底</param>
+    /// <returns>连接是否仍然可用</returns>
+    public Boolean Reset(Boolean verify)
     {
         if (!Active) return false;
+
+        // 上一个命令完整读到结尾后连接必然洁净；跳过 Poll/Available 两次系统调用
+        if (!verify && _clean) return true;
 
         if (IsSocketAlive() != SocketHealth.Alive)
         {
             // 对端已关闭、连接重置、或存在残留脏数据，标记失效不再复用
             Active = false;
+            _clean = false;
             return false;
         }
 
+        _clean = false;
         return true;
     }
+
+    /// <summary>标记连接洁净。读取器完整消费所有结果集后调用</summary>
+    internal void MarkClean() => _clean = true;
+
+    /// <summary>标记连接有未完成操作。发送新请求前调用</summary>
+    internal void MarkDirty() => _clean = false;
 
     /// <summary>重置连接会话状态。探测底层 socket 健康状态，并通过 COM_RESET_CONNECTION 清理会话变量、临时表与用户变量</summary>
     /// <returns>连接是否仍然可用</returns>
@@ -679,13 +715,24 @@ public class SqlClient : DisposeBase
     /// 然后精确读取该长度的数据体，既不能多读也不能少读。MySQL 协议可能会在网络流中连续发送多个响应包（例如在 GetColumns 场景中每个列定义对应一个包），
     /// 如果在读取当前包时多读到下一个包的数据，将导致下一个包解包失败或数据错位。因此必须严格按照帧头给出的长度逐包读取。
     /// </remarks>
-    public async Task<ServerPacket> ReadPacketAsync(CancellationToken cancellationToken = default)
+    public Task<ServerPacket> ReadPacketAsync(CancellationToken cancellationToken = default)
+        => ReadPacketCoreAsync(cancellationToken, false, false);
+
+    /// <summary>读取数据包（内部快速路径重载）</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞读取</param>
+    /// <param name="scratch">是否使用连接内复用缓冲区</param>
+    /// <returns>服务器数据包</returns>
+    internal Task<ServerPacket> ReadPacketAsync(CancellationToken cancellationToken, Boolean sync, Boolean scratch = false)
+        => ReadPacketCoreAsync(cancellationToken, sync, scratch);
+
+    private async Task<ServerPacket> ReadPacketCoreAsync(CancellationToken cancellationToken, Boolean sync, Boolean scratch)
     {
         var ms = _stream ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
-        // 根据 Timeout 属性创建超时令牌，确保不会无限等待
+        // 根据 Timeout 属性创建超时令牌，确保不会无限等待。同步路径由 Socket 超时兜底，无需分配取消令牌
         var timeout = Timeout;
-        using var cts = timeout > 0
+        using var cts = timeout > 0 && !sync
             ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
             : null;
         cts?.CancelAfter(timeout * 1000);
@@ -700,11 +747,17 @@ public class SqlClient : DisposeBase
         {
             // 压缩协议
             if (_useCompression)
-                return await ReadCompressedPacketAsync(ms, token).ConfigureAwait(false);
+                return await ReadCompressedPacketAsync(ms, token, sync).ConfigureAwait(false);
 
             // 3字节长度 + 1字节序列号，复用实例字段避免池租借开销（同一连接串行读包，无并发风险）
             var buf = _headerBuf;
-            await _reader.ReadAsync(ms, buf, 0, 4, token).ConfigureAwait(false);
+            if (sync)
+            {
+                ApplySyncReadTimeout(ms);
+                _reader.Read(ms, buf, 0, 4);
+            }
+            else
+                await _reader.ReadAsync(ms, buf, 0, 4, token).ConfigureAwait(false);
 
             var rs = new ServerPacket(ms)
             {
@@ -724,12 +777,28 @@ public class SqlClient : DisposeBase
                 throw new InvalidOperationException(L.T("Packet size ({0}) exceeds the maximum allowed ({1}).", len, maxPacketSize));
             }
 
-            OwnerPacket pk;
+            IPacket pk;
             if (len < MaxPayload)
             {
-                pk = new OwnerPacket(len);
-                await _reader.ReadAsync(ms, pk.Buffer, pk.Offset, len, token).ConfigureAwait(false);
-                pk.Resize(len);
+                if (scratch && TryRentScratch(len, out var scratchPacket, out var scratchOffset))
+                {
+                    if (sync)
+                        _reader.Read(ms, _scratchBuf!, scratchOffset, len);
+                    else
+                        await _reader.ReadAsync(ms, _scratchBuf!, scratchOffset, len, token).ConfigureAwait(false);
+
+                    pk = scratchPacket;
+                }
+                else
+                {
+                    var op = new OwnerPacket(len);
+                    if (sync)
+                        _reader.Read(ms, op.Buffer, op.Offset, len);
+                    else
+                        await _reader.ReadAsync(ms, op.Buffer, op.Offset, len, token).ConfigureAwait(false);
+                    op.Resize(len);
+                    pk = op;
+                }
             }
             else
             {
@@ -741,7 +810,10 @@ public class SqlClient : DisposeBase
                 while (true)
                 {
                     var part = new Byte[frameLen];
-                    await _reader.ReadAsync(ms, part, 0, frameLen, token).ConfigureAwait(false);
+                    if (sync)
+                        _reader.Read(ms, part, 0, frameLen);
+                    else
+                        await _reader.ReadAsync(ms, part, 0, frameLen, token).ConfigureAwait(false);
                     parts.Add(part);
                     total += frameLen;
 
@@ -754,20 +826,24 @@ public class SqlClient : DisposeBase
                     if (frameLen < MaxPayload) break;
 
                     // 续读下一帧帧头
-                    await _reader.ReadAsync(ms, buf, 0, 4, token).ConfigureAwait(false);
+                    if (sync)
+                        _reader.Read(ms, buf, 0, 4);
+                    else
+                        await _reader.ReadAsync(ms, buf, 0, 4, token).ConfigureAwait(false);
                     frameLen = buf[0] + (buf[1] << 8) + (buf[2] << 16);
                     rs.Sequence = buf[3];
                     _seq = (Byte)(rs.Sequence + 1);
                 }
 
-                pk = new OwnerPacket(total);
-                var offset = pk.Offset;
+                var op = new OwnerPacket(total);
+                var offset = op.Offset;
                 foreach (var part in parts)
                 {
-                    Buffer.BlockCopy(part, 0, pk.Buffer, offset, part.Length);
+                    Buffer.BlockCopy(part, 0, op.Buffer, offset, part.Length);
                     offset += part.Length;
                 }
-                pk.Resize(total);
+                op.Resize(total);
+                pk = op;
                 rs.Length = total;
             }
 
@@ -802,6 +878,12 @@ public class SqlClient : DisposeBase
             Active = false;
             throw;
         }
+        catch (Exception ex) when (sync && IsSocketTimeout(ex))
+        {
+            // 同步路径的超时由 Socket.ReceiveTimeout 触发，统一还原为 TimeoutException 语义
+            Active = false;
+            throw new TimeoutException(L.T("Timed out reading a packet ({0}s).", timeout));
+        }
         catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
         {
             // 连接断开/EOF/IO 错误（EndOfStreamException 派生自 IOException）：标记失效，
@@ -817,6 +899,66 @@ public class SqlClient : DisposeBase
 #endif
             throw;
         }
+    }
+
+    /// <summary>把当前的超时下推到网络流的同步读取</summary>
+    /// <param name="ms">网络流</param>
+    private void ApplySyncReadTimeout(Stream ms)
+    {
+        var timeout = _timeout;
+        if (timeout <= 0 || _syncReadTimeout == timeout) return;
+
+        try { ms.ReadTimeout = timeout * 1000; } catch { /* 流不支持超时设置时退回默认行为 */ }
+        _syncReadTimeout = timeout;
+    }
+
+    /// <summary>把当前的超时下推到网络流的同步写入</summary>
+    /// <param name="ms">网络流</param>
+    private void ApplySyncWriteTimeout(Stream ms)
+    {
+        var timeout = _timeout;
+        if (timeout <= 0 || _syncWriteTimeout == timeout) return;
+
+        try { ms.WriteTimeout = timeout * 1000; } catch { /* 流不支持超时设置时退回默认行为 */ }
+        _syncWriteTimeout = timeout;
+    }
+
+    /// <summary>判断异常链中是否包含 Socket 超时</summary>
+    /// <param name="ex">异常</param>
+    /// <returns>底层 socket 读写超时时返回 true</returns>
+    private static Boolean IsSocketTimeout(Exception ex)
+    {
+        for (var e = ex; e != null; e = e.InnerException)
+        {
+            if (e is SocketException { SocketErrorCode: SocketError.TimedOut }) return true;
+        }
+
+        return false;
+    }
+
+    // 内部读包快速路径复用的暂存缓冲：列定义/EOF 等小包直接落在连接内，避免每次从 ArrayPool 租还
+    private Byte[]? _scratchBuf;
+    private Int32 _scratchUsed;
+    private const Int32 ScratchBufferSize = 8192;
+
+    /// <summary>重置暂存缓冲分配位置。批量读取一组小包前调用，保证同批报文互不覆盖</summary>
+    internal void BeginScratch() => _scratchUsed = 0;
+
+    /// <summary>从暂存缓冲切出指定长度的小包空间。空间不足时返回 false，由调用方退回池化缓冲</summary>
+    private Boolean TryRentScratch(Int32 length, out ArrayPacket packet, out Int32 offset)
+    {
+        packet = default;
+        offset = 0;
+        if (length <= 0 || length > ScratchBufferSize) return false;
+
+        var buf = _scratchBuf ??= new Byte[ScratchBufferSize];
+        var used = _scratchUsed;
+        if (used + length > buf.Length) return false;
+
+        _scratchUsed = used + length;
+        offset = used;
+        packet = new ArrayPacket(buf, used, length);
+        return true;
     }
 
     private void ResetCompressionState()
@@ -904,14 +1046,26 @@ public class SqlClient : DisposeBase
     /// <param name="cancellationToken">取消令牌</param>
     /// <param name="flush">是否立即刷新网络流。管道化批量发送时设为 false，最后统一 Flush</param>
     /// <returns>异步任务</returns>
-    public async Task SendPacketAsync(IPacket pk, CancellationToken cancellationToken = default, Boolean flush = true)
+    public Task SendPacketAsync(IPacket pk, CancellationToken cancellationToken = default, Boolean flush = true)
+        => SendPacketCoreAsync(pk, cancellationToken, flush, false);
+
+    /// <summary>发送数据包（内部快速路径重载）</summary>
+    /// <param name="pk">待发送的数据包</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="flush">是否立即刷新网络流</param>
+    /// <param name="sync">是否使用同步阻塞写入</param>
+    /// <returns>异步任务</returns>
+    internal Task SendPacketAsync(IPacket pk, CancellationToken cancellationToken, Boolean flush, Boolean sync)
+        => SendPacketCoreAsync(pk, cancellationToken, flush, sync);
+
+    private async Task SendPacketCoreAsync(IPacket pk, CancellationToken cancellationToken, Boolean flush, Boolean sync)
     {
         var ms = _stream ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
         // 写方向同样受 Timeout 约束：对端不再收取数据时写入会一直挂起，命令与连接池都被拖死
-        // 超时/取消一律视为连接失效，避免半截请求残留在协议流里
+        // 超时/取消一律视为连接失效，避免半截请求残留在协议流里。同步路径由 Socket 超时兜底，无需分配取消令牌
         var timeout = Timeout;
-        using var cts = timeout > 0
+        using var cts = timeout > 0 && !sync
             ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
             : null;
         cts?.CancelAfter(timeout * 1000);
@@ -924,7 +1078,7 @@ public class SqlClient : DisposeBase
         // 压缩协议
         if (_useCompression)
         {
-            await SendCompressedPacketAsync(pk, ms, flush, token).ConfigureAwait(false);
+            await SendCompressedPacketAsync(pk, ms, flush, token, sync).ConfigureAwait(false);
             return;
         }
 
@@ -948,21 +1102,42 @@ public class SqlClient : DisposeBase
 
                 WritePacketLog("=>", pk2[3], payload, len);
 
-                await pk2.CopyToAsync(ms, token).ConfigureAwait(false);
+                if (sync)
+                {
+                    ApplySyncWriteTimeout(ms);
+                    pk2.CopyTo(ms);
+                }
+                else
+                    await pk2.CopyToAsync(ms, token).ConfigureAwait(false);
             }
             else
             {
                 // 超过单帧上限：按 0xFFFFFF 切帧，每帧自带 4 字节帧头；
                 // 旧实现只把低 3 字节写入长度，超长报文长度回绕，服务端按错误长度解包导致协议错位
-                await SendChunkedAsync(pk2, len, ms, token).ConfigureAwait(false);
+                await SendChunkedAsync(pk2, len, ms, token, sync).ConfigureAwait(false);
                 WritePacketLog("=>", (Byte)(_seq - 1), ReadOnlySpan<Byte>.Empty, len);
             }
 
-            if (flush) await ms.FlushAsync(token).ConfigureAwait(false);
+            if (flush)
+            {
+                if (sync)
+                {
+                    ApplySyncWriteTimeout(ms);
+                    ms.Flush();
+                }
+                else
+                    await ms.FlushAsync(token).ConfigureAwait(false);
+            }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             // 内部写超时：请求可能已发出半截，连接不能再用
+            Active = false;
+            throw new TimeoutException(L.T("Timed out sending a packet ({0}s).", timeout));
+        }
+        catch (Exception ex) when (sync && IsSocketTimeout(ex))
+        {
+            // 同步路径的写超时由 Socket.SendTimeout 触发，统一还原为 TimeoutException 语义
             Active = false;
             throw new TimeoutException(L.T("Timed out sending a packet ({0}s).", timeout));
         }
@@ -989,8 +1164,9 @@ public class SqlClient : DisposeBase
     /// <param name="len">载荷长度</param>
     /// <param name="ms">目标流</param>
     /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞写入</param>
     /// <returns></returns>
-    private async Task SendChunkedAsync(IPacket pk, Int32 len, Stream ms, CancellationToken cancellationToken)
+    private async Task SendChunkedAsync(IPacket pk, Int32 len, Stream ms, CancellationToken cancellationToken, Boolean sync = false)
     {
         // 先归一到连续缓冲：链式报文的 GetSpan 只返回单段，切帧需要连续视图
         var body = new Byte[len];
@@ -1021,8 +1197,16 @@ public class SqlClient : DisposeBase
         {
             var size = Math.Min(MaxPayload, len - sent);
             WriteFrameHeader(header, size, _seq++);
-            await ms.WriteAsync(header, 0, 4, cancellationToken).ConfigureAwait(false);
-            await ms.WriteAsync(body, sent, size, cancellationToken).ConfigureAwait(false);
+            if (sync)
+            {
+                ms.Write(header, 0, 4);
+                ms.Write(body, sent, size);
+            }
+            else
+            {
+                await ms.WriteAsync(header, 0, 4, cancellationToken).ConfigureAwait(false);
+                await ms.WriteAsync(body, sent, size, cancellationToken).ConfigureAwait(false);
+            }
             sent += size;
         }
 
@@ -1030,7 +1214,10 @@ public class SqlClient : DisposeBase
         if (len % MaxPayload == 0)
         {
             WriteFrameHeader(header, 0, _seq++);
-            await ms.WriteAsync(header, 0, 4, cancellationToken).ConfigureAwait(false);
+            if (sync)
+                ms.Write(header, 0, 4);
+            else
+                await ms.WriteAsync(header, 0, 4, cancellationToken).ConfigureAwait(false);
         }
     }
 
@@ -1052,10 +1239,10 @@ public class SqlClient : DisposeBase
     /// 一个压缩包可包含多个普通包，且普通包可跨压缩包分片（大结果集数据行）。
     /// 解压后缓存未消费的普通包数据，不完整包保留剩余并跨包拼接。
     /// </remarks>
-    private async Task<ServerPacket> ReadCompressedPacketAsync(Stream ms, CancellationToken cancellationToken)
+    private async Task<ServerPacket> ReadCompressedPacketAsync(Stream ms, CancellationToken cancellationToken, Boolean sync = false)
     {
         var timeout = Timeout;
-        using var cts = timeout > 0
+        using var cts = timeout > 0 && !sync
             ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
             : null;
         cts?.CancelAfter(timeout * 1000);
@@ -1063,7 +1250,7 @@ public class SqlClient : DisposeBase
 
         try
         {
-            var (data, seq) = await ReadPlainPacketAsync(ms, token).ConfigureAwait(false);
+            var (data, seq) = await ReadPlainPacketAsync(ms, token, sync).ConfigureAwait(false);
 
             // 普通包满长时，后续普通包是同一条报文的续帧（超过 16MB 的结果行），必须拼接后再返回
             if (data.Length < MaxPayload) return BuildServerPacket(ms, data, seq);
@@ -1074,7 +1261,7 @@ public class SqlClient : DisposeBase
             var maxPacketSize = MaxPacketSize > 0 ? MaxPacketSize : 64 * 1024 * 1024;
             while (true)
             {
-                var (next, nextSeq) = await ReadPlainPacketAsync(ms, token).ConfigureAwait(false);
+                var (next, nextSeq) = await ReadPlainPacketAsync(ms, token, sync).ConfigureAwait(false);
                 parts.Add(next);
                 total += next.Length;
                 lastSeq = nextSeq;
@@ -1108,6 +1295,11 @@ public class SqlClient : DisposeBase
             Active = false;
             throw;
         }
+        catch (Exception ex) when (sync && IsSocketTimeout(ex))
+        {
+            Active = false;
+            throw new TimeoutException(L.T("Timed out reading a packet ({0}s).", timeout));
+        }
         catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
         {
             Active = false;
@@ -1118,15 +1310,16 @@ public class SqlClient : DisposeBase
     /// <summary>从压缩流中读出一个普通包的数据体（不含 4 字节帧头）。普通包跨压缩包分片时自动拼接</summary>
     /// <param name="ms">网络流</param>
     /// <param name="token">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞读取</param>
     /// <returns>数据体与序列号</returns>
-    private async Task<(Byte[] Data, Byte Sequence)> ReadPlainPacketAsync(Stream ms, CancellationToken token)
+    private async Task<(Byte[] Data, Byte Sequence)> ReadPlainPacketAsync(Stream ms, CancellationToken token, Boolean sync = false)
     {
         while (true)
         {
             // 缓存不足一个完整普通包头或存在跨包待拼接数据时，读取并解压下一个压缩包（前置拼接保留的不完整包数据）
             if (_compressCache == null || _compressCacheOffset + 4 > _compressCacheLength || _compressPending)
             {
-                await FillCompressedCacheAsync(ms, token).ConfigureAwait(false);
+                await FillCompressedCacheAsync(ms, token, sync).ConfigureAwait(false);
             }
 
             var cache = _compressCache!;
@@ -1161,12 +1354,19 @@ public class SqlClient : DisposeBase
     /// <summary>读取并解压一个压缩包，前置拼接上次未消费的不完整普通包数据</summary>
     /// <param name="ms">网络流</param>
     /// <param name="token">取消令牌</param>
-    private async Task FillCompressedCacheAsync(Stream ms, CancellationToken token)
+    /// <param name="sync">是否使用同步阻塞读取</param>
+    private async Task FillCompressedCacheAsync(Stream ms, CancellationToken token, Boolean sync = false)
     {
         // 7字节压缩包头: 3字节压缩长度 + 1字节序列号 + 3字节未压缩长度
         _compressHeaderBuf ??= new Byte[CompressedHeaderSize];
         var hdr = _compressHeaderBuf;
-        await _reader.ReadAsync(ms, hdr, 0, CompressedHeaderSize, token).ConfigureAwait(false);
+        if (sync)
+        {
+            ApplySyncReadTimeout(ms);
+            _reader.Read(ms, hdr, 0, CompressedHeaderSize);
+        }
+        else
+            await _reader.ReadAsync(ms, hdr, 0, CompressedHeaderSize, token).ConfigureAwait(false);
 
         var compressedLen = hdr[0] + (hdr[1] << 8) + (hdr[2] << 16);
         var seq = hdr[3];
@@ -1197,14 +1397,20 @@ public class SqlClient : DisposeBase
             // 未压缩小包：payload 直接是带普通帧头的标准包
             payload = new Byte[remain + compressedLen];
             if (remain > 0) Buffer.BlockCopy(_compressCache!, _compressCacheOffset, payload, 0, remain);
-            await _reader.ReadAsync(ms, payload, remain, compressedLen, token).ConfigureAwait(false);
+            if (sync)
+                _reader.Read(ms, payload, remain, compressedLen);
+            else
+                await _reader.ReadAsync(ms, payload, remain, compressedLen, token).ConfigureAwait(false);
             payloadLen = remain + compressedLen;
         }
         else
         {
             // 压缩包：读取压缩数据后 zlib 解压，前置拼接保留数据
             var compressed = new Byte[compressedLen];
-            await _reader.ReadAsync(ms, compressed, 0, compressedLen, token).ConfigureAwait(false);
+            if (sync)
+                _reader.Read(ms, compressed, 0, compressedLen);
+            else
+                await _reader.ReadAsync(ms, compressed, 0, compressedLen, token).ConfigureAwait(false);
 
             payload = new Byte[remain + uncompressedLen];
             if (remain > 0) Buffer.BlockCopy(_compressCache!, _compressCacheOffset, payload, 0, remain);
@@ -1252,7 +1458,7 @@ public class SqlClient : DisposeBase
     private readonly Byte[] _plainHeaderBuf = new Byte[4];
 
     /// <summary>发送压缩协议数据包</summary>
-    private async Task SendCompressedPacketAsync(IPacket pk, Stream ms, Boolean flush, CancellationToken cancellationToken)
+    private async Task SendCompressedPacketAsync(IPacket pk, Stream ms, Boolean flush, CancellationToken cancellationToken, Boolean sync = false)
     {
         var len = pk.Total;
         var pk2 = PrepareFrameHeader(pk, 4);
@@ -1292,17 +1498,34 @@ public class SqlClient : DisposeBase
                 header[5] = (Byte)(sendUncompressed ? 0 : ((count >> 8) & 0xFF));
                 header[6] = (Byte)(sendUncompressed ? 0 : ((count >> 16) & 0xFF));
 
-                await ms.WriteAsync(header, 0, CompressedHeaderSize, cancellationToken).ConfigureAwait(false);
+                if (sync)
+                {
+                    ApplySyncWriteTimeout(ms);
+                    ms.Write(header, 0, CompressedHeaderSize);
+                }
+                else
+                    await ms.WriteAsync(header, 0, CompressedHeaderSize, cancellationToken).ConfigureAwait(false);
 
                 if (sendUncompressed)
                 {
                     // 回退未压缩：普通帧头 + 载荷分片直接写网络流，不再拼接整块副本
-                    await ms.WriteAsync(plainHeader, 0, plainHeader.Length, cancellationToken).ConfigureAwait(false);
-                    await WritePayloadAsync(ms, pk2, 4, len, cancellationToken).ConfigureAwait(false);
+                    if (sync)
+                    {
+                        ms.Write(plainHeader, 0, plainHeader.Length);
+                        WritePayload(ms, pk2, 4, len);
+                    }
+                    else
+                    {
+                        await ms.WriteAsync(plainHeader, 0, plainHeader.Length, cancellationToken).ConfigureAwait(false);
+                        await WritePayloadAsync(ms, pk2, 4, len, cancellationToken).ConfigureAwait(false);
+                    }
                 }
                 else
                 {
-                    await ms.WriteAsync(output.Buffer, 0, clen, cancellationToken).ConfigureAwait(false);
+                    if (sync)
+                        ms.Write(output.Buffer, 0, clen);
+                    else
+                        await ms.WriteAsync(output.Buffer, 0, clen, cancellationToken).ConfigureAwait(false);
                 }
             }
             finally
@@ -1312,7 +1535,16 @@ public class SqlClient : DisposeBase
 
             WritePacketLog("=>", (Byte)(_seq - 1), pk.GetSpan(), len);
 
-            if (flush) await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
+            if (flush)
+            {
+                if (sync)
+                {
+                    ApplySyncWriteTimeout(ms);
+                    ms.Flush();
+                }
+                else
+                    await ms.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
 
             LastActive = DateTime.Now;
         }
@@ -1591,6 +1823,50 @@ public class SqlClient : DisposeBase
             ArrayPool<Byte>.Shared.Return(buffer);
         }
     }
+
+    /// <summary>同步写入数据包载荷（跨帧分片）</summary>
+    /// <param name="ms">目标流</param>
+    /// <param name="pk">数据包（可能是链式）</param>
+    /// <param name="skip">跳过数据包头部字节数</param>
+    /// <param name="len">载荷长度</param>
+    private static void WritePayload(Stream ms, IPacket pk, Int32 skip, Int32 len)
+    {
+        var remaining = len;
+        for (var node = (IPacket?)pk; node != null && remaining > 0; node = node.Next)
+        {
+            Byte[] source;
+            Int32 offset, count;
+            if (node.TryGetArray(out var seg))
+            {
+                source = seg.Array!;
+                offset = seg.Offset;
+                count = seg.Count;
+            }
+            else
+            {
+                source = node.GetSpan().ToArray();
+                offset = 0;
+                count = source.Length;
+            }
+
+            if (skip > 0)
+            {
+                if (count <= skip)
+                {
+                    skip -= count;
+                    continue;
+                }
+
+                offset += skip;
+                count -= skip;
+                skip = 0;
+            }
+            if (count > remaining) count = remaining;
+
+            ms.Write(source, offset, count);
+            remaining -= count;
+        }
+    }
     #endregion
 
     /// <summary>按当前协商算法解压压缩包载荷</summary>
@@ -1821,7 +2097,18 @@ public class SqlClient : DisposeBase
     /// <param name="command">命令类型</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
-    public async Task SendCommandAsync(DbCmd command, CancellationToken cancellationToken = default)
+    public Task SendCommandAsync(DbCmd command, CancellationToken cancellationToken = default)
+        => SendCommandCoreAsync(command, cancellationToken, false);
+
+    /// <summary>发送单字节命令请求（内部快速路径重载）</summary>
+    /// <param name="command">命令类型</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞写入</param>
+    /// <returns></returns>
+    internal Task SendCommandAsync(DbCmd command, CancellationToken cancellationToken, Boolean sync)
+        => SendCommandCoreAsync(command, cancellationToken, sync);
+
+    private async Task SendCommandCoreAsync(DbCmd command, CancellationToken cancellationToken, Boolean sync)
     {
         var buf = Pool.Shared.Rent(4 + 1);
         try
@@ -1832,7 +2119,7 @@ public class SqlClient : DisposeBase
             _seq = 0;
 
             // 偏移4字节为帧头预留空间，避免 PrepareFrameHeader 额外分配
-            await SendPacketAsync(new ArrayPacket(buf, 4, 1), cancellationToken).ConfigureAwait(false);
+            await SendPacketAsync(new ArrayPacket(buf, 4, 1), cancellationToken, true, sync).ConfigureAwait(false);
         }
         finally
         {
@@ -1845,7 +2132,19 @@ public class SqlClient : DisposeBase
     /// <param name="value">命令参数值（如 statement_id、connection_id 等）</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>异步任务</returns>
-    public async Task SendCommandAsync(DbCmd command, Int32 value, CancellationToken cancellationToken = default)
+    public Task SendCommandAsync(DbCmd command, Int32 value, CancellationToken cancellationToken = default)
+        => SendCommandCoreAsync(command, value, cancellationToken, false);
+
+    /// <summary>发送带 Int32 参数的命令请求（内部快速路径重载）</summary>
+    /// <param name="command">命令类型</param>
+    /// <param name="value">命令参数值</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞写入</param>
+    /// <returns>异步任务</returns>
+    internal Task SendCommandAsync(DbCmd command, Int32 value, CancellationToken cancellationToken, Boolean sync)
+        => SendCommandCoreAsync(command, value, cancellationToken, sync);
+
+    private async Task SendCommandCoreAsync(DbCmd command, Int32 value, CancellationToken cancellationToken, Boolean sync)
     {
         var buf = Pool.Shared.Rent(4 + 5);
         try
@@ -1856,7 +2155,7 @@ public class SqlClient : DisposeBase
             writer.Write(value);
 
             _seq = 0;
-            await SendPacketAsync(new ArrayPacket(buf, 4, 5), cancellationToken).ConfigureAwait(false);
+            await SendPacketAsync(new ArrayPacket(buf, 4, 5), cancellationToken, true, sync).ConfigureAwait(false);
         }
         finally
         {
@@ -1870,7 +2169,20 @@ public class SqlClient : DisposeBase
     /// <param name="nulTerminated">是否在字符串末尾添加 NUL 终止符（用于 COM_FIELD_LIST 等需要分隔多段数据的命令）</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>异步任务</returns>
-    public async Task SendCommandAsync(DbCmd command, String payload, Boolean nulTerminated = false, CancellationToken cancellationToken = default)
+    public Task SendCommandAsync(DbCmd command, String payload, Boolean nulTerminated = false, CancellationToken cancellationToken = default)
+        => SendCommandCoreAsync(command, payload, nulTerminated, cancellationToken, false);
+
+    /// <summary>发送带字符串参数的命令请求（内部快速路径重载）</summary>
+    /// <param name="command">命令类型</param>
+    /// <param name="payload">字符串负载</param>
+    /// <param name="nulTerminated">是否在字符串末尾添加 NUL 终止符</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞写入</param>
+    /// <returns>异步任务</returns>
+    internal Task SendCommandAsync(DbCmd command, String payload, Boolean nulTerminated, CancellationToken cancellationToken, Boolean sync)
+        => SendCommandCoreAsync(command, payload, nulTerminated, cancellationToken, sync);
+
+    private async Task SendCommandCoreAsync(DbCmd command, String payload, Boolean nulTerminated, CancellationToken cancellationToken, Boolean sync)
     {
         if (payload == null) throw new ArgumentNullException(nameof(payload));
 
@@ -1892,7 +2204,7 @@ public class SqlClient : DisposeBase
                 buf[5 + byteCount] = 0;
 
             _seq = 0;
-            await SendPacketAsync(new ArrayPacket(buf, 4, len), cancellationToken).ConfigureAwait(false);
+            await SendPacketAsync(new ArrayPacket(buf, 4, len), cancellationToken, true, sync).ConfigureAwait(false);
         }
         finally
         {
@@ -2025,14 +2337,22 @@ public class SqlClient : DisposeBase
     /// <param name="pk">包含查询语句的数据包。注意：数据包的第一个字节必须留作命令字节（DbCmd），构造查询数据包时不要占用该字节。</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>异步任务</returns>
-    public async Task SendQueryAsync(IPacket pk, CancellationToken cancellationToken = default)
+    public Task SendQueryAsync(IPacket pk, CancellationToken cancellationToken = default)
+        => SendQueryAsync(pk, cancellationToken, false);
+
+    /// <summary>发送 SQL 查询请求（内部快速路径重载）</summary>
+    /// <param name="pk">包含查询语句的数据包</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞写入</param>
+    /// <returns>异步任务</returns>
+    internal async Task SendQueryAsync(IPacket pk, CancellationToken cancellationToken, Boolean sync)
     {
         pk[0] = (Byte)DbCmd.QUERY;
 
         // 每一次查询请求，序列号都要重置为0
         _seq = 0;
 
-        await SendPacketAsync(pk, cancellationToken).ConfigureAwait(false);
+        await SendPacketAsync(pk, cancellationToken, true, sync).ConfigureAwait(false);
     }
 
     /// <summary>解析服务器响应获取查询结果。解析 OK 包获取影响行数和最后插入ID，或返回结果集列数</summary>
@@ -2071,46 +2391,111 @@ public class SqlClient : DisposeBase
     /// <param name="count">列数量</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>列信息数组</returns>
-    public async Task<MySqlColumn[]> GetColumnsAsync(Int32 count, CancellationToken cancellationToken = default)
+    public Task<MySqlColumn[]> GetColumnsAsync(Int32 count, CancellationToken cancellationToken = default)
+        => GetColumnsCoreAsync(count, cancellationToken, false, null);
+
+    /// <summary>读取结果集列定义（内部快速路径重载）</summary>
+    /// <param name="count">列数量</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞读取</param>
+    /// <param name="cacheKey">列元数据缓存键（通常是 SQL 文本）</param>
+    /// <returns>列信息数组</returns>
+    internal Task<MySqlColumn[]> GetColumnsAsync(Int32 count, CancellationToken cancellationToken, Boolean sync, String? cacheKey)
+        => GetColumnsCoreAsync(count, cancellationToken, sync, cacheKey);
+
+    private async Task<MySqlColumn[]> GetColumnsCoreAsync(Int32 count, CancellationToken cancellationToken, Boolean sync, String? cacheKey)
     {
-        var list = new List<MySqlColumn>(count);
-        for (var i = 0; i < count; i++)
+        // 保留报文以便计算哈希并在缓存命中时跳过解码；报文内存由 ArrayPool 提供，数量很小
+        var packets = new List<ServerPacket>(count);
+        var hash = 14695981039346656037UL;
+        var totalBytes = 0;
+        BeginScratch();
+        try
         {
-            using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-            if (rs.IsEOF) break;
+            for (var i = 0; i < count; i++)
+            {
+                var rs = await ReadPacketAsync(cancellationToken, sync, true).ConfigureAwait(false);
+                if (rs.IsEOF)
+                {
+                    rs.Dispose();
+                    break;
+                }
 
-            var reader = new SpanReader(rs.Data);
-            var dc = new MySqlColumn();
-            dc.Read(ref reader);
+                packets.Add(rs);
 
-            if (reader.Available >= 2) reader.ReadInt16();
+                var span = rs.Data.GetSpan();
+                totalBytes += span.Length;
+                foreach (var b in span) hash = (hash ^ b) * 1099511628211UL;
+            }
 
-            list.Add(dc);
+            // 读取并消费 EOF 包
+            using (var rs2 = await ReadPacketAsync(cancellationToken, sync, true).ConfigureAwait(false)) { }
+
+            // 同一 SQL 在表结构未变时列定义完全一致：哈希相同直接复用缓存，跳过字符串解码与对象分配。
+            // 表结构变化会让列定义报文变化，哈希不匹配时重新解析并覆盖缓存
+            if (cacheKey != null && _columnsCache != null &&
+                _columnsCache.TryGetValue(cacheKey, out var cached) &&
+                cached.Count == packets.Count && cached.Hash == hash && cached.TotalBytes == totalBytes)
+                return cached.Columns;
+
+            var list = new List<MySqlColumn>(packets.Count);
+            foreach (var rs in packets)
+            {
+                var reader = new SpanReader(rs.Data);
+                var dc = new MySqlColumn();
+                dc.Read(ref reader);
+
+                if (reader.Available >= 2) reader.ReadInt16();
+
+                list.Add(dc);
+            }
+
+            var columns = list.ToArray();
+            if (cacheKey != null) StoreColumns(cacheKey, columns, hash, totalBytes);
+
+            return columns;
         }
-
-        // 读取并消费 EOF 包
-        using var rs2 = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
-
-        return [.. list];
+        finally
+        {
+            foreach (var rs in packets) rs.Dispose();
+        }
     }
+
+    private Dictionary<String, ColumnCache>? _columnsCache;
+    private const Int32 MaxColumnCacheEntries = 32;
+
+    /// <summary>写入列元数据缓存。超过上限时整体清空，避免连接长期占用过多内存</summary>
+    private void StoreColumns(String key, MySqlColumn[] columns, UInt64 hash, Int32 totalBytes)
+    {
+        var cache = _columnsCache ??= new Dictionary<String, ColumnCache>(StringComparer.Ordinal);
+        if (cache.Count >= MaxColumnCacheEntries && !cache.ContainsKey(key)) cache.Clear();
+
+        cache[key] = new ColumnCache(columns, hash, columns.Length, totalBytes);
+    }
+
+    private sealed record ColumnCache(MySqlColumn[] Columns, UInt64 Hash, Int32 Count, Int32 TotalBytes);
 
     /// <summary>读取行数据包到复用缓冲区（含帧头解析、错误处理、超时管理）</summary>
     /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞读取</param>
     /// <returns>正数为行数据长度（数据在 _rowBuffer[0..len]）；负数或零表示 EOF（取反为 EOF 包长度）</returns>
-    private async Task<Int32> ReadRowPacketAsync(CancellationToken cancellationToken)
+    private async Task<Int32> ReadRowPacketAsync(CancellationToken cancellationToken, Boolean sync = false)
     {
         var ms = _stream ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
         var timeout = Timeout;
-        using var cts = timeout > 0
+        using var cts = timeout > 0 && !sync
             ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
             : null;
         cts?.CancelAfter(timeout * 1000);
         var token = cts?.Token ?? cancellationToken;
 
+        if (sync) ApplySyncReadTimeout(ms);
+
 #if !NET5_0_OR_GREATER
-        // 旧框架的 NetworkStream 异步读取忽略取消令牌，超时/取消时关闭 socket 以解除阻塞
-        using var abort = token.Register(static s => ((SqlClient)s!).Abort(), this);
+        // 旧框架的 NetworkStream 异步读取忽略取消令牌，超时/取消时关闭 socket 以解除阻塞。
+        // 同步路径由 Socket.ReceiveTimeout 控制，无需注册取消回调
+        using var abort = sync ? default : token.Register(static s => ((SqlClient)s!).Abort(), this);
 #endif
 
         try
@@ -2118,7 +2503,7 @@ public class SqlClient : DisposeBase
             // 压缩协议：行数据包同样在压缩包内（含 4 字节普通帧头），必须走统一压缩读取路径
             if (_useCompression)
             {
-                using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+                using var rs = await ReadPacketAsync(cancellationToken, sync).ConfigureAwait(false);
 
                 var clen = rs.Length;
                 if (_rowBuffer == null || _rowBuffer.Length < clen)
@@ -2136,7 +2521,10 @@ public class SqlClient : DisposeBase
 
             // 帧头使用独立的 4 字节缓冲，避免覆盖已读到的行数据（大行续帧时需要）
             var header = _headerBuf;
-            await _reader.ReadAsync(ms, header, 0, 4, token).ConfigureAwait(false);
+            if (sync)
+                _reader.Read(ms, header, 0, 4);
+            else
+                await _reader.ReadAsync(ms, header, 0, 4, token).ConfigureAwait(false);
             var len = header[0] + (header[1] << 8) + (header[2] << 16);
             _seq = (Byte)(header[3] + 1);
 
@@ -2150,7 +2538,10 @@ public class SqlClient : DisposeBase
             if (_rowBuffer.Length < len)
                 _rowBuffer = new Byte[Math.Max(len, 16384)];
 
-            await _reader.ReadAsync(ms, _rowBuffer, 0, len, token).ConfigureAwait(false);
+            if (sync)
+                _reader.Read(ms, _rowBuffer, 0, len);
+            else
+                await _reader.ReadAsync(ms, _rowBuffer, 0, len, token).ConfigureAwait(false);
 
             // 大行：服务端按 0xFFFFFF 分帧，需续读后续帧拼接后再解析
             if (len == MaxPayload)
@@ -2158,7 +2549,10 @@ public class SqlClient : DisposeBase
                 var total = len;
                 while (true)
                 {
-                    await _reader.ReadAsync(ms, header, 0, 4, token).ConfigureAwait(false);
+                    if (sync)
+                        _reader.Read(ms, header, 0, 4);
+                    else
+                        await _reader.ReadAsync(ms, header, 0, 4, token).ConfigureAwait(false);
                     var next = header[0] + (header[1] << 8) + (header[2] << 16);
                     _seq = (Byte)(header[3] + 1);
 
@@ -2176,7 +2570,12 @@ public class SqlClient : DisposeBase
                     }
 
                     if (next > 0)
-                        await _reader.ReadAsync(ms, _rowBuffer, total, next, token).ConfigureAwait(false);
+                    {
+                        if (sync)
+                            _reader.Read(ms, _rowBuffer, total, next);
+                        else
+                            await _reader.ReadAsync(ms, _rowBuffer, total, next, token).ConfigureAwait(false);
+                    }
 
                     total += next;
                     if (next < MaxPayload) break;
@@ -2215,6 +2614,11 @@ public class SqlClient : DisposeBase
             Active = false;
             throw;
         }
+        catch (Exception ex) when (sync && IsSocketTimeout(ex))
+        {
+            Active = false;
+            throw new TimeoutException(L.T("Timed out reading a packet ({0}s).", timeout));
+        }
         catch (Exception ex) when (ex is IOException or SocketException or ObjectDisposedException)
         {
             // 连接断开/EOF/IO 错误，标记失效，避免脏连接归还连接池后协议错位
@@ -2252,9 +2656,21 @@ public class SqlClient : DisposeBase
     /// <param name="columns">列信息数组</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>行读取结果，包含是否成功及状态信息</returns>
-    public async Task<RowResult> NextRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken = default)
+    public Task<RowResult> NextRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken = default)
+        => NextRowCoreAsync(values, columns, cancellationToken, false);
+
+    /// <summary>读取结果集下一行（内部快速路径重载）</summary>
+    /// <param name="values">用于存储行数据的数组</param>
+    /// <param name="columns">列信息数组</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞读取</param>
+    /// <returns>行读取结果</returns>
+    internal Task<RowResult> NextRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken, Boolean sync)
+        => NextRowCoreAsync(values, columns, cancellationToken, sync);
+
+    private async Task<RowResult> NextRowCoreAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken, Boolean sync)
     {
-        var len = await ReadRowPacketAsync(cancellationToken).ConfigureAwait(false);
+        var len = await ReadRowPacketAsync(cancellationToken, sync).ConfigureAwait(false);
         if (len <= 0) return ParseEofRowResult(-len);
 
         // 读取行数据（文本协议：所有值以 UTF-8 字符串传输）
@@ -2279,9 +2695,21 @@ public class SqlClient : DisposeBase
     /// <param name="columns">列信息数组</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>行读取结果，包含是否成功及状态信息</returns>
-    public async Task<RowResult> NextBinaryRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken = default)
+    public Task<RowResult> NextBinaryRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken = default)
+        => NextBinaryRowCoreAsync(values, columns, cancellationToken, false);
+
+    /// <summary>读取二进制协议结果行（内部快速路径重载）</summary>
+    /// <param name="values">用于存储行数据的数组</param>
+    /// <param name="columns">列信息数组</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞读取</param>
+    /// <returns>行读取结果</returns>
+    internal Task<RowResult> NextBinaryRowAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken, Boolean sync)
+        => NextBinaryRowCoreAsync(values, columns, cancellationToken, sync);
+
+    private async Task<RowResult> NextBinaryRowCoreAsync(Object[] values, MySqlColumn[] columns, CancellationToken cancellationToken, Boolean sync)
     {
-        var len = await ReadRowPacketAsync(cancellationToken).ConfigureAwait(false);
+        var len = await ReadRowPacketAsync(cancellationToken, sync).ConfigureAwait(false);
         if (len <= 0) return ParseEofRowResult(-len);
 
         var numCols = columns.Length;
@@ -2316,9 +2744,20 @@ public class SqlClient : DisposeBase
     /// <summary>跳过当前结果集中的一行数据（不解析内容），用于快速消费剩余行</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>行读取结果，包含是否到达 EOF 及状态信息</returns>
-    public async Task<RowResult> SkipRowAsync(CancellationToken cancellationToken = default)
+    public Task<RowResult> SkipRowAsync(CancellationToken cancellationToken = default)
+        => SkipRowCoreAsync(cancellationToken, false);
+
+    /// <summary>跳过当前结果集中的一行数据（内部快速路径重载）</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞读取</param>
+    /// <returns>行读取结果</returns>
+    internal Task<RowResult> SkipRowAsync(CancellationToken cancellationToken, Boolean sync)
+        => SkipRowCoreAsync(cancellationToken, sync);
+
+    private async Task<RowResult> SkipRowCoreAsync(CancellationToken cancellationToken, Boolean sync)
     {
-        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        BeginScratch();
+        using var rs = await ReadPacketAsync(cancellationToken, sync, true).ConfigureAwait(false);
         if (rs.IsEOF) return ReadEofRowResult(rs);
 
         return RowResult.DataRow;
@@ -2402,7 +2841,18 @@ public class SqlClient : DisposeBase
     /// <param name="sql">SQL 语句</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>预编译结果，包含语句 ID 和参数列信息</returns>
-    public async Task<PrepareResult> PrepareStatementAsync(String sql, CancellationToken cancellationToken = default)
+    public Task<PrepareResult> PrepareStatementAsync(String sql, CancellationToken cancellationToken = default)
+        => PrepareStatementCoreAsync(sql, cancellationToken, false);
+
+    /// <summary>准备预编译语句（内部快速路径重载）</summary>
+    /// <param name="sql">SQL 语句</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞读写</param>
+    /// <returns>预编译结果</returns>
+    internal Task<PrepareResult> PrepareStatementAsync(String sql, CancellationToken cancellationToken, Boolean sync)
+        => PrepareStatementCoreAsync(sql, cancellationToken, sync);
+
+    private async Task<PrepareResult> PrepareStatementCoreAsync(String sql, CancellationToken cancellationToken, Boolean sync)
     {
         var len = 1 + Encoding.GetByteCount(sql);
         using var pk = new OwnerPacket(len);
@@ -2412,9 +2862,9 @@ public class SqlClient : DisposeBase
         // 每一次查询请求，序列号都要重置为0
         _seq = 0;
 
-        await SendPacketAsync(pk, cancellationToken).ConfigureAwait(false);
+        await SendPacketAsync(pk, cancellationToken, true, sync).ConfigureAwait(false);
 
-        using var rs = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        using var rs = await ReadPacketAsync(cancellationToken, sync).ConfigureAwait(false);
         // COM_STMT_PREPARE_OK: status(1) + statement_id(4) + num_columns(2) + num_params(2) + filler(1) + warning_count(2)
         // 跳过 status byte (0x00)
         var reader = rs.CreateReader(1);
@@ -2427,14 +2877,14 @@ public class SqlClient : DisposeBase
         MySqlColumn[]? columns = null;
         if (num > 0)
         {
-            columns = await GetColumnsAsync(num, cancellationToken).ConfigureAwait(false);
+            columns = await GetColumnsAsync(num, cancellationToken, sync, null).ConfigureAwait(false);
         }
         if (numCols > 0)
         {
             // 读取列定义包 + EOF 包
             for (var j = 0; j <= numCols; j++)
             {
-                using var _ = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+                using var _ = await ReadPacketAsync(cancellationToken, sync).ConfigureAwait(false);
             }
         }
         return new PrepareResult(statementId, columns!);
@@ -2446,10 +2896,23 @@ public class SqlClient : DisposeBase
     /// <param name="paramColumns">Prepare 返回的参数列信息</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>异步任务</returns>
-    public async Task ExecuteStatementAsync(Int32 statementId, MySqlParameterCollection? parameters, MySqlColumn[]? paramColumns, CancellationToken cancellationToken = default)
+    public Task ExecuteStatementAsync(Int32 statementId, MySqlParameterCollection? parameters, MySqlColumn[]? paramColumns, CancellationToken cancellationToken = default)
+        => ExecuteStatementCoreAsync(statementId, parameters, paramColumns, cancellationToken, false);
+
+    /// <summary>执行已准备的预编译语句（内部快速路径重载）</summary>
+    /// <param name="statementId">预编译语句 ID</param>
+    /// <param name="parameters">参数集合</param>
+    /// <param name="paramColumns">参数列信息</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞写入</param>
+    /// <returns>异步任务</returns>
+    internal Task ExecuteStatementAsync(Int32 statementId, MySqlParameterCollection? parameters, MySqlColumn[]? paramColumns, CancellationToken cancellationToken, Boolean sync)
+        => ExecuteStatementCoreAsync(statementId, parameters, paramColumns, cancellationToken, sync);
+
+    private async Task ExecuteStatementCoreAsync(Int32 statementId, MySqlParameterCollection? parameters, MySqlColumn[]? paramColumns, CancellationToken cancellationToken, Boolean sync)
     {
         // 转值数组走统一核心，避免每行 MySqlParameter 对象分配
-        await ExecuteStatementAsync(statementId, ToValues(parameters), paramColumns, cancellationToken).ConfigureAwait(false);
+        await ExecuteStatementAsync(statementId, ToValues(parameters), paramColumns, cancellationToken, sync).ConfigureAwait(false);
     }
 
     /// <summary>异步执行已准备的预编译语句（值数组版本），支持二进制参数绑定</summary>
@@ -2458,13 +2921,26 @@ public class SqlClient : DisposeBase
     /// <param name="paramColumns">Prepare 返回的参数列信息</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>异步任务</returns>
-    public async Task ExecuteStatementAsync(Int32 statementId, Object?[]? values, MySqlColumn[]? paramColumns, CancellationToken cancellationToken = default)
+    public Task ExecuteStatementAsync(Int32 statementId, Object?[]? values, MySqlColumn[]? paramColumns, CancellationToken cancellationToken = default)
+        => ExecuteStatementValuesCoreAsync(statementId, values, paramColumns, cancellationToken, false);
+
+    /// <summary>执行已准备的预编译语句（值数组内部重载）</summary>
+    /// <param name="statementId">预编译语句 ID</param>
+    /// <param name="values">参数值数组</param>
+    /// <param name="paramColumns">参数列信息</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞写入</param>
+    /// <returns>异步任务</returns>
+    internal Task ExecuteStatementAsync(Int32 statementId, Object?[]? values, MySqlColumn[]? paramColumns, CancellationToken cancellationToken, Boolean sync)
+        => ExecuteStatementValuesCoreAsync(statementId, values, paramColumns, cancellationToken, sync);
+
+    private async Task ExecuteStatementValuesCoreAsync(Int32 statementId, Object?[]? values, MySqlColumn[]? paramColumns, CancellationToken cancellationToken, Boolean sync)
     {
         var sendPk = BuildExecutePacket(statementId, values);
         _seq = 0;
         try
         {
-            await SendPacketAsync(sendPk, cancellationToken).ConfigureAwait(false);
+            await SendPacketAsync(sendPk, cancellationToken, true, sync).ConfigureAwait(false);
         }
         finally
         {
@@ -2597,9 +3073,20 @@ public class SqlClient : DisposeBase
     /// <param name="statementId">预编译语句 ID</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>异步任务</returns>
-    public async Task CloseStatementAsync(Int32 statementId, CancellationToken cancellationToken = default)
+    public Task CloseStatementAsync(Int32 statementId, CancellationToken cancellationToken = default)
+        => CloseStatementCoreAsync(statementId, cancellationToken, false);
+
+    /// <summary>关闭预编译语句（内部快速路径重载）</summary>
+    /// <param name="statementId">预编译语句 ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞写入</param>
+    /// <returns>异步任务</returns>
+    internal Task CloseStatementAsync(Int32 statementId, CancellationToken cancellationToken, Boolean sync)
+        => CloseStatementCoreAsync(statementId, cancellationToken, sync);
+
+    private async Task CloseStatementCoreAsync(Int32 statementId, CancellationToken cancellationToken, Boolean sync)
     {
-        await SendCommandAsync(DbCmd.CLOSE_STMT, statementId, cancellationToken).ConfigureAwait(false);
+        await SendCommandAsync(DbCmd.CLOSE_STMT, statementId, cancellationToken, sync).ConfigureAwait(false);
         // COM_STMT_CLOSE 不会返回响应包
     }
 
@@ -2607,12 +3094,23 @@ public class SqlClient : DisposeBase
     /// <param name="statementId">预编译语句 ID</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns>异步任务</returns>
-    public async Task ResetStatementAsync(Int32 statementId, CancellationToken cancellationToken = default)
+    public Task ResetStatementAsync(Int32 statementId, CancellationToken cancellationToken = default)
+        => ResetStatementCoreAsync(statementId, cancellationToken, false);
+
+    /// <summary>重置预编译语句（内部快速路径重载）</summary>
+    /// <param name="statementId">预编译语句 ID</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞读写</param>
+    /// <returns>异步任务</returns>
+    internal Task ResetStatementAsync(Int32 statementId, CancellationToken cancellationToken, Boolean sync)
+        => ResetStatementCoreAsync(statementId, cancellationToken, sync);
+
+    private async Task ResetStatementCoreAsync(Int32 statementId, CancellationToken cancellationToken, Boolean sync)
     {
-        await SendCommandAsync(DbCmd.RESET_STMT, statementId, cancellationToken).ConfigureAwait(false);
+        await SendCommandAsync(DbCmd.RESET_STMT, statementId, cancellationToken, sync).ConfigureAwait(false);
 
         // COM_STMT_RESET 返回 OK 包
-        using var _ = await ReadPacketAsync(cancellationToken).ConfigureAwait(false);
+        using var _ = await ReadPacketAsync(cancellationToken, sync).ConfigureAwait(false);
     }
 
     /// <summary>异步发送预编译语句的大数据参数。使用 COM_STMT_SEND_LONG_DATA 二进制命令</summary>

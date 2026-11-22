@@ -1,5 +1,6 @@
 ﻿using System.Data;
 using System.Data.Common;
+using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using NewLife.Collections;
@@ -119,7 +120,7 @@ public class MySqlCommand : DbCommand
     {
         if (disposing)
         {
-            UnprepareAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+            UnprepareAsync(CancellationToken.None, true).ConfigureAwait(false).GetAwaiter().GetResult();
 
             if (CloseConnectionOnDispose)
             {
@@ -136,7 +137,7 @@ public class MySqlCommand : DbCommand
     /// <returns>异步任务</returns>
     public override async ValueTask DisposeAsync()
     {
-        await UnprepareAsync(CancellationToken.None).ConfigureAwait(false);
+        await UnprepareAsync(CancellationToken.None, false).ConfigureAwait(false);
 
         if (CloseConnectionOnDispose)
         {
@@ -160,20 +161,20 @@ public class MySqlCommand : DbCommand
     /// <param name="behavior">命令行为</param>
     /// <returns></returns>
     protected override DbDataReader ExecuteDbDataReader(CommandBehavior behavior)
-        => ExecuteDbDataReaderAsync(behavior, CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+        => ExecuteDbDataReaderCoreAsync(behavior, CancellationToken.None, true).ConfigureAwait(false).GetAwaiter().GetResult();
 
     /// <summary>执行并返回影响行数。多语句累加所有语句的影响行数</summary>
     /// <returns></returns>
     public override Int32 ExecuteNonQuery()
-        => ExecuteNonQueryAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+        => ExecuteNonQueryCoreAsync(CancellationToken.None, true).ConfigureAwait(false).GetAwaiter().GetResult();
 
     /// <summary>执行并返回第一个结果集的第一行第一列</summary>
     /// <returns></returns>
     public override Object? ExecuteScalar()
-        => ExecuteScalarAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+        => ExecuteScalarCoreAsync(CancellationToken.None, true).ConfigureAwait(false).GetAwaiter().GetResult();
 
     /// <summary>预编译语句。通过 COM_STMT_PREPARE 在服务端编译，后续执行走二进制协议</summary>
-    public override void Prepare() => PrepareAsync(CancellationToken.None).ConfigureAwait(false).GetAwaiter().GetResult();
+    public override void Prepare() => PrepareCoreAsync(CancellationToken.None, true).ConfigureAwait(false).GetAwaiter().GetResult();
 
     /// <summary>返回适合日志输出的 SQL 文本。参数值可能包含口令、手机号等敏感信息，这里只展示参数名</summary>
     /// <returns></returns>
@@ -189,10 +190,17 @@ public class MySqlCommand : DbCommand
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
 #if NETSTANDARD2_1_OR_GREATER || NETCOREAPP
-    public override async Task PrepareAsync(CancellationToken cancellationToken = default)
+    public override Task PrepareAsync(CancellationToken cancellationToken = default)
 #else
-    public async Task PrepareAsync(CancellationToken cancellationToken = default)
+    public Task PrepareAsync(CancellationToken cancellationToken = default)
 #endif
+        => PrepareCoreAsync(cancellationToken, false);
+
+    /// <summary>异步预编译语句核心逻辑</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞 I/O</param>
+    /// <returns></returns>
+    private async Task PrepareCoreAsync(CancellationToken cancellationToken, Boolean sync)
     {
         if (AutoOpenConnection && _DbConnection != null && _DbConnection.State != ConnectionState.Open)
             await _DbConnection.OpenAsync(cancellationToken).ConfigureAwait(false);
@@ -201,7 +209,7 @@ public class MySqlCommand : DbCommand
 
         // 预编译语句只存在于某个物理连接上。连接关闭后重新打开、或断线重连后，旧 statement id 已失效
         if (IsPrepared && !IsPreparedFor(client))
-            await ResetPreparedAsync(client, cancellationToken).ConfigureAwait(false);
+            await ResetPreparedAsync(client, cancellationToken, sync).ConfigureAwait(false);
         if (IsPrepared) return;
 
         var sql = CommandText;
@@ -211,7 +219,7 @@ public class MySqlCommand : DbCommand
         var paramOrder = new List<Int32>();
         var prepSql = ConvertToPositionalParameters(sql, _parameters, paramOrder, _positionalAt, NoBackslashEscapes, AnsiQuotes);
 
-        var result = await client.PrepareStatementAsync(prepSql, cancellationToken).ConfigureAwait(false);
+        var result = await client.PrepareStatementAsync(prepSql, cancellationToken, sync).ConfigureAwait(false);
         _statementId = result.StatementId;
         _paramColumns = result.Columns;
         _paramOrder = paramOrder.Count > 0 ? paramOrder.ToArray() : null;
@@ -224,7 +232,14 @@ public class MySqlCommand : DbCommand
     /// <summary>释放预编译语句的服务端资源</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
-    public async Task UnprepareAsync(CancellationToken cancellationToken = default)
+    public Task UnprepareAsync(CancellationToken cancellationToken = default)
+        => UnprepareAsync(cancellationToken, false);
+
+    /// <summary>释放预编译语句（内部快速路径重载）</summary>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞写入</param>
+    /// <returns></returns>
+    internal async Task UnprepareAsync(CancellationToken cancellationToken, Boolean sync)
     {
         if (!IsPrepared) return;
 
@@ -233,7 +248,7 @@ public class MySqlCommand : DbCommand
         {
             try
             {
-                await client.CloseStatementAsync(_statementId, cancellationToken).ConfigureAwait(false);
+                await client.CloseStatementAsync(_statementId, cancellationToken, sync).ConfigureAwait(false);
             }
             catch { /* 忽略关闭过程中的异常 */ }
         }
@@ -258,14 +273,15 @@ public class MySqlCommand : DbCommand
     /// <summary>清理预编译状态。客户端仍匹配时先关闭服务端语句</summary>
     /// <param name="client">当前物理客户端</param>
     /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞写入</param>
     /// <returns>异步任务</returns>
-    private async Task ResetPreparedAsync(SqlClient client, CancellationToken cancellationToken)
+    private async Task ResetPreparedAsync(SqlClient client, CancellationToken cancellationToken, Boolean sync = false)
     {
         if (client.Active && IsPreparedOn(client))
         {
             try
             {
-                await client.CloseStatementAsync(_statementId, cancellationToken).ConfigureAwait(false);
+                await client.CloseStatementAsync(_statementId, cancellationToken, sync).ConfigureAwait(false);
             }
             catch { /* 忽略关闭过程中的异常 */ }
         }
@@ -294,7 +310,15 @@ public class MySqlCommand : DbCommand
     /// <param name="behavior">命令行为</param>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
-    protected override async Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken)
+    protected override Task<DbDataReader> ExecuteDbDataReaderAsync(CommandBehavior behavior, CancellationToken cancellationToken)
+        => ExecuteDbDataReaderCoreAsync(behavior, cancellationToken, false);
+
+    /// <summary>执行读取器核心逻辑。在 ConnectionTimeout 时间内对网络临时故障自动重连重试；事务内或关闭重试时直接执行</summary>
+    /// <param name="behavior">命令行为</param>
+    /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞 I/O。同步 API 传入 true，避免异步续体切换到线程池</param>
+    /// <returns>数据读取器</returns>
+    private async Task<DbDataReader> ExecuteDbDataReaderCoreAsync(CommandBehavior behavior, CancellationToken cancellationToken, Boolean sync)
     {
         var conn = _DbConnection ?? throw new InvalidOperationException(L.T("The connection has not been set."));
         // 仅读语句支持断线重连重试：DML 在"服务端已执行、响应丢失"时重连重试会重复执行（非幂等），故不重试。
@@ -302,7 +326,7 @@ public class MySqlCommand : DbCommand
         // 用户主动关闭重试则直接执行
         if (DbTransaction != null || conn.HasTransaction || !conn.Setting.RetryOnNetworkFailure ||
             !IsReadOnlySql(CommandText, CommandType, conn.Client?.NoBackslashEscapes == true, conn.Client?.AnsiQuotes == true))
-            return await ExecuteDbDataReaderCoreAsync(behavior, cancellationToken).ConfigureAwait(false);
+            return await ExecuteDbDataReaderOnceAsync(behavior, cancellationToken, sync).ConfigureAwait(false);
 
         var connTimeout = conn.Setting.ConnectionTimeout;
         // 以毫秒级 TickCount64 计算 deadline；不配置超时时不限制重试次数
@@ -313,7 +337,7 @@ public class MySqlCommand : DbCommand
         {
             try
             {
-                return await ExecuteDbDataReaderCoreAsync(behavior, cancellationToken).ConfigureAwait(false);
+                return await ExecuteDbDataReaderOnceAsync(behavior, cancellationToken, sync).ConfigureAwait(false);
             }
             catch (Exception ex) when (IsNetworkException(ex))
             {
@@ -329,7 +353,12 @@ public class MySqlCommand : DbCommand
                 var remaining = (Int32)(deadline - Runtime.TickCount64);
                 var waitMs = Math.Min(delay, remaining);
                 if (waitMs > 0)
-                    await Task.Delay(waitMs, cancellationToken).ConfigureAwait(false);
+                {
+                    if (sync)
+                        Thread.Sleep(waitMs);
+                    else
+                        await Task.Delay(waitMs, cancellationToken).ConfigureAwait(false);
+                }
 
                 // 指数退避：500ms → 1000ms → 2000ms → 上限 5000ms
                 delay = Math.Min(delay * 2, 5000);
@@ -345,11 +374,12 @@ public class MySqlCommand : DbCommand
         }
     }
 
-    /// <summary>执行读取器核心逻辑。每次重试都从 conn.Client 重新获取客户端引用</summary>
+    /// <summary>执行读取器单次逻辑。每次重试都从 conn.Client 重新获取客户端引用</summary>
     /// <param name="behavior">命令行为</param>
     /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞 I/O</param>
     /// <returns></returns>
-    private async Task<DbDataReader> ExecuteDbDataReaderCoreAsync(CommandBehavior behavior, CancellationToken cancellationToken)
+    private async Task<DbDataReader> ExecuteDbDataReaderOnceAsync(CommandBehavior behavior, CancellationToken cancellationToken, Boolean sync)
     {
         var sql = CommandText;
         if (sql.IsNullOrEmpty()) throw new ArgumentNullException(nameof(CommandText), L.T("CommandText cannot be empty."));
@@ -411,7 +441,8 @@ public class MySqlCommand : DbCommand
         // 发送阶段同样使用命令超时：连接打开时 client.Timeout 是建连超时（默认 15 秒），
         // 用它罩住大报文/批量写入会让慢链路上的正常发送被误判超时并销毁连接。
         // CommandTimeout=0 表示整条命令不限时，与读取阶段语义保持一致
-        if (client.Timeout != CommandTimeout) client.Timeout = CommandTimeout;
+        var commandTimeout = CommandTimeout;
+        if (client.Timeout != commandTimeout) client.Timeout = commandTimeout;
 
         // 执行读取器，多语句由服务端拆分，通过NextResult()遍历
         try
@@ -422,9 +453,10 @@ public class MySqlCommand : DbCommand
                 OperationLease = operationLease,
                 OriginalTimeout = previousTimeout,
                 RestoreTimeoutOnClose = true,
-                CommandPhaseTimeout = CommandTimeout,
+                CommandPhaseTimeout = commandTimeout,
+                SynchronousIo = sync,
                 // CommandTimeout=0 表示整条命令（含读取阶段）都不限时；否则读取阶段沿用连接超时
-                ReadPhaseTimeout = CommandTimeout > 0 ? previousTimeout : 0,
+                ReadPhaseTimeout = commandTimeout > 0 ? previousTimeout : 0,
                 // 关闭多语句的连接为存储过程 OUT/INOUT 临时开启过该能力，读取器关闭时必须关回去
                 RestoreMultiStatementsOnClose = toggleMultiStatements,
                 // 跨度覆盖命令发送到读取器关闭的完整周期
@@ -436,7 +468,7 @@ public class MySqlCommand : DbCommand
                 // CloseConnection 由读取器在关闭时执行，避免调用方忘记关闭
                 CloseConnectionOnClose = behavior.HasFlag(CommandBehavior.CloseConnection)
             };
-            var isBinary = await ExecuteAsync(cancellationToken).ConfigureAwait(false);
+            var isBinary = await ExecuteAsync(cancellationToken, sync).ConfigureAwait(false);
             reader.IsBinaryProtocol = isBinary;
             await reader.NextResultAsync(cancellationToken).ConfigureAwait(false);
 
@@ -526,9 +558,12 @@ public class MySqlCommand : DbCommand
     /// <summary>异步执行并返回影响行数。多语句累加所有语句的影响行数</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
-    public override async Task<Int32> ExecuteNonQueryAsync(CancellationToken cancellationToken)
+    public override Task<Int32> ExecuteNonQueryAsync(CancellationToken cancellationToken)
+        => ExecuteNonQueryCoreAsync(cancellationToken, false);
+
+    private async Task<Int32> ExecuteNonQueryCoreAsync(CancellationToken cancellationToken, Boolean sync)
     {
-        using var reader = await ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        using var reader = await ExecuteDbDataReaderCoreAsync(CommandBehavior.Default, cancellationToken, sync).ConfigureAwait(false);
 
         // 存储过程需要读取输出参数
         if (CommandType == CommandType.StoredProcedure)
@@ -551,9 +586,12 @@ public class MySqlCommand : DbCommand
     /// <summary>异步执行并返回第一个有数据的结果集的第一行第一列</summary>
     /// <param name="cancellationToken">取消令牌</param>
     /// <returns></returns>
-    public override async Task<Object?> ExecuteScalarAsync(CancellationToken cancellationToken)
+    public override Task<Object?> ExecuteScalarAsync(CancellationToken cancellationToken)
+        => ExecuteScalarCoreAsync(cancellationToken, false);
+
+    private async Task<Object?> ExecuteScalarCoreAsync(CancellationToken cancellationToken, Boolean sync)
     {
-        using var reader = await ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        using var reader = await ExecuteDbDataReaderCoreAsync(CommandBehavior.Default, cancellationToken, sync).ConfigureAwait(false);
 
         Object? result = null;
         var found = false;
@@ -817,7 +855,8 @@ public class MySqlCommand : DbCommand
         using var operationLease = await _DbConnection.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
 
         // 重置网络流
-        if (!client.Reset()) throw new InvalidOperationException(L.T("The database connection has been closed."));
+        if (!client.Reset(false)) throw new InvalidOperationException(L.T("The database connection has been closed."));
+        client.MarkDirty();
 
         // 从第一组参数推断参数定义
         var firstSet = parameterSets[0];
@@ -891,7 +930,8 @@ public class MySqlCommand : DbCommand
         using var operationLease = await _DbConnection.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
 
         // 重置网络流
-        if (!client.Reset()) throw new InvalidOperationException(L.T("The database connection has been closed."));
+        if (!client.Reset(false)) throw new InvalidOperationException(L.T("The database connection has been closed."));
+        client.MarkDirty();
 
         // 值数组版本按位置绑定，未预编译时自动 Prepare（SQL 中占位符顺序需与值数组一致）
         var needClose = false;
@@ -949,7 +989,8 @@ public class MySqlCommand : DbCommand
         var client = _DbConnection?.Client ?? throw new InvalidOperationException(L.T("Connection is not open."));
         using var operationLease = await _DbConnection.EnterOperationAsync(cancellationToken).ConfigureAwait(false);
 
-        if (!client.Reset()) throw new InvalidOperationException(L.T("The database connection has been closed."));
+        if (!client.Reset(false)) throw new InvalidOperationException(L.T("The database connection has been closed."));
+        client.MarkDirty();
 
         // 确保已预编译
         var needClose = false;
@@ -1117,24 +1158,26 @@ public class MySqlCommand : DbCommand
     #region 执行
     /// <summary>异步执行命令。根据是否预编译选择文本协议或二进制协议</summary>
     /// <param name="cancellationToken">取消令牌</param>
+    /// <param name="sync">是否使用同步阻塞 I/O</param>
     /// <returns>是否使用了二进制协议（COM_STMT_EXECUTE）</returns>
-    private async Task<Boolean> ExecuteAsync(CancellationToken cancellationToken)
+    private async Task<Boolean> ExecuteAsync(CancellationToken cancellationToken, Boolean sync)
     {
         var client = _DbConnection.Client ?? throw new InvalidOperationException(L.T("Connection is not open."));
 
         // 连接关闭后重新打开、断线重连、或 CommandText/CommandType 变更后，旧预编译语句不可复用
         if (IsPrepared && !IsPreparedFor(client))
-            await ResetPreparedAsync(client, cancellationToken).ConfigureAwait(false);
+            await ResetPreparedAsync(client, cancellationToken, sync).ConfigureAwait(false);
 
         // 重置网络流，清理残留数据。如果连接已断开则抛出异常
-        if (!client.Reset())
+        if (!client.Reset(false))
             throw new InvalidOperationException(L.T("The database connection has been closed."));
+        client.MarkDirty();
 
         // 预编译路径：使用 COM_STMT_EXECUTE 二进制协议
         if (IsPrepared)
         {
             var orderedParams = ReorderParameters(_parameters, _paramOrder);
-            await client.ExecuteStatementAsync(_statementId, orderedParams, _paramColumns, cancellationToken).ConfigureAwait(false);
+            await client.ExecuteStatementAsync(_statementId, orderedParams, _paramColumns, cancellationToken, sync).ConfigureAwait(false);
             return true;
         }
 
@@ -1142,53 +1185,46 @@ public class MySqlCommand : DbCommand
         var setting = _DbConnection.Setting;
         if (setting.UseServerPrepare && _parameters.Count > 0 && CommandType != CommandType.StoredProcedure)
         {
-            await PrepareAsync(cancellationToken).ConfigureAwait(false);
+            await PrepareCoreAsync(cancellationToken, sync).ConfigureAwait(false);
             var orderedParams = ReorderParameters(_parameters, _paramOrder);
-            await client.ExecuteStatementAsync(_statementId, orderedParams, _paramColumns, cancellationToken).ConfigureAwait(false);
+            await client.ExecuteStatementAsync(_statementId, orderedParams, _paramColumns, cancellationToken, sync).ConfigureAwait(false);
             return true;
         }
 
         // 文本协议路径：客户端参数替换 + COM_QUERY
-        var ms = Pool.MemoryStream.Get();
-        try
-        {
-            ms.Seek(4, SeekOrigin.Current);
-
-            BindParameter(client, ms);
-
-            ms.Position = 4;
-            var pk = new ArrayPacket(ms);
-
-            await client.SendQueryAsync(pk, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            Pool.MemoryStream.Return(ms);
-        }
-
-        return false;
-    }
-
-    private void BindParameter(SqlClient client, Stream ms)
-    {
-        // 一个字节的查询类型
-        ms.WriteByte(0x00);
-
-        if (client.Capability.Has(ClientFlags.CLIENT_QUERY_ATTRIBUTES))
-        {
-            // 查询特性
-            ms.WriteByte(0x00);
-            ms.WriteByte(0x01);
-        }
-
-        // 存储过程使用 CALL 语句，先 SET 输入参数，后读取输出参数
+        // 直接构建到池化字节缓冲，省去 MemoryStream 与中间 byte[] 分配
         String sql;
         if (CommandType == CommandType.StoredProcedure)
             sql = BuildStoredProcedureCall();
         else
             sql = SubstituteParameters(CommandText, _parameters, NoBackslashEscapes, AnsiQuotes);
 
-        ms.Write(sql.GetBytes());
+        var encoding = client.Encoding;
+        var hasAttributes = client.Capability.Has(ClientFlags.CLIENT_QUERY_ATTRIBUTES);
+        var byteCount = encoding.GetByteCount(sql);
+        var len = 1 + (hasAttributes ? 2 : 0) + byteCount;
+        var buf = Pool.Shared.Rent(4 + len);
+        try
+        {
+            var pos = 4;
+            buf[pos++] = (Byte)DbCmd.QUERY;
+            if (hasAttributes)
+            {
+                // 查询特性
+                buf[pos++] = 0x00;
+                buf[pos++] = 0x01;
+            }
+
+            if (byteCount > 0) encoding.GetBytes(sql, 0, sql.Length, buf, pos);
+
+            await client.SendQueryAsync(new ArrayPacket(buf, 4, len), cancellationToken, sync).ConfigureAwait(false);
+        }
+        finally
+        {
+            Pool.Shared.Return(buf);
+        }
+
+        return false;
     }
 
     /// <summary>构建存储过程调用的SQL。
@@ -1408,10 +1444,9 @@ public class MySqlCommand : DbCommand
 
                 if (i > start + 1)
                 {
-                    var name = sql[(start + 1)..i];
-                    var idx = parameters.IndexOf(name);
+                    var idx = parameters.IndexOf(sql.AsSpan(start + 1, i - start - 1));
                     // 也尝试带@的全名
-                    if (idx < 0) idx = parameters.IndexOf(sql[start..i]);
+                    if (idx < 0) idx = parameters.IndexOf(sql.AsSpan(start, i - start));
 
                     if (idx >= 0)
                     {
