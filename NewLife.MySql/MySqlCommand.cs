@@ -1080,7 +1080,21 @@ public class MySqlCommand : DbCommand
         public String CleanName { get; } = (parameter.ParameterName ?? String.Empty).TrimStart('@');
     }
 
-    private Exception CreateCommandException(Exception ex, String debugSql, Int32? batchCount = null)
+    /// <summary>异常消息中 SQL 的最大长度。批量插入等超长 SQL 只保留头尾，避免把异常日志撑大</summary>
+    internal const Int32 MaxErrorSqlLength = 4096;
+
+    /// <summary>截断超长 SQL，保留头尾，中间用 ... 代替</summary>
+    /// <param name="sql">原始 SQL</param>
+    /// <returns>截断后的 SQL，长度不超过 <see cref="MaxErrorSqlLength"/></returns>
+    internal static String TruncateSql(String sql)
+    {
+        if (sql.IsNullOrEmpty() || sql.Length <= MaxErrorSqlLength) return sql;
+
+        var half = (MaxErrorSqlLength - 3) / 2;
+        return sql[..half] + "..." + sql[^(MaxErrorSqlLength - half - 3)..];
+    }
+
+    internal Exception CreateCommandException(Exception ex, String debugSql, Int32? batchCount = null)
     {
         var sb = Pool.StringBuilder.Get();
         sb.Append(ex.Message);
@@ -1088,7 +1102,7 @@ public class MySqlCommand : DbCommand
         if (!debugSql.IsNullOrEmpty())
         {
             sb.AppendLine();
-            sb.Append(L.T("SQL: {0}", debugSql));
+            sb.Append(L.T("SQL: {0}", TruncateSql(debugSql)));
         }
 
         if (batchCount > 1)
