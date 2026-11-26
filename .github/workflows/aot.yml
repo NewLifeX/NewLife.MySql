@@ -16,9 +16,7 @@ on:
       - 'AotSmoke/**'
       - 'Directory.Packages.props'
       - '.github/workflows/aot.yml'
-  # 观察期平台（la64/musl/win-arm64/osx-*）只在夜间跑，主干 push 只跑必选阻断项
-  schedule:
-    - cron: '0 18 * * *'
+  # 观察期平台（la64/musl/win-arm64/osx-*）只在手动触发时跑，提交/PR 只跑必选阻断项
   workflow_dispatch:
 
 jobs:
@@ -143,10 +141,10 @@ jobs:
       shell: bash
       run: ./out/${{ matrix.bin }} --no-db
 
-  # 观察期平台（win-arm64 / osx-*）：只在夜间定时与手动触发时跑，失败不阻断
+  # 观察期平台（win-arm64 / osx-*）：只在手动触发时跑，失败不阻断
   native-smoke-observing:
     name: NativeAOT 冒烟（${{ matrix.rid }}）
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     continue-on-error: true
@@ -175,8 +173,8 @@ jobs:
     name: NativeAOT 冒烟（${{ matrix.rid }}）
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
-    # 观察期平台：只在夜间定时与手动触发时跑
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # 观察期平台：只在手动触发时跑
+    if: github.event_name == 'workflow_dispatch'
     continue-on-error: true
     strategy:
       fail-fast: false
@@ -195,7 +193,8 @@ jobs:
           set -e
           apk add --no-cache bash curl clang build-base zlib-dev icu-libs >/dev/null
           curl -sSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
-          # 驱动工程含 net11.0，restore 需要 .NET 11 SDK；冒烟应用本身仍是 net10.0
+          # 驱动工程含 net11.0，restore 需要 .NET 11 SDK；冒烟应用本身仍是 net10.0，需额外安装 .NET 10 运行时
+          bash /tmp/dotnet-install.sh --channel 10.0 --runtime dotnet --install-dir /usr/share/dotnet >/dev/null
           bash /tmp/dotnet-install.sh --channel 11.0 --install-dir /usr/share/dotnet >/dev/null
           ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet
           export DOTNET_CLI_TELEMETRY_OPTOUT=1
@@ -224,8 +223,8 @@ jobs:
   native-smoke-loongarch64:
     name: NativeAOT 冒烟（linux-la64 / QEMU）
     runs-on: ubuntu-latest
-    # 观察期平台：只在夜间定时与手动触发时跑
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # 观察期平台：只在手动触发时跑
+    if: github.event_name == 'workflow_dispatch'
     continue-on-error: true
     timeout-minutes: 90
 

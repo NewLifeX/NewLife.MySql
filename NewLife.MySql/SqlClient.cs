@@ -223,7 +223,7 @@ public class SqlClient : DisposeBase
             // Unix 域套接字连接（仅 .NET Core 5.0+ 且 Linux/macOS 生效）
 #if NET5_0_OR_GREATER
             var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-            socket.NoDelay = true;
+            // Unix 域套接字不支持 TCP_NODELAY，Linux 上设置会抛 SocketException(EOPNOTSUPP)；NoDelay 只对 TCP 有意义
             socket.ReceiveTimeout = msTimeout;
             socket.SendTimeout = msTimeout;
             try
